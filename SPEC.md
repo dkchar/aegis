@@ -267,12 +267,12 @@ LEARNINGS (relevant to this domain):
 {filtered_learnings}
 
 INSTRUCTIONS:
-1. Claim the issue: `bd update {issue_id} --status in_progress`
+1. Claim the issue: `bd update {issue_id} --claim`
 2. Read the Oracle assessment and relevant code
 3. Implement the change
 4. Run tests: {test_command from AGENTS.md or default}
 5. If tests pass, commit your changes with a descriptive message
-6. Close the issue: `bd update {issue_id} --status closed`
+6. Close the issue: `bd close <id> --reason "Done"`
 7. If you discover additional work needed during implementation, create beads issues
 8. Record any learnings: conventions discovered, gotchas encountered, patterns worth remembering
 

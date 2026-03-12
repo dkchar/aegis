@@ -15,7 +15,7 @@ This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get sta
 - **Sentinels** — Reviewer agents. Strong model, read-only. Review completed work.
 - **Mnemosyne** — Learnings store (`.aegis/mnemosyne.jsonl`). Accumulated project knowledge.
 - **Lethe** — Pruning mechanism for Mnemosyne.
-- **Labors** — Git worktrees providing branch-isolated workspaces for Titan agents.
+- **Labors** — Git worktrees providing branch-isolated workspaces for Titan agents. Oracles and Sentinels do NOT use Labors — they operate read-only on the project root.
 
 ### Tech Stack
 
@@ -88,6 +88,19 @@ bd close <id> --reason "Done" --json
 - Check `bd ready` before asking "what should I work on?"
 - Do NOT create markdown TODO lists or external trackers
 
+### Orchestrator Comment Conventions
+
+The Aegis dispatch loop (Layer 1) uses comment prefixes to determine issue state and what to do next. These are **load-bearing conventions** — the orchestrator greps for them.
+
+- **`SCOUTED:`** — Written by Oracle agents as their final action. Signals that an issue has been assessed and is ready for a Titan. Example: `bd comment <id> "SCOUTED: Config module is straightforward, ~50 lines, no deps beyond node:fs"`
+- **`REVIEWED:`** — Written by Sentinel agents after reviewing completed work. Must start with `REVIEWED: PASS` or `REVIEWED: FAIL`. Example: `bd comment <id> "REVIEWED: PASS - Tests cover all branches, clean implementation"`
+
+If you are building or modifying the poller/triage logic, these prefixes are how Layer 1 decides whether to dispatch an Oracle, Titan, or Sentinel for a given issue.
+
+### Issue Statuses
+
+Beads issues move through these statuses: `open`, `ready`, `in_progress`, `closed`. The triage logic depends on these being consistent — do not invent custom statuses.
+
 ---
 
 ## Git Workflow
@@ -100,6 +113,8 @@ This project uses a **trunk-based workflow with worktree isolation**.
 - `aegis/<issue-id>` — Feature branches created per beads issue. Each Titan works in a Labor (git worktree) on one of these branches.
 
 ### For Agents Working in a Labor (Worktree)
+
+**Applies to Titan agents only.** Oracles and Sentinels work directly on the project root — they are read-only and do not use Labors.
 
 If you are running inside a Labor directory (`.aegis/labors/`):
 
@@ -121,16 +136,14 @@ git merge main              # NO — orchestrator handles this
 ```
 
 ### For Interactive Sessions (Human + Pi)
-
+ 
 When working interactively on main (not in a Labor):
-
+ 
 1. Commit frequently with descriptive messages.
 2. Push when you reach a stable point — not after every commit.
-3. Run `bd sync` before pushing to ensure beads state is exported.
-
+ 
 ```bash
 # When ready to push
-bd sync
 git add -A
 git commit -m "chore: scaffold project structure"
 git pull --rebase
@@ -270,129 +283,15 @@ When ending a work session:
 4. **Stop.** Do not push. Do not merge. The orchestrator handles that.
 
 ### If Working Interactively on Main
-
+ 
 1. File beads issues for any remaining or discovered work.
 2. Run quality gates: tests, lint, build.
 3. Update beads issue status for anything in progress.
-4. Commit, sync, and push:
+4. Commit and push:
    ```bash
-   bd sync
    git add -A
    git commit -m "describe what was done"
    git pull --rebase
    git push
    ```
 5. Verify: `git status` should show up to date with origin.
-
-<!-- BEGIN BEADS INTEGRATION -->
-## Issue Tracking with bd (beads)
-
-**IMPORTANT**: This project uses **bd (beads)** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other tracking methods.
-
-### Why bd?
-
-- Dependency-aware: Track blockers and relationships between issues
-- Git-friendly: Dolt-powered version control with native sync
-- Agent-optimized: JSON output, ready work detection, discovered-from links
-- Prevents duplicate tracking systems and confusion
-
-### Quick Start
-
-**Check for ready work:**
-
-```bash
-bd ready --json
-```
-
-**Create new issues:**
-
-```bash
-bd create "Issue title" --description="Detailed context" -t bug|feature|task -p 0-4 --json
-bd create "Issue title" --description="What this issue is about" -p 1 --deps discovered-from:bd-123 --json
-```
-
-**Claim and update:**
-
-```bash
-bd update <id> --claim --json
-bd update bd-42 --priority 1 --json
-```
-
-**Complete work:**
-
-```bash
-bd close bd-42 --reason "Completed" --json
-```
-
-### Issue Types
-
-- `bug` - Something broken
-- `feature` - New functionality
-- `task` - Work item (tests, docs, refactoring)
-- `epic` - Large feature with subtasks
-- `chore` - Maintenance (dependencies, tooling)
-
-### Priorities
-
-- `0` - Critical (security, data loss, broken builds)
-- `1` - High (major features, important bugs)
-- `2` - Medium (default, nice-to-have)
-- `3` - Low (polish, optimization)
-- `4` - Backlog (future ideas)
-
-### Workflow for AI Agents
-
-1. **Check ready work**: `bd ready` shows unblocked issues
-2. **Claim your task atomically**: `bd update <id> --claim`
-3. **Work on it**: Implement, test, document
-4. **Discover new work?** Create linked issue:
-   - `bd create "Found bug" --description="Details about what was found" -p 1 --deps discovered-from:<parent-id>`
-5. **Complete**: `bd close <id> --reason "Done"`
-
-### Auto-Sync
-
-bd automatically syncs via Dolt:
-
-- Each write auto-commits to Dolt history
-- Use `bd dolt push`/`bd dolt pull` for remote sync
-- No manual export/import needed!
-
-### Important Rules
-
-- ✅ Use bd for ALL task tracking
-- ✅ Always use `--json` flag for programmatic use
-- ✅ Link discovered work with `discovered-from` dependencies
-- ✅ Check `bd ready` before asking "what should I work on?"
-- ❌ Do NOT create markdown TODO lists
-- ❌ Do NOT use external issue trackers
-- ❌ Do NOT duplicate tracking systems
-
-For more details, see README.md and docs/QUICKSTART.md.
-
-## Landing the Plane (Session Completion)
-
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
-
-**MANDATORY WORKFLOW:**
-
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   bd sync
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
-
-<!-- END BEADS INTEGRATION -->
