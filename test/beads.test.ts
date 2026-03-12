@@ -149,7 +149,7 @@ describe("create()", () => {
       priority: 2,
     });
     const [, args] = mockExecFile.mock.calls[0]!;
-    expect(args.some((a) => (a as string).includes("desc here"))).toBe(true);
+    expect((args as string[]).some((a) => a.includes("desc here"))).toBe(true);
     expect(args).toContain("-t");
     expect(args).toContain("bug");
     expect(args).toContain("-p");

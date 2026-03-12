@@ -102,13 +102,13 @@ describe("validateConfig()", () => {
   });
 
   it("throws when auth is missing", () => {
-    const bad = getDefaultConfig() as Record<string, unknown>;
+    const bad = getDefaultConfig() as unknown as Record<string, unknown>;
     delete bad["auth"];
     expect(() => validateConfig(bad)).toThrow(/auth/);
   });
 
   it("throws when models section is missing", () => {
-    const bad = getDefaultConfig() as Record<string, unknown>;
+    const bad = getDefaultConfig() as unknown as Record<string, unknown>;
     delete bad["models"];
     expect(() => validateConfig(bad)).toThrow(/models/);
   });
@@ -119,7 +119,7 @@ describe("validateConfig()", () => {
   });
 
   it("throws when concurrency is missing", () => {
-    const bad = getDefaultConfig() as Record<string, unknown>;
+    const bad = getDefaultConfig() as unknown as Record<string, unknown>;
     delete bad["concurrency"];
     expect(() => validateConfig(bad)).toThrow(/concurrency/);
   });
@@ -141,13 +141,13 @@ describe("validateConfig()", () => {
   });
 
   it("throws when budgets section is missing", () => {
-    const bad = getDefaultConfig() as Record<string, unknown>;
+    const bad = getDefaultConfig() as unknown as Record<string, unknown>;
     delete bad["budgets"];
     expect(() => validateConfig(bad)).toThrow(/budgets/);
   });
 
   it("throws when timing section is missing", () => {
-    const bad = getDefaultConfig() as Record<string, unknown>;
+    const bad = getDefaultConfig() as unknown as Record<string, unknown>;
     delete bad["timing"];
     expect(() => validateConfig(bad)).toThrow(/timing/);
   });
