@@ -225,28 +225,31 @@ describe("close()", () => {
 
 // ---------- comment() ----------
 describe("comment()", () => {
-  it("calls bd comment <id> <text> --json", async () => {
-    mockSuccess("{}");
+  it("calls bd comments add <id> <text> (no --json)", async () => {
+    // bd comments add returns confirmation text, not JSON
+    mockSuccess("Comment added to aegis-001");
     await beads.comment("aegis-001", "looks good");
     const [cmd, args] = mockExecFile.mock.calls[0]!;
     expect(cmd).toBe("bd");
-    expect(args).toContain("comment");
+    expect(args).toContain("comments");
+    expect(args).toContain("add");
     expect(args).toContain("aegis-001");
     expect(args).toContain("looks good");
-    expect(args).toContain("--json");
+    // Does NOT send --json (bd comments add ignores it)
+    expect(args).not.toContain("--json");
   });
 
-  it("does not throw on malformed JSON from bd comment", async () => {
-    mockSuccess("Comment added.");
+  it("resolves when bd comments add succeeds with confirmation text", async () => {
+    mockSuccess("Comment added to aegis-001");
     await expect(beads.comment("aegis-001", "hi")).resolves.toBeUndefined();
   });
 
-  it("does not throw on empty output from bd comment", async () => {
+  it("resolves when bd comments add returns empty output", async () => {
     mockSuccess("");
     await expect(beads.comment("aegis-001", "hi")).resolves.toBeUndefined();
   });
 
-  it("propagates real errors (not malformed JSON) from bd comment", async () => {
+  it("propagates ENOENT (bd not found in PATH)", async () => {
     const err = new Error("bd failed") as NodeJS.ErrnoException;
     err.code = "ENOENT";
     mockError(err);
@@ -258,14 +261,15 @@ describe("comment()", () => {
 
 // ---------- list() ----------
 describe("list()", () => {
-  it("calls bd list --json and returns all issues", async () => {
+  it("calls bd query status!=deferred --json to include closed issues", async () => {
     mockSuccess(JSON.stringify([sampleRawIssue, { ...sampleRawIssue, id: "aegis-002" }]));
     const result = await beads.list();
     expect(result).toHaveLength(2);
     expect(result[0]!.id).toBe("aegis-001");
     expect(result[1]!.id).toBe("aegis-002");
     const [, args] = mockExecFile.mock.calls[0]!;
-    expect(args).toContain("list");
+    // Uses `bd query` not `bd list` (bd list --json returns text, not JSON in v0.59+)
+    expect(args).toContain("query");
     expect(args).toContain("--json");
   });
 
@@ -277,7 +281,7 @@ describe("list()", () => {
     expect(result[0]!.type).toBe("bug");
   });
 
-  it("maps comments from raw output", async () => {
+  it("maps comments from raw output (body field — mock/legacy compat)", async () => {
     const rawWithComments = {
       ...sampleRawIssue,
       comments: [
@@ -293,5 +297,34 @@ describe("list()", () => {
     const result = await beads.list();
     expect(result[0]!.comments).toHaveLength(1);
     expect(result[0]!.comments[0]!.body).toBe("Nice work");
+  });
+
+  it("maps comments from real bd output (text field)", async () => {
+    // Real bd show returns `text` not `body` for comment content
+    const rawWithTextComments = {
+      ...sampleRawIssue,
+      comments: [
+        {
+          id: 42,
+          text: "SCOUTED: simple module",
+          author: "oracle-1",
+          created_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+    };
+    mockSuccess(JSON.stringify([rawWithTextComments]));
+    const result = await beads.list();
+    expect(result[0]!.comments[0]!.body).toBe("SCOUTED: simple module");
+  });
+
+  it("maps numeric comment id to string", async () => {
+    const rawWithNumericId = {
+      ...sampleRawIssue,
+      comments: [{ id: 5, text: "hello", author: "bot", created_at: "2026-01-01T00:00:00Z" }],
+    };
+    mockSuccess(JSON.stringify([rawWithNumericId]));
+    const result = await beads.list();
+    expect(typeof result[0]!.comments[0]!.id).toBe("string");
+    expect(result[0]!.comments[0]!.id).toBe("5");
   });
 });

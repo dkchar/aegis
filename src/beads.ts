@@ -15,8 +15,10 @@ interface RawBeadsIssue {
   issue_type?: string;
   type?: string;
   comments?: Array<{
-    id: string;
-    body: string;
+    // bd show returns `text`; older/mock responses may use `body`
+    id: string | number;
+    text?: string;
+    body?: string;
     author: string;
     created_at: string;
   }>;
@@ -25,8 +27,9 @@ interface RawBeadsIssue {
 
 function mapIssue(raw: RawBeadsIssue): BeadsIssue {
   const comments: BeadsComment[] = (raw.comments ?? []).map((c) => ({
-    id: c.id,
-    body: c.body,
+    // bd show returns `text`; fall back to `body` for compatibility with tests/mocks
+    id: String(c.id),
+    body: c.text ?? c.body ?? "",
     author: c.author,
     created_at: c.created_at,
   }));
@@ -148,23 +151,15 @@ export async function close(id: string, reason: string): Promise<BeadsIssue> {
 }
 
 export async function comment(id: string, text: string): Promise<void> {
-  try {
-    await runBd(["comment", id, text, "--json"]);
-  } catch (err: unknown) {
-    // bd comment may not return JSON — treat Malformed JSON errors as success
-    if (
-      err instanceof Error &&
-      (err.message.startsWith("Malformed JSON") ||
-        err.message.startsWith("Empty output"))
-    ) {
-      return;
-    }
-    throw err;
-  }
+  // bd comments add <id> <text>  — does not return JSON; output is confirmation text.
+  // Errors (e.g., bd not found, non-zero exit) are still propagated by runBd.
+  await runBd(["comments", "add", id, text]);
 }
 
 export async function list(): Promise<BeadsIssue[]> {
-  const output = await runBd(["list", "--json"]);
-  const raw = parseJson<RawBeadsIssue[]>(output, "list");
+  // "bd list --json" does not return JSON in v0.59+.
+  // Use "bd query" which reliably returns JSON and includes all non-deferred issues.
+  const output = await runBd(["query", "status!=deferred", "--json"]);
+  const raw = parseJson<RawBeadsIssue[]>(output, "query status!=deferred");
   return raw.map(mapIssue);
 }
