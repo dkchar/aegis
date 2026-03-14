@@ -6,7 +6,7 @@ import { getModel } from "@mariozechner/pi-ai";
 import type { AgentSession } from "@mariozechner/pi-coding-agent";
 import type { BeadsIssue, MnemosyneRecord, AegisConfig, Caste } from "./types.js";
 
-export function casteToolFilter(caste: Caste) {
+export function casteToolFilter(caste: Caste): typeof codingTools | typeof readOnlyTools {
   if (caste === "titan") return codingTools;
   return readOnlyTools;
 }
@@ -105,8 +105,8 @@ export function buildSystemPrompt(caste: Caste, issue: BeadsIssue, learnings: Mn
 }
 
 function makeAuthStorage(config: AegisConfig): AuthStorage {
-  const b = new InMemoryAuthStorageBackend();
-  const s = new AuthStorage(b);
+  // AuthStorage.fromStorage is the public factory for a custom backend.
+  const s = AuthStorage.fromStorage(new InMemoryAuthStorageBackend());
   if (config.auth.anthropic) void s.set("anthropic", { type: "api_key", key: config.auth.anthropic });
   if (config.auth.openai) void s.set("openai", { type: "api_key", key: config.auth.openai });
   if (config.auth.google) void s.set("google", { type: "api_key", key: config.auth.google });
@@ -116,11 +116,17 @@ function makeAuthStorage(config: AegisConfig): AuthStorage {
 async function spawnSession(caste: Caste, issue: BeadsIssue, learnings: MnemosyneRecord[], config: AegisConfig, agentsMd: string, workingDir: string, modelName: string): Promise<AgentSession> {
   const authStorage = makeAuthStorage(config);
   let model;
+  // getModel is generic over known literal model IDs; we use runtime config strings
+  // so we cast through unknown to bypass the strict literal check.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const getModelAny = getModel as (provider: string, id: string) => any;
   if (modelName.includes(":")) {
-    const [provider, id] = modelName.split(":", 2);
-    model = getModel(provider as "anthropic" | "openai" | "google", id);
+    const parts = modelName.split(":", 2);
+    const provider = parts[0] ?? "anthropic";
+    const id = parts[1] ?? modelName;
+    model = getModelAny(provider, id);
   } else {
-    model = getModel("anthropic", modelName);
+    model = getModelAny("anthropic", modelName);
   }
   const { session } = await createAgentSession({
     cwd: workingDir,

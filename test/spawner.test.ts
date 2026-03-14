@@ -9,7 +9,12 @@ const mockCreate = vi.fn().mockResolvedValue({ session: mockSession });
 const mockSMInMemory = vi.fn().mockReturnValue("in-memory-sm");
 const mockBackend = vi.fn().mockImplementation(function() { return {}; });
 const mockAuthSet = vi.fn().mockResolvedValue(undefined);
-const mockAuthCtor = vi.fn().mockImplementation(function() { return { set: mockAuthSet }; });
+const mockAuthInstance = { set: mockAuthSet };
+// mockAuthCtor supports both `new AuthStorage(backend)` and the static factory
+// methods `AuthStorage.fromStorage(backend)` and `AuthStorage.inMemory()`.
+const mockAuthCtor = vi.fn().mockImplementation(function() { return mockAuthInstance; });
+(mockAuthCtor as unknown as Record<string, unknown>).fromStorage = vi.fn().mockReturnValue(mockAuthInstance);
+(mockAuthCtor as unknown as Record<string, unknown>).inMemory = vi.fn().mockReturnValue(mockAuthInstance);
 const mockROTools = [{ name: "read" }];
 const mockCodingTools = [{ name: "read" }, { name: "bash" }, { name: "edit" }, { name: "write" }];
 const mockGetModel = vi.fn().mockReturnValue({ provider: "anthropic", id: "claude-haiku-4-5" });

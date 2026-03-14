@@ -115,3 +115,12 @@ export interface SSEEvent {
   data: unknown;
   timestamp: number;
 }
+
+export interface SwarmState {
+  status: "running" | "paused" | "stopping";
+  agents: AgentState[];
+  queue_depth: number;
+  total_cost_usd: number;
+  uptime_seconds: number;
+  focus_filter: string | null;
+}
