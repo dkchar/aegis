@@ -737,3 +737,84 @@ describe("error handling in tick", () => {
     expect(events.some((e) => e.type === "agent.spawn_failed")).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Concurrency enforcement — aegis-p2n
+// ---------------------------------------------------------------------------
+
+describe("concurrency enforcement", () => {
+  beforeEach(() => {
+    vi.mocked(pollerMock.poll).mockResolvedValue([]);
+    vi.mocked(beadsMock.list).mockResolvedValue([]);
+  });
+
+  it("pre-claims a concurrency slot before awaiting spawn so failures still count", async () => {
+    // 3 issues, max_agents=3: if spawn always fails, the loop must still stop
+    // after reaching the limit (not dispatch all 15).
+    const issues = [makeIssue("i1"), makeIssue("i2"), makeIssue("i3"), makeIssue("i4")];
+    vi.mocked(pollerMock.poll).mockResolvedValue(issues);
+    issues.forEach((i) => vi.mocked(beadsMock.show).mockResolvedValueOnce(i));
+
+    // All spawns fail
+    vi.mocked(spawnerMock.spawnOracle).mockRejectedValue(new Error("auth fail"));
+    // triage always wants to dispatch an oracle
+    vi.mocked(triageMock.triage).mockImplementation((_issue, running) => {
+      if (running.size >= 3) return { type: "skip", issue: _issue, reason: "concurrency limit" };
+      return { type: "dispatch_oracle", issue: _issue };
+    });
+
+    const aegis = makeAegis();
+    await (aegis as unknown as { runTick: () => Promise<void> }).runTick();
+
+    // With max_agents=3 enforced via pre-registration, at most 3 spawns attempted
+    expect(spawnerMock.spawnOracle).toHaveBeenCalledTimes(3);
+  });
+
+  it("blocks an issue after MAX_DISPATCH_FAILURES consecutive spawn failures", async () => {
+    const issue = makeIssue("fail-issue");
+    vi.mocked(pollerMock.poll).mockResolvedValue([issue]);
+    vi.mocked(beadsMock.show).mockResolvedValue(issue);
+    vi.mocked(spawnerMock.spawnOracle).mockRejectedValue(new Error("auth fail"));
+    vi.mocked(triageMock.triage).mockReturnValue({ type: "dispatch_oracle", issue });
+
+    const aegis = makeAegis();
+    const runTick = () => (aegis as unknown as { runTick: () => Promise<void> }).runTick();
+
+    // 3 ticks of failures → issue reaches MAX_DISPATCH_FAILURES
+    await runTick();
+    await runTick();
+    await runTick();
+    const countAfterThree = vi.mocked(spawnerMock.spawnOracle).mock.calls.length;
+
+    // 4th tick → issue is blocked, spawn NOT called again
+    await runTick();
+    expect(vi.mocked(spawnerMock.spawnOracle).mock.calls.length).toBe(countAfterThree);
+  });
+
+  it("resets failure count on successful spawn", async () => {
+    const issue = makeIssue("recover-issue");
+    vi.mocked(pollerMock.poll).mockResolvedValue([issue]);
+    vi.mocked(beadsMock.show).mockResolvedValue(issue);
+    vi.mocked(triageMock.triage).mockReturnValue({ type: "dispatch_oracle", issue });
+
+    // First 2 ticks fail, 3rd succeeds → failure count resets → 4th tick dispatches again
+    vi.mocked(spawnerMock.spawnOracle)
+      .mockRejectedValueOnce(new Error("fail"))
+      .mockRejectedValueOnce(new Error("fail"))
+      .mockResolvedValue(mockSession); // 3rd: success → resets
+
+    const aegis = makeAegis();
+    const runTick = () => (aegis as unknown as { runTick: () => Promise<void> }).runTick();
+
+    await runTick(); // fail (count=1)
+    await runTick(); // fail (count=2)
+    await runTick(); // success (count reset)
+
+    const countAfterReset = vi.mocked(spawnerMock.spawnOracle).mock.calls.length;
+    expect(countAfterReset).toBe(3);
+
+    // 4th tick: issue not blocked, spawn attempted (triage allows it)
+    await runTick();
+    expect(vi.mocked(spawnerMock.spawnOracle).mock.calls.length).toBe(4);
+  });
+});

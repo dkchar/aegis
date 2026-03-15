@@ -31,7 +31,12 @@ import type { AgentSession } from "@mariozechner/pi-coding-agent";
 
 interface RunningAgent {
   state: AgentState;
-  session: AgentSession;
+  /**
+   * Null during the brief window between slot pre-registration and a
+   * successful createAgentSession() call.  All code that uses session must
+   * guard against null.
+   */
+  session: AgentSession | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,6 +69,15 @@ export class Aegis {
   /** Agent IDs that have already been reaped (prevents double-reap) */
   private reaped = new Set<string>();
 
+  /**
+   * Agent IDs whose session spawn failed.  These stay in this.agents with
+   * status "running" for the remainder of the current tick so they continue
+   * to occupy a concurrency slot (preventing over-spawning when all spawns
+   * fail in the same tick).  reapCompleted() sets their status to "failed"
+   * and reaps them.
+   */
+  private spawnPendingReap = new Set<string>();
+
   /** SSE event listeners registered via onEvent() */
   private eventListeners: ((event: SSEEvent) => void)[] = [];
 
@@ -72,6 +86,16 @@ export class Aegis {
 
   /** Cached depth of the beads ready queue */
   private queueDepth = 0;
+
+  /**
+   * Consecutive spawn-failure counts per issue ID.
+   * After MAX_DISPATCH_FAILURES failures within DISPATCH_FAILURE_WINDOW_MS,
+   * the issue is skipped until the window expires so the loop does not
+   * re-dispatch an unspawnable issue on every poll tick.
+   */
+  private dispatchFailures = new Map<string, { count: number; since: number }>();
+  private static readonly MAX_DISPATCH_FAILURES = 3;
+  private static readonly DISPATCH_FAILURE_WINDOW_MS = 10 * 60_000; // 10 min
 
   /** Handle for the poll interval timer */
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -134,6 +158,7 @@ export class Aegis {
     const wrapMsg =
       "Wrap up your current action and stop. Complete whatever step you are mid-way through, then stop.";
     for (const { session } of this.agents.values()) {
+      if (!session) continue; // pre-registered but spawn not yet complete
       try {
         await session.steer(wrapMsg);
       } catch {
@@ -151,10 +176,12 @@ export class Aegis {
     // Kill any still running
     for (const [agentId, { session, state }] of this.agents) {
       state.status = "killed";
-      try {
-        await session.abort();
-      } catch {
-        // ignore
+      if (session) {
+        try {
+          await session.abort();
+        } catch {
+          // ignore
+        }
       }
       await this.reap(agentId);
     }
@@ -235,10 +262,12 @@ export class Aegis {
     const agent = this.agents.get(agentId);
     if (!agent) return;
     agent.state.status = "killed";
-    try {
-      await agent.session.abort();
-    } catch {
-      // ignore
+    if (agent.session) {
+      try {
+        await agent.session.abort();
+      } catch {
+        // ignore
+      }
     }
     await this.reap(agentId);
   }
@@ -259,13 +288,14 @@ export class Aegis {
 
   async tellAgent(agentId: string, message: string): Promise<void> {
     const agent = this.agents.get(agentId);
-    if (agent) {
+    if (agent?.session) {
       await agent.session.steer(message);
     }
   }
 
   async tellAll(message: string): Promise<void> {
     for (const { session } of this.agents.values()) {
+      if (!session) continue; // pre-registered but not yet spawned
       try {
         await session.steer(message);
       } catch {
@@ -340,6 +370,9 @@ export class Aegis {
 
     // ----- TRIAGE + DISPATCH -----
     for (const issue of filtered) {
+      // Skip issues that have hit the consecutive spawn-failure limit.
+      if (this.isDispatchBlocked(issue.id)) continue;
+
       const action = triage(issue, this.runningByIssueId(), this.config.concurrency);
       await this.dispatch(action);
     }
@@ -361,20 +394,24 @@ export class Aegis {
           timestamp: Date.now(),
         });
         if (stuck.severity === "warning") {
-          try {
-            await agent.session.steer(
-              "You appear stuck. Summarize your current state and what is blocking you, then try a different approach."
-            );
-          } catch {
-            // ignore
+          if (agent.session) {
+            try {
+              await agent.session.steer(
+                "You appear stuck. Summarize your current state and what is blocking you, then try a different approach."
+              );
+            } catch {
+              // ignore
+            }
           }
         } else {
           // kill threshold exceeded
           agent.state.status = "killed";
-          try {
-            await agent.session.abort();
-          } catch {
-            // ignore
+          if (agent.session) {
+            try {
+              await agent.session.abort();
+            } catch {
+              // ignore
+            }
           }
         }
       }
@@ -393,16 +430,50 @@ export class Aegis {
           timestamp: Date.now(),
         });
         agent.state.status = "killed";
-        try {
-          await agent.session.abort();
-        } catch {
-          // ignore
+        if (agent.session) {
+          try {
+            await agent.session.abort();
+          } catch {
+            // ignore
+          }
         }
       }
     }
 
     // REAP again after monitor may have killed agents
     await this.reapCompleted();
+  }
+
+  // --------------------------------------------------------------------------
+  // Dispatch failure tracking
+  // --------------------------------------------------------------------------
+
+  /**
+   * Returns true if this issue should be skipped because it has hit the
+   * consecutive spawn-failure limit within the backoff window.
+   * Automatically clears stale entries whose window has expired.
+   */
+  private isDispatchBlocked(issueId: string): boolean {
+    const f = this.dispatchFailures.get(issueId);
+    if (!f) return false;
+    if (Date.now() - f.since > Aegis.DISPATCH_FAILURE_WINDOW_MS) {
+      this.dispatchFailures.delete(issueId);
+      return false;
+    }
+    return f.count >= Aegis.MAX_DISPATCH_FAILURES;
+  }
+
+  private recordDispatchFailure(issueId: string): void {
+    const existing = this.dispatchFailures.get(issueId);
+    if (!existing) {
+      this.dispatchFailures.set(issueId, { count: 1, since: Date.now() });
+    } else {
+      this.dispatchFailures.set(issueId, { count: existing.count + 1, since: existing.since });
+    }
+  }
+
+  private resetDispatchFailures(issueId: string): void {
+    this.dispatchFailures.delete(issueId);
   }
 
   // --------------------------------------------------------------------------
@@ -432,6 +503,20 @@ export class Aegis {
     const agentId = this.nextAgentId();
     const learnings = this.getRelevantLearnings(issue);
 
+    // Pre-register with session=null to claim the concurrency slot BEFORE the
+    // async spawn.  runningByIssueId() counts this agent immediately, so
+    // subsequent iterations of the dispatch loop see an accurate running count
+    // even when all spawns fail synchronously (e.g. auth error).
+    const state = this.makeAgentState({
+      id: agentId,
+      caste: "oracle",
+      issue,
+      model: this.config.models.oracle,
+      maxTurns: this.config.budgets.oracle_turns,
+      maxTokens: this.config.budgets.oracle_tokens,
+    });
+    this.agents.set(agentId, { state, session: null });
+
     let session: AgentSession;
     try {
       session = await spawner.spawnOracle(issue, learnings, this.config, this.agentsMd);
@@ -441,18 +526,15 @@ export class Aegis {
         data: { caste: "oracle", issue_id: issue.id, error: String(err) },
         timestamp: Date.now(),
       });
+      // Keep state.status as "running" so this slot continues to count in
+      // runningByIssueId() for the rest of the current tick's dispatch loop.
+      // reapCompleted() will mark it "failed" and clean it up.
+      this.spawnPendingReap.add(agentId);
+      this.recordDispatchFailure(issue.id);
       return;
     }
 
-    const state = this.makeAgentState({
-      id: agentId,
-      caste: "oracle",
-      issue,
-      model: this.config.models.oracle,
-      maxTurns: this.config.budgets.oracle_turns,
-      maxTokens: this.config.budgets.oracle_tokens,
-    });
-
+    this.resetDispatchFailures(issue.id);
     this.registerAgent(agentId, state, session);
     this.emit({
       type: "agent.spawned",
@@ -467,6 +549,17 @@ export class Aegis {
     const agentId = this.nextAgentId();
     const learnings = this.getRelevantLearnings(issue);
 
+    // Pre-register to claim the concurrency slot before any async work.
+    const state = this.makeAgentState({
+      id: agentId,
+      caste: "titan",
+      issue,
+      model: this.config.models.titan,
+      maxTurns: this.config.budgets.titan_turns,
+      maxTokens: this.config.budgets.titan_tokens,
+    });
+    this.agents.set(agentId, { state, session: null });
+
     // Create the git worktree Labor
     let laborPath: string;
     try {
@@ -477,8 +570,13 @@ export class Aegis {
         data: { issue_id: issue.id, error: String(err) },
         timestamp: Date.now(),
       });
+      this.spawnPendingReap.add(agentId);
+      this.recordDispatchFailure(issue.id);
       return;
     }
+
+    // Update the pre-registered state with the labor path now that we have it.
+    state.labor_path = laborPath;
 
     let session: AgentSession;
     try {
@@ -489,21 +587,14 @@ export class Aegis {
         data: { caste: "titan", issue_id: issue.id, error: String(err) },
         timestamp: Date.now(),
       });
+      this.spawnPendingReap.add(agentId);
+      this.recordDispatchFailure(issue.id);
       // Clean up the Labor we just created
       await labors.cleanup(issue.id, this.config).catch(() => undefined);
       return;
     }
 
-    const state = this.makeAgentState({
-      id: agentId,
-      caste: "titan",
-      issue,
-      model: this.config.models.titan,
-      maxTurns: this.config.budgets.titan_turns,
-      maxTokens: this.config.budgets.titan_tokens,
-      laborPath,
-    });
-
+    this.resetDispatchFailures(issue.id);
     this.registerAgent(agentId, state, session);
     this.emit({
       type: "agent.spawned",
@@ -525,6 +616,17 @@ export class Aegis {
     const agentId = this.nextAgentId();
     const learnings = this.getRelevantLearnings(issue);
 
+    // Pre-register to claim the concurrency slot before any async work.
+    const state = this.makeAgentState({
+      id: agentId,
+      caste: "sentinel",
+      issue,
+      model: this.config.models.sentinel,
+      maxTurns: this.config.budgets.sentinel_turns,
+      maxTokens: this.config.budgets.sentinel_tokens,
+    });
+    this.agents.set(agentId, { state, session: null });
+
     let session: AgentSession;
     try {
       session = await spawner.spawnSentinel(issue, learnings, this.config, this.agentsMd);
@@ -534,18 +636,12 @@ export class Aegis {
         data: { caste: "sentinel", issue_id: issue.id, error: String(err) },
         timestamp: Date.now(),
       });
+      this.spawnPendingReap.add(agentId);
+      this.recordDispatchFailure(issue.id);
       return;
     }
 
-    const state = this.makeAgentState({
-      id: agentId,
-      caste: "sentinel",
-      issue,
-      model: this.config.models.sentinel,
-      maxTurns: this.config.budgets.sentinel_turns,
-      maxTokens: this.config.budgets.sentinel_tokens,
-    });
-
+    this.resetDispatchFailures(issue.id);
     this.registerAgent(agentId, state, session);
     this.emit({
       type: "agent.spawned",
@@ -561,6 +657,7 @@ export class Aegis {
   // --------------------------------------------------------------------------
 
   private registerAgent(agentId: string, state: AgentState, session: AgentSession): void {
+    // Update the pre-registered entry (session was null) with the live session.
     this.agents.set(agentId, { state, session });
 
     // Subscribe to session events to update turn counts and forward to SSE
@@ -623,7 +720,16 @@ export class Aegis {
   private async reapCompleted(): Promise<void> {
     const toReap: string[] = [];
     for (const [agentId, { state }] of this.agents) {
-      if (state.status !== "running" && !this.reaped.has(agentId)) {
+      if (this.reaped.has(agentId)) continue;
+      // Normal completion / kill / budget-exceeded
+      if (state.status !== "running") {
+        toReap.push(agentId);
+        continue;
+      }
+      // Spawn failed — held as "running" to preserve the concurrency slot
+      // for the tick; now mark failed and schedule for reap.
+      if (this.spawnPendingReap.has(agentId)) {
+        state.status = "failed";
         toReap.push(agentId);
       }
     }
@@ -635,6 +741,7 @@ export class Aegis {
   private async reap(agentId: string): Promise<void> {
     if (this.reaped.has(agentId)) return;
     this.reaped.add(agentId);
+    this.spawnPendingReap.delete(agentId);
 
     const agent = this.agents.get(agentId);
     if (!agent) return;
