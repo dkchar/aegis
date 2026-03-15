@@ -1,10 +1,21 @@
 // src/spawner.ts
 // Spawner -- the ONLY module that calls createAgentSession().
 
-import { createAgentSession, SessionManager, AuthStorage, InMemoryAuthStorageBackend, readOnlyTools, codingTools } from "@mariozechner/pi-coding-agent";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+import { createAgentSession, SessionManager, AuthStorage, readOnlyTools, codingTools } from "@mariozechner/pi-coding-agent";
 import { getModel } from "@mariozechner/pi-ai";
 import type { AgentSession } from "@mariozechner/pi-coding-agent";
 import type { BeadsIssue, MnemosyneRecord, AegisConfig, Caste } from "./types.js";
+
+/**
+ * Returns the default Pi agent config directory (~/.pi/agent).
+ * AuthStorage reads auth.json from here, where /login stores subscription tokens.
+ */
+function getAgentDir(): string {
+  return join(homedir(), ".pi", "agent");
+}
 
 export function casteToolFilter(caste: Caste): typeof codingTools | typeof readOnlyTools {
   if (caste === "titan") return codingTools;
@@ -105,11 +116,16 @@ export function buildSystemPrompt(caste: Caste, issue: BeadsIssue, learnings: Mn
 }
 
 function makeAuthStorage(config: AegisConfig): AuthStorage {
-  // AuthStorage.fromStorage is the public factory for a custom backend.
-  const s = AuthStorage.fromStorage(new InMemoryAuthStorageBackend());
-  if (config.auth.anthropic) void s.set("anthropic", { type: "api_key", key: config.auth.anthropic });
-  if (config.auth.openai) void s.set("openai", { type: "api_key", key: config.auth.openai });
-  if (config.auth.google) void s.set("google", { type: "api_key", key: config.auth.google });
+  // Use file-backed AuthStorage so Pi subscription credentials stored at
+  // ~/.pi/agent/auth.json (written by `pi /login`) are discovered automatically.
+  const agentDir = getAgentDir();
+  const s = AuthStorage.create(join(agentDir, "auth.json"));
+
+  // Apply explicit API keys from config as runtime overrides (highest priority,
+  // not persisted to disk). If null, the file-backed storage handles auth.
+  if (config.auth.anthropic) s.setRuntimeApiKey("anthropic", config.auth.anthropic);
+  if (config.auth.openai) s.setRuntimeApiKey("openai", config.auth.openai);
+  if (config.auth.google) s.setRuntimeApiKey("google", config.auth.google);
   return s;
 }
 
@@ -130,6 +146,7 @@ async function spawnSession(caste: Caste, issue: BeadsIssue, learnings: Mnemosyn
   }
   const { session } = await createAgentSession({
     cwd: workingDir,
+    agentDir: getAgentDir(),
     sessionManager: SessionManager.inMemory(),
     authStorage,
     model,

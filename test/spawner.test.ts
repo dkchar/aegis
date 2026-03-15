@@ -7,12 +7,14 @@ import type { BeadsIssue, MnemosyneRecord, AegisConfig } from "../src/types.js";
 const mockSession = { id: "mock-session", prompt: vi.fn() };
 const mockCreate = vi.fn().mockResolvedValue({ session: mockSession });
 const mockSMInMemory = vi.fn().mockReturnValue("in-memory-sm");
-const mockBackend = vi.fn().mockImplementation(function() { return {}; });
-const mockAuthSet = vi.fn().mockResolvedValue(undefined);
-const mockAuthInstance = { set: mockAuthSet };
-// mockAuthCtor supports both `new AuthStorage(backend)` and the static factory
-// methods `AuthStorage.fromStorage(backend)` and `AuthStorage.inMemory()`.
+const mockSetRuntimeApiKey = vi.fn();
+const mockAuthInstance = { setRuntimeApiKey: mockSetRuntimeApiKey };
+// mockAuthCtor supports the static factory methods used by spawner:
+//   AuthStorage.create(path)       — file-backed (new behaviour)
+//   AuthStorage.fromStorage(...)   — legacy / other callers
+//   AuthStorage.inMemory()         — convenience
 const mockAuthCtor = vi.fn().mockImplementation(function() { return mockAuthInstance; });
+(mockAuthCtor as unknown as Record<string, unknown>).create = vi.fn().mockReturnValue(mockAuthInstance);
 (mockAuthCtor as unknown as Record<string, unknown>).fromStorage = vi.fn().mockReturnValue(mockAuthInstance);
 (mockAuthCtor as unknown as Record<string, unknown>).inMemory = vi.fn().mockReturnValue(mockAuthInstance);
 const mockROTools = [{ name: "read" }];
@@ -23,7 +25,6 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
   createAgentSession: mockCreate,
   SessionManager: { inMemory: mockSMInMemory },
   AuthStorage: mockAuthCtor,
-  InMemoryAuthStorageBackend: mockBackend,
   readOnlyTools: mockROTools,
   codingTools: mockCodingTools,
 }));
