@@ -32,15 +32,18 @@ interface ModelPricing {
 
 const MODEL_PRICING: Record<string, ModelPricing> = {
   // Claude Haiku 4.5
-  "claude-haiku-4-5": { input: 0.25, output: 1.25, cacheRead: 0.03 },
-  // Claude Sonnet 4.5
-  "claude-sonnet-4-5": { input: 3.0, output: 15.0, cacheRead: 0.3 },
-  // Claude Opus 4.5
-  "claude-opus-4-5": { input: 15.0, output: 75.0, cacheRead: 1.5 },
+  "claude-haiku-4-5":             { input: 0.25, output: 1.25,  cacheRead: 0.03 },
+  "claude-haiku-4-5-20251001":    { input: 0.25, output: 1.25,  cacheRead: 0.03 },
+  // Claude Sonnet 4.5 / 4.6
+  "claude-sonnet-4-5":            { input: 3.0,  output: 15.0,  cacheRead: 0.3  },
+  "claude-sonnet-4-6":            { input: 3.0,  output: 15.0,  cacheRead: 0.3  },
+  // Claude Opus 4.5 / 4.6
+  "claude-opus-4-5":              { input: 15.0, output: 75.0,  cacheRead: 1.5  },
+  "claude-opus-4-6":              { input: 15.0, output: 75.0,  cacheRead: 1.5  },
   // Legacy model names (in case config uses them)
-  "claude-3-haiku-20240307": { input: 0.25, output: 1.25, cacheRead: 0.03 },
-  "claude-3-5-sonnet-20241022": { input: 3.0, output: 15.0, cacheRead: 0.3 },
-  "claude-3-opus-20240229": { input: 15.0, output: 75.0, cacheRead: 1.5 },
+  "claude-3-haiku-20240307":      { input: 0.25, output: 1.25,  cacheRead: 0.03 },
+  "claude-3-5-sonnet-20241022":   { input: 3.0,  output: 15.0,  cacheRead: 0.3  },
+  "claude-3-opus-20240229":       { input: 15.0, output: 75.0,  cacheRead: 1.5  },
 };
 
 const DEFAULT_PRICING: ModelPricing = { input: 3.0, output: 15.0, cacheRead: 0.3 };

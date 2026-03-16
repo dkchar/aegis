@@ -92,6 +92,24 @@ describe("calculateCost()", () => {
     expect(cost).toBeCloseTo(15.0 + 75.0 + 1.5, 6);
   });
 
+  it("calculates correct cost for claude-haiku-4-5-20251001 (same as haiku-4-5)", () => {
+    const dated = calculateCost("claude-haiku-4-5-20251001", 1_000_000, 1_000_000, 1_000_000);
+    const base  = calculateCost("claude-haiku-4-5",          1_000_000, 1_000_000, 1_000_000);
+    expect(dated).toBeCloseTo(base, 6);
+  });
+
+  it("calculates correct cost for claude-sonnet-4-6 (same tier as sonnet-4-5)", () => {
+    const v6 = calculateCost("claude-sonnet-4-6", 1_000_000, 1_000_000, 1_000_000);
+    const v5 = calculateCost("claude-sonnet-4-5", 1_000_000, 1_000_000, 1_000_000);
+    expect(v6).toBeCloseTo(v5, 6);
+  });
+
+  it("calculates correct cost for claude-opus-4-6 (same tier as opus-4-5)", () => {
+    const v6 = calculateCost("claude-opus-4-6", 1_000_000, 1_000_000, 1_000_000);
+    const v5 = calculateCost("claude-opus-4-5", 1_000_000, 1_000_000, 1_000_000);
+    expect(v6).toBeCloseTo(v5, 6);
+  });
+
   it("falls back to Sonnet pricing for unknown models", () => {
     const known = calculateCost("claude-sonnet-4-5", 500_000, 200_000, 100_000);
     const unknown = calculateCost("some-unknown-model-v99", 500_000, 200_000, 100_000);
