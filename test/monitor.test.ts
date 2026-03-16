@@ -5,6 +5,7 @@ import {
   track,
   checkStuck,
   checkBudget,
+  checkRepeatedToolCall,
 } from "../src/monitor.js";
 import type { MonitoredAgent } from "../src/monitor.js";
 import type { AgentState, AegisConfig, SSEEvent } from "../src/types.js";
@@ -303,5 +304,80 @@ describe("checkBudget()", () => {
     const agent = makeAgent({ turns: 99, max_turns: 100 });
     const result = checkBudget(agent, config);
     expect(result.exceeded).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// checkRepeatedToolCall() — SPEC §10.2
+// ---------------------------------------------------------------------------
+describe("checkRepeatedToolCall()", () => {
+  it("returns { repeated: false } for empty buffer", () => {
+    expect(checkRepeatedToolCall([])).toEqual({ repeated: false });
+  });
+
+  it("returns { repeated: false } when buffer has fewer entries than threshold", () => {
+    expect(checkRepeatedToolCall(["read:{}", "read:{}"])).toEqual({ repeated: false });
+  });
+
+  it("returns { repeated: true } when last 3 calls are identical", () => {
+    const buf = ["read:{}", "read:{}", "read:{}"];
+    const result = checkRepeatedToolCall(buf);
+    expect(result.repeated).toBe(true);
+    if (result.repeated) {
+      expect(result.toolName).toBe("read");
+      expect(result.count).toBe(3);
+    }
+  });
+
+  it("returns { repeated: false } when last 3 are not all identical", () => {
+    const buf = ["read:{}", "bash:{}", "read:{}"];
+    expect(checkRepeatedToolCall(buf)).toEqual({ repeated: false });
+  });
+
+  it("considers only the last N entries when buffer is longer than threshold", () => {
+    // First two differ but last 3 are all the same
+    const buf = ["bash:{}", "write:{}", "read:{}", "read:{}", "read:{}"];
+    const result = checkRepeatedToolCall(buf);
+    expect(result.repeated).toBe(true);
+    if (result.repeated) {
+      expect(result.toolName).toBe("read");
+    }
+  });
+
+  it("returns { repeated: false } when last 3 entries in longer buffer are not identical", () => {
+    const buf = ["read:{}", "read:{}", "read:{}", "bash:{}"];
+    expect(checkRepeatedToolCall(buf)).toEqual({ repeated: false });
+  });
+
+  it("extracts toolName correctly from fingerprint with JSON args", () => {
+    const fingerprint = 'bash:{"command":"ls -la"}';
+    const buf = [fingerprint, fingerprint, fingerprint];
+    const result = checkRepeatedToolCall(buf);
+    expect(result.repeated).toBe(true);
+    if (result.repeated) {
+      expect(result.toolName).toBe("bash");
+    }
+  });
+
+  it("handles fingerprint with no colon (bare tool name)", () => {
+    const buf = ["read", "read", "read"];
+    const result = checkRepeatedToolCall(buf);
+    expect(result.repeated).toBe(true);
+    if (result.repeated) {
+      expect(result.toolName).toBe("read");
+    }
+  });
+
+  it("respects a custom threshold", () => {
+    // threshold=2 — two identical calls should trigger
+    const buf = ["read:{}", "read:{}"];
+    const result = checkRepeatedToolCall(buf, 2);
+    expect(result.repeated).toBe(true);
+  });
+
+  it("does not trigger at threshold-1 identical calls", () => {
+    const buf = ["read:{}", "read:{}"];
+    // default threshold is 3, so 2 identical calls should not trigger
+    expect(checkRepeatedToolCall(buf)).toEqual({ repeated: false });
   });
 });

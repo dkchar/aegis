@@ -20,6 +20,10 @@ export type BudgetStatus =
   | { exceeded: false }
   | { exceeded: true; resource: "turns" | "tokens"; current: number; limit: number };
 
+export type RepeatedToolStatus =
+  | { repeated: false }
+  | { repeated: true; toolName: string; count: number };
+
 // ---------------------------------------------------------------------------
 // Pricing tables — USD per 1 million tokens
 // ---------------------------------------------------------------------------
@@ -124,6 +128,30 @@ export function checkStuck(agent: MonitoredAgent, config: AegisConfig): StuckSta
   }
 
   return { stuck: false };
+}
+
+/**
+ * Checks whether an agent has repeated the same tool call too many times in a row.
+ *
+ * Inspects the tail of `recentToolCalls` (a ring-buffer fingerprint of the form
+ * "toolName:argsJson" maintained by the caller) and returns `repeated: true` when
+ * the last `threshold` entries are all identical.  The default threshold of 3
+ * matches SPEC §10.2.
+ */
+export function checkRepeatedToolCall(
+  recentToolCalls: string[],
+  threshold = 3
+): RepeatedToolStatus {
+  if (recentToolCalls.length < threshold) return { repeated: false };
+
+  const tail = recentToolCalls.slice(-threshold);
+  const first = tail[0]!;
+  if (!tail.every((call) => call === first)) return { repeated: false };
+
+  // Extract just the tool name from the "toolName:argsJson" fingerprint.
+  const colonIdx = first.indexOf(":");
+  const toolName = colonIdx === -1 ? first : first.slice(0, colonIdx);
+  return { repeated: true, toolName, count: threshold };
 }
 
 /**

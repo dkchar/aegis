@@ -54,6 +54,7 @@ vi.mock("../src/monitor.js", () => ({
   track: vi.fn(),
   checkStuck: vi.fn().mockReturnValue({ stuck: false }),
   checkBudget: vi.fn().mockReturnValue({ exceeded: false }),
+  checkRepeatedToolCall: vi.fn().mockReturnValue({ repeated: false }),
 }));
 
 vi.mock("../src/labors.js", () => ({
