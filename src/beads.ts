@@ -184,8 +184,20 @@ export async function reopen(id: string): Promise<BeadsIssue> {
 }
 
 export async function list(): Promise<BeadsIssue[]> {
-  // "bd list --json" does not return JSON in v0.59+.
-  // Use "bd query" which reliably returns JSON and includes all non-deferred issues.
+  // WHY "bd query" instead of "bd list --json":
+  //   Starting with bd v0.59, "bd list --json" no longer emits JSON — it prints
+  //   a human-readable table regardless of the flag.  "bd query" with a filter
+  //   expression is the only reliable way to get machine-readable output.
+  //   We exclude deferred issues (noise for the dispatch loop) but include every
+  //   other status so callers see open, ready, in_progress, and closed issues.
+  //
+  // Note on comments:
+  //   "bd query" returns issue metadata only — no comments.  Any code that needs
+  //   comment data (e.g. SCOUTED:/REVIEWED: checks) must call beads.show(id)
+  //   separately.  This is a deliberate N+1 pattern: aegis.ts's findClosedUnreviewed()
+  //   calls list() then show() for each closed issue.  Acceptable for the expected
+  //   queue depths (< 100 issues); if queues grow large, the show() calls could be
+  //   batched or the query extended with a comment-filter flag when bd supports it.
   const output = await runBd(["query", "status!=deferred", "--json"]);
   const raw = parseJson<RawBeadsIssue[]>(output, "query status!=deferred");
   return raw.map(mapIssue);

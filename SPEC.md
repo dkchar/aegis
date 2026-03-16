@@ -652,17 +652,28 @@ Each agent is created using Pi's embedded SDK:
 import {
   createAgentSession,
   SessionManager,
-  AuthStorage
+  AuthStorage,
+  ModelRegistry,
 } from "@mariozechner/pi-coding-agent";
+import { getModel } from "@mariozechner/pi-ai";
+
+// Build auth storage: file-backed so Pi subscription tokens (~/.pi/agent/auth.json)
+// are discovered automatically; explicit API keys from config override at runtime.
+const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
+if (config.auth.anthropic) authStorage.setRuntimeApiKey("anthropic", config.auth.anthropic);
+
+const modelRegistry = new ModelRegistry(authStorage);
+const model = getModel("anthropic", casteModel);  // e.g. "claude-sonnet-4-6"
 
 const { session } = await createAgentSession({
+  cwd: worktreePath ?? projectRoot,  // Titan gets Labor path; Oracle/Sentinel get project root
+  agentDir,                          // ~/.pi/agent — Pi loads extensions from here
   sessionManager: SessionManager.inMemory(),  // No persistent sessions needed
-  authStorage: authStorageFromConfig(config),  // API keys from .aegis/config.json
-  modelRegistry: modelRegistryFromConfig(config),
-  model: casteModelConfig(caste),
-  tools: casteToolFilter(caste),  // Restrict tools per caste
+  authStorage,
+  modelRegistry,
+  model,
+  tools: casteToolFilter(caste),     // Restrict tools per caste
   systemPrompt: buildSystemPrompt(caste, issue, learnings, agentsMd),
-  workingDirectory: worktreePath || projectRoot,
 });
 
 session.subscribe((event) => {
@@ -676,9 +687,9 @@ await session.prompt(buildInitialPrompt(caste, issue));
 
 Key decisions:
 - **In-memory sessions:** Agents are ephemeral. We don't need Pi's JSONL session persistence since beads is the persistent state. This keeps overhead minimal.
-- **Custom auth storage:** The orchestrator creates an AuthStorage instance backed by `.aegis/config.json`, not Pi's default `~/.pi/agent/auth.json`.
+- **Auth storage:** The orchestrator uses `AuthStorage.create(agentDir + "/auth.json")` so Pi subscription tokens written by `/login` are discovered automatically. Explicit API keys from `.aegis/config.json` are applied as runtime overrides via `setRuntimeApiKey()` — they take highest priority but are never written to disk.
 - **Tool filtering:** Oracles and Sentinels receive a restricted tool set. This is configured via Pi's session options, not via prompt instructions alone (defense in depth).
-- **Working directory:** Titans get their git Labor path. Oracles and Sentinels get the project root.
+- **Working directory (`cwd`):** Titans get their git Labor path. Oracles and Sentinels get the project root. The parameter is `cwd`, not `workingDirectory`.
 
 ### 10.2 Stuck Detection
 

@@ -1,7 +1,8 @@
 // src/spawner.ts
 // Spawner -- the ONLY module that calls createAgentSession().
 
-import { homedir } from "node:os";
+import { mkdirSync } from "node:fs";
+import { homedir, platform } from "node:os";
 import { join } from "node:path";
 
 import { createAgentSession, SessionManager, AuthStorage, ModelRegistry, readOnlyTools, codingTools } from "@mariozechner/pi-coding-agent";
@@ -15,6 +16,42 @@ import type { BeadsIssue, MnemosyneRecord, AegisConfig, Caste } from "./types.js
  */
 function getAgentDir(): string {
   return join(homedir(), ".pi", "agent");
+}
+
+/**
+ * Windows-only pre-spawn environment fixes. Safe to call on all platforms
+ * (all branches are guarded by platform checks).
+ *
+ * Fix 1 — aegis-l1a: Pi's bg-process extension writes logs to C:\tmp\oh-pi-bg-*.log.
+ * That directory does not exist by default on Windows, causing an ENOENT crash when
+ * the extension initialises. Creating it once before any spawn avoids the crash.
+ *
+ * Fix 2 — aegis-670: When Aegis is launched from Git Bash, MSYSTEM is set (e.g.
+ * "MINGW64") and SHELL points to Git Bash's bash.  Pi agents that fork subprocesses
+ * inherit these environment variables, which causes "cygheap read copy failed" errors
+ * because the cygwin heap cannot be mapped at the same address in the child process.
+ * Redirecting SHELL and COMSPEC to the native Windows cmd.exe prevents the fork
+ * failure while leaving all Git Bash convenience intact for the user's own shell.
+ */
+function applyWindowsSpawnFixes(): void {
+  if (platform() !== "win32") return;
+
+  // Fix 1: ensure C:\tmp exists for the Pi bg-process extension log sink.
+  try {
+    mkdirSync("C:\\tmp", { recursive: true });
+  } catch {
+    // best-effort — if we can't create it, the extension crash will surface on
+    // its own rather than silently breaking spawns.
+  }
+
+  // Fix 2: when running under Git Bash (MSYSTEM is set), override SHELL and
+  // COMSPEC so spawned child processes use native Windows cmd.exe, not cygwin bash.
+  if (process.env["MSYSTEM"]) {
+    process.env["SHELL"] = "cmd.exe";
+    if (!process.env["COMSPEC"]) {
+      process.env["COMSPEC"] = "C:\\Windows\\System32\\cmd.exe";
+    }
+  }
 }
 
 export function casteToolFilter(caste: Caste): typeof codingTools | typeof readOnlyTools {
@@ -130,6 +167,7 @@ function makeAuthStorage(config: AegisConfig): AuthStorage {
 }
 
 async function spawnSession(caste: Caste, issue: BeadsIssue, learnings: MnemosyneRecord[], config: AegisConfig, agentsMd: string, workingDir: string, modelName: string): Promise<AgentSession> {
+  applyWindowsSpawnFixes();
   const authStorage = makeAuthStorage(config);
   const modelRegistry = new ModelRegistry(authStorage);
   let model;

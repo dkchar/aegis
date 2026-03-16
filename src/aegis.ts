@@ -81,6 +81,12 @@ export class Aegis {
   /** SSE event listeners registered via onEvent() */
   private eventListeners: ((event: SSEEvent) => void)[] = [];
 
+  /**
+   * Per-agent ring-buffer of the last 3 tool call fingerprints
+   * ("toolName:argsJson"). Used for SPEC §10.2 repeated-tool-call detection.
+   */
+  private recentToolCalls = new Map<string, string[]>();
+
   /** Cumulative cost of all reaped agents (prevents totalCost() dropping to 0 after reap) */
   private cumulativeCostUsd = 0;
 
@@ -475,6 +481,32 @@ export class Aegis {
         }
       }
 
+      // Check for repeated tool calls (SPEC §10.2)
+      const toolBuf = this.recentToolCalls.get(agentId) ?? [];
+      const repeated = monitor.checkRepeatedToolCall(toolBuf);
+      if (repeated.repeated) {
+        this.emit({
+          type: "agent.repeated_tool_call",
+          data: {
+            agent_id: agentId,
+            tool_name: repeated.toolName,
+            count: repeated.count,
+          },
+          timestamp: Date.now(),
+        });
+        if (agent.session) {
+          try {
+            await agent.session.steer(
+              "You are repeating the same tool call. Try a different approach to make progress."
+            );
+          } catch {
+            // ignore
+          }
+        }
+        // Reset the buffer so we don't steer on every subsequent tick
+        this.recentToolCalls.set(agentId, []);
+      }
+
       // Check budget
       const budget = monitor.checkBudget(agent, this.config);
       if (budget.exceeded) {
@@ -719,8 +751,21 @@ export class Aegis {
     // Update the pre-registered entry (session was null) with the live session.
     this.agents.set(agentId, { state, session });
 
+    // Initialise the per-agent tool-call ring-buffer for §10.2 repeated detection.
+    this.recentToolCalls.set(agentId, []);
+
     // Subscribe to session events to update turn counts and forward to SSE
     session.subscribe((event) => {
+      // Track tool call fingerprints for SPEC §10.2 repeated-tool-call detection.
+      if (event.type === "tool_execution_start") {
+        const fingerprint = `${event.toolName}:${JSON.stringify(event.args)}`;
+        const buf = this.recentToolCalls.get(agentId) ?? [];
+        buf.push(fingerprint);
+        // Keep only the last 3 entries (threshold for repeated detection).
+        if (buf.length > 3) buf.shift();
+        this.recentToolCalls.set(agentId, buf);
+      }
+
       // Update turn counter and token stats on each completed turn
       if (event.type === "turn_end") {
         state.turns++;
@@ -883,6 +928,7 @@ export class Aegis {
 
     // Remove agent from active map (slot is now free)
     this.agents.delete(agentId);
+    this.recentToolCalls.delete(agentId);
   }
 
   private async reapTitanLabor(state: AgentState): Promise<void> {
