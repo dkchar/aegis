@@ -21,7 +21,13 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+
+// ---------------------------------------------------------------------------
+// Skip the entire suite if the bd CLI is not available (e.g. in CI without bd).
+// ---------------------------------------------------------------------------
+// bdAvailable is false when the bd binary is not in PATH (e.g. CI without beads installed).
+const bdAvailable = !spawnSync("bd", ["--version"], { stdio: "pipe" }).error;
 
 // ---------------------------------------------------------------------------
 // We mock spawner so that fake sessions simulate agent behavior (no LLM calls).
@@ -195,6 +201,7 @@ async function runUntil(
 const originalCwd = process.cwd();
 
 beforeAll(async () => {
+  if (!bdAvailable) return;
   tempDir = setupTempRepo();
   testIssueId = createTestIssue(tempDir);
   // Switch cwd so that beads.ts (which calls bd without explicit cwd) and
@@ -228,7 +235,7 @@ afterAll(() => {
 // The smoke test
 // ---------------------------------------------------------------------------
 
-describe("E2E smoke: Oracle → Titan → Sentinel cycle", () => {
+describe.skipIf(!bdAvailable)("E2E smoke: Oracle → Titan → Sentinel cycle", () => {
   it("completes the full dispatch cycle for a real beads issue", async () => {
     const { Aegis } = await import("../src/aegis.js");
     const spawnerMock = await import("../src/spawner.js");

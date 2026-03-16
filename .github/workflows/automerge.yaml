@@ -1,0 +1,38 @@
+name: Auto-merge
+
+on:
+  # Trigger when check suites complete (CI, Claude review, etc.)
+  check_suite:
+    types: [completed]
+  # Also trigger when PR reviews are submitted (Claude approvals)
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    name: Auto-merge if all checks pass
+    runs-on: ubuntu-latest
+    # Only run on PRs, not direct pushes
+    if: github.event.pull_request || github.event.check_suite.pull_requests[0]
+
+    steps:
+      - uses: pascalgn/automerge-action@v0.16.4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Merge method: squash keeps history clean
+          MERGE_METHOD: squash
+          # Only merge if ALL checks pass
+          MERGE_REQUIRED_APPROVALS: 0
+          # Require these labels to auto-merge (safety — only labeled PRs merge)
+          MERGE_LABELS: "automerge"
+          # Delete branch after merge
+          MERGE_DELETE_BRANCH: true
+          # Retry if merge fails due to race condition
+          MERGE_RETRY_SLEEP: 10000
+          MERGE_RETRIES: 3
+          # Update branch before merging (rebase on latest main)
+          UPDATE_METHOD: rebase
