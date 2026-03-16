@@ -126,6 +126,13 @@ describe("triage()", () => {
     if (result.type === "skip") expect(result.reason).toBe("already in progress");
   });
 
+  it("returns skip 'deferred' for deferred issue with SCOUTED comment", () => {
+    const issue = makeIssue({ status: "deferred", comments: [makeComment("SCOUTED: Deferred")] });
+    const result = triage(issue, new Map(), LIMITS);
+    expect(result.type).toBe("skip");
+    if (result.type === "skip") expect(result.reason).toBe("deferred");
+  });
+
   it("SCOUTED: is case-sensitive, lowercase scouted: does not match", () => {
     const issue = makeIssue({ status: "open", comments: [makeComment("scouted: lowercase prefix")] });
     const result = triage(issue, new Map(), LIMITS);

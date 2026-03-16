@@ -259,6 +259,22 @@ describe("comment()", () => {
   });
 });
 
+// ---------- mapIssue() status validation ----------
+describe("mapIssue() status validation", () => {
+  it("throws on unknown status value from bd CLI", async () => {
+    mockSuccess(JSON.stringify([{ ...sampleRawIssue, status: "unknown_status" }]));
+    await expect(beads.ready()).rejects.toThrow(/Unexpected issue status from bd CLI/);
+  });
+
+  it("accepts all valid status values", async () => {
+    for (const status of ["open", "ready", "in_progress", "closed", "deferred"]) {
+      mockSuccess(JSON.stringify([{ ...sampleRawIssue, status }]));
+      const result = await beads.ready();
+      expect(result[0]!.status).toBe(status);
+    }
+  });
+});
+
 // ---------- list() ----------
 describe("list()", () => {
   it("calls bd query status!=deferred --json to include closed issues", async () => {

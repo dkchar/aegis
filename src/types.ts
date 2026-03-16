@@ -49,13 +49,15 @@ export interface AegisConfig {
   };
 }
 
+export type IssueStatus = "open" | "ready" | "in_progress" | "closed" | "deferred";
+
 export interface BeadsIssue {
   id: string;
   title: string;
   description: string;
   type: string;
   priority: number;
-  status: string;
+  status: IssueStatus;
   comments: BeadsComment[];
 }
 

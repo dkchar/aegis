@@ -75,5 +75,11 @@ export function triage(
     return { type: "skip", issue, reason: "already in progress" };
   }
 
-  return { type: "skip", issue, reason: `unknown status: ${status}` };
+  if (status === "deferred") {
+    return { type: "skip", issue, reason: "deferred" };
+  }
+
+  // TypeScript exhaustiveness guard — should be unreachable with IssueStatus union
+  const _exhaustive: never = status;
+  return { type: "skip", issue, reason: `unknown status: ${_exhaustive}` };
 }

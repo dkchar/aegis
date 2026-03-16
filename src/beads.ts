@@ -3,7 +3,7 @@
 // All bd CLI interactions in Aegis go through this module.
 
 import { execFile } from "node:child_process";
-import type { BeadsIssue, BeadsComment } from "./types.js";
+import type { BeadsIssue, BeadsComment, IssueStatus } from "./types.js";
 
 // Raw shape returned by the bd CLI (uses issue_type, not type; no comments field by default)
 interface RawBeadsIssue {
@@ -25,6 +25,18 @@ interface RawBeadsIssue {
   [key: string]: unknown;
 }
 
+const VALID_STATUSES: readonly IssueStatus[] = [
+  "open",
+  "ready",
+  "in_progress",
+  "closed",
+  "deferred",
+];
+
+function isValidStatus(s: string): s is IssueStatus {
+  return (VALID_STATUSES as readonly string[]).includes(s);
+}
+
 function mapIssue(raw: RawBeadsIssue): BeadsIssue {
   const comments: BeadsComment[] = (raw.comments ?? []).map((c) => ({
     // bd show returns `text`; fall back to `body` for compatibility with tests/mocks
@@ -33,6 +45,11 @@ function mapIssue(raw: RawBeadsIssue): BeadsIssue {
     author: c.author,
     created_at: c.created_at,
   }));
+  if (!isValidStatus(raw.status)) {
+    throw new Error(
+      `Unexpected issue status from bd CLI: "${raw.status}" (expected one of: ${VALID_STATUSES.join(", ")})`
+    );
+  }
   return {
     id: raw.id,
     title: raw.title,
