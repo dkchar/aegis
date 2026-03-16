@@ -81,6 +81,9 @@ export class Aegis {
   /** SSE event listeners registered via onEvent() */
   private eventListeners: ((event: SSEEvent) => void)[] = [];
 
+  /** Cumulative cost of all reaped agents (prevents totalCost() dropping to 0 after reap) */
+  private cumulativeCostUsd = 0;
+
   /** Optional text filter — only dispatch issues whose title/description match */
   private focusFilter: string | null = null;
 
@@ -819,6 +822,9 @@ export class Aegis {
       // ignore
     }
 
+    // Accumulate cost before removing from active map so totalCost() never drops
+    this.cumulativeCostUsd += state.cost_usd;
+
     // Remove agent from active map (slot is now free)
     this.agents.delete(agentId);
   }
@@ -1015,7 +1021,7 @@ export class Aegis {
   }
 
   private totalCost(): number {
-    let total = 0;
+    let total = this.cumulativeCostUsd;
     for (const { state } of this.agents.values()) {
       total += state.cost_usd;
     }
