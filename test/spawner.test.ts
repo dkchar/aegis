@@ -17,6 +17,8 @@ const mockAuthCtor = vi.fn().mockImplementation(function() { return mockAuthInst
 (mockAuthCtor as unknown as Record<string, unknown>).create = vi.fn().mockReturnValue(mockAuthInstance);
 (mockAuthCtor as unknown as Record<string, unknown>).fromStorage = vi.fn().mockReturnValue(mockAuthInstance);
 (mockAuthCtor as unknown as Record<string, unknown>).inMemory = vi.fn().mockReturnValue(mockAuthInstance);
+const mockModelRegistryInstance = { models: [] };
+const mockModelRegistryCtor = vi.fn().mockImplementation(function () { return mockModelRegistryInstance; });
 const mockROTools = [{ name: "read" }];
 const mockCodingTools = [{ name: "read" }, { name: "bash" }, { name: "edit" }, { name: "write" }];
 const mockGetModel = vi.fn().mockReturnValue({ provider: "anthropic", id: "claude-haiku-4-5" });
@@ -25,6 +27,7 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
   createAgentSession: mockCreate,
   SessionManager: { inMemory: mockSMInMemory },
   AuthStorage: mockAuthCtor,
+  ModelRegistry: mockModelRegistryCtor,
   readOnlyTools: mockROTools,
   codingTools: mockCodingTools,
 }));
@@ -104,7 +107,7 @@ describe("buildSystemPrompt()", () => {
 });
 
 describe("spawn functions", () => {
-  beforeEach(() => { mockCreate.mockClear(); mockGetModel.mockClear(); });
+  beforeEach(() => { mockCreate.mockClear(); mockGetModel.mockClear(); mockModelRegistryCtor.mockClear(); });
 
   it("spawnOracle uses read-only tools", async () => {
     await spawnOracle(makeIssue(), [], CFG, "AGENTS");
@@ -155,5 +158,21 @@ describe("spawn functions", () => {
     const cfg = { ...CFG, models: { ...CFG.models, oracle: "openai:gpt-4o" } };
     await spawnOracle(makeIssue(), [], cfg, "AGENTS");
     expect(mockGetModel).toHaveBeenCalledWith("openai", "gpt-4o");
+  });
+
+  // aegis-cqp: ModelRegistry must be created from authStorage and passed to createAgentSession
+  it("creates a ModelRegistry from authStorage and passes it to createAgentSession", async () => {
+    await spawnOracle(makeIssue(), [], CFG, "AGENTS");
+    expect(mockModelRegistryCtor).toHaveBeenCalledOnce();
+    // First arg to ModelRegistry constructor must be our authStorage instance
+    expect(mockModelRegistryCtor.mock.calls[0]?.[0]).toBe(mockAuthInstance);
+    // modelRegistry must be passed through to createAgentSession
+    expect(mockCreate.mock.calls[0]?.[0].modelRegistry).toBe(mockModelRegistryInstance);
+  });
+
+  it("each spawn creates a fresh ModelRegistry bound to its authStorage", async () => {
+    await spawnOracle(makeIssue(), [], CFG, "AGENTS");
+    await spawnSentinel(makeIssue(), [], CFG, "AGENTS");
+    expect(mockModelRegistryCtor).toHaveBeenCalledTimes(2);
   });
 });

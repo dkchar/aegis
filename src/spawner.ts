@@ -4,7 +4,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { createAgentSession, SessionManager, AuthStorage, readOnlyTools, codingTools } from "@mariozechner/pi-coding-agent";
+import { createAgentSession, SessionManager, AuthStorage, ModelRegistry, readOnlyTools, codingTools } from "@mariozechner/pi-coding-agent";
 import { getModel } from "@mariozechner/pi-ai";
 import type { AgentSession } from "@mariozechner/pi-coding-agent";
 import type { BeadsIssue, MnemosyneRecord, AegisConfig, Caste } from "./types.js";
@@ -131,6 +131,7 @@ function makeAuthStorage(config: AegisConfig): AuthStorage {
 
 async function spawnSession(caste: Caste, issue: BeadsIssue, learnings: MnemosyneRecord[], config: AegisConfig, agentsMd: string, workingDir: string, modelName: string): Promise<AgentSession> {
   const authStorage = makeAuthStorage(config);
+  const modelRegistry = new ModelRegistry(authStorage);
   let model;
   // getModel is generic over known literal model IDs; we use runtime config strings
   // so we cast through unknown to bypass the strict literal check.
@@ -149,6 +150,7 @@ async function spawnSession(caste: Caste, issue: BeadsIssue, learnings: Mnemosyn
     agentDir: getAgentDir(),
     sessionManager: SessionManager.inMemory(),
     authStorage,
+    modelRegistry,
     model,
     tools: casteToolFilter(caste),
     systemPrompt: buildSystemPrompt(caste, issue, learnings, agentsMd),

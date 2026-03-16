@@ -770,6 +770,65 @@ describe("closed issue Sentinel discovery", () => {
 });
 
 // ---------------------------------------------------------------------------
+// totalCost() — accumulates across reaps (aegis-utn)
+// ---------------------------------------------------------------------------
+
+describe("totalCost() accumulation across reap", () => {
+  it("includes cost of reaped agents in total_cost_usd", async () => {
+    const issue = makeIssue("cost-001");
+    vi.mocked(pollerMock.poll).mockResolvedValue([issue]);
+    vi.mocked(beadsMock.show).mockResolvedValue(issue);
+    vi.mocked(triageMock.triage).mockReturnValueOnce({ type: "dispatch_oracle", issue });
+
+    // Agent runs indefinitely so we control when it gets reaped
+    mockSession.prompt.mockReturnValue(new Promise(() => {}));
+
+    // Report a non-zero cost on each turn_end
+    mockSession.getSessionStats.mockReturnValue({
+      tokens: { total: 500, input: 400, output: 100, cacheRead: 0, cacheWrite: 0 },
+      cost: 0.05,
+      sessionFile: undefined,
+      sessionId: "mock-sid",
+      userMessages: 1,
+      assistantMessages: 1,
+      toolCalls: 2,
+      toolResults: 2,
+      totalMessages: 4,
+    });
+
+    // Capture the subscribe callback so we can fire turn_end manually
+    let subscribeCb: ((e: { type: string }) => void) | undefined;
+    mockSession.subscribe.mockImplementationOnce((cb: (e: { type: string }) => void) => {
+      subscribeCb = cb;
+      return () => {};
+    });
+
+    const aegis = makeAegis();
+    await (aegis as unknown as { runTick: () => Promise<void> }).runTick();
+
+    // Agent is running — fire turn_end to write cost into state.cost_usd
+    expect(subscribeCb).toBeDefined();
+    subscribeCb!({ type: "turn_end" });
+
+    // While running, total_cost_usd reflects the active agent's cost
+    const agentId = aegis.getState().agents[0]!.id;
+    expect(aegis.getState().total_cost_usd).toBeCloseTo(0.05);
+
+    // Kill the agent — triggers reap which must accumulate cost before deleting
+    await aegis.kill(agentId);
+
+    // After reap, agents map is empty but cumulative cost persists
+    expect(aegis.getState().agents).toHaveLength(0);
+    expect(aegis.getState().total_cost_usd).toBeCloseTo(0.05);
+  });
+
+  it("total_cost_usd is 0 before any agents run", () => {
+    const aegis = makeAegis();
+    expect(aegis.getState().total_cost_usd).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Error handling in tick
 // ---------------------------------------------------------------------------
 
