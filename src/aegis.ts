@@ -674,6 +674,27 @@ export class Aegis {
         } catch {
           // getSessionStats() may fail if session is shutting down
         }
+
+        // Real-time budget enforcement — kill immediately on the turn boundary
+        // rather than waiting for the next poll tick (which may never arrive if
+        // the session has already completed between ticks).
+        if (state.status === "running") {
+          const budget = monitor.checkBudget({ state }, this.config);
+          if (budget.exceeded) {
+            state.status = "killed";
+            this.emit({
+              type: "agent.budget_exceeded",
+              data: {
+                agent_id: agentId,
+                resource: budget.resource,
+                current: budget.current,
+                limit: budget.limit,
+              },
+              timestamp: Date.now(),
+            });
+            void session.abort().catch(() => undefined);
+          }
+        }
       }
 
       // Forward events to the SSE bus

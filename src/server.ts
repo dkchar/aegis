@@ -122,7 +122,12 @@ async function handleDirect(input: string, aegis: Aegis): Promise<DirectResult> 
     return { ok: true, message: JSON.stringify(state, null, 2) };
   }
 
-  return { ok: false, message: `Unknown direct command: "${input}". Try: pause, resume, kill <id>, scale <n>, focus <text>, rush <issue-id>` };
+  if (trimmed === "stop") {
+    void aegis.stop();
+    return { ok: true, message: "Orchestrator stopping." };
+  }
+
+  return { ok: false, message: `Unknown direct command: "${input}". Try: pause, resume, stop, kill <id>, scale <n>, focus <text>, rush <issue-id>` };
 }
 
 // ---------------------------------------------------------------------------

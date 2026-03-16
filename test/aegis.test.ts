@@ -508,6 +508,84 @@ describe("reap: Titan Labor merge", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Monitor: real-time budget enforcement in subscribe callback (aegis-hv3)
+// ---------------------------------------------------------------------------
+
+describe("monitor: real-time budget enforcement in subscribe callback", () => {
+  it("aborts agent immediately when budget exceeded on turn_end (no poll tick required)", async () => {
+    const issue = makeIssue("hv3-budget-001");
+    vi.mocked(pollerMock.poll).mockResolvedValue([issue]);
+    vi.mocked(beadsMock.show).mockResolvedValue(issue);
+    vi.mocked(triageMock.triage).mockReturnValueOnce({ type: "dispatch_oracle", issue });
+
+    // Agent runs indefinitely
+    mockSession.prompt.mockReturnValue(new Promise(() => {}));
+
+    // Capture the subscribe callback so we can fire events manually
+    let subscribeCallback: ((event: { type: string }) => void) | undefined;
+    mockSession.subscribe.mockImplementationOnce(
+      (cb: (event: { type: string }) => void) => {
+        subscribeCallback = cb;
+        return () => {};
+      }
+    );
+
+    // Budget will be exceeded on the next turn_end
+    vi.mocked(monitorMock.checkBudget).mockReturnValue({
+      exceeded: true,
+      resource: "turns",
+      current: 5,
+      limit: 5,
+    });
+
+    const aegis = makeAegis();
+    const events: SSEEvent[] = [];
+    aegis.onEvent((e) => events.push(e));
+
+    await (aegis as unknown as { runTick: () => Promise<void> }).runTick();
+    expect(subscribeCallback).toBeDefined();
+
+    // Fire a turn_end — simulates a session completing between poll ticks
+    subscribeCallback!({ type: "turn_end" });
+
+    expect(mockSession.abort).toHaveBeenCalledOnce();
+    expect(events.some((e) => e.type === "agent.budget_exceeded")).toBe(true);
+  });
+
+  it("does not re-abort a killed agent when a second turn_end fires", async () => {
+    const issue = makeIssue("hv3-budget-002");
+    vi.mocked(pollerMock.poll).mockResolvedValue([issue]);
+    vi.mocked(beadsMock.show).mockResolvedValue(issue);
+    vi.mocked(triageMock.triage).mockReturnValueOnce({ type: "dispatch_oracle", issue });
+    mockSession.prompt.mockReturnValue(new Promise(() => {}));
+
+    let subscribeCallback: ((event: { type: string }) => void) | undefined;
+    mockSession.subscribe.mockImplementationOnce(
+      (cb: (event: { type: string }) => void) => {
+        subscribeCallback = cb;
+        return () => {};
+      }
+    );
+
+    vi.mocked(monitorMock.checkBudget).mockReturnValue({
+      exceeded: true,
+      resource: "turns",
+      current: 5,
+      limit: 5,
+    });
+
+    const aegis = makeAegis();
+    await (aegis as unknown as { runTick: () => Promise<void> }).runTick();
+    expect(subscribeCallback).toBeDefined();
+
+    subscribeCallback!({ type: "turn_end" }); // kills and aborts
+    subscribeCallback!({ type: "turn_end" }); // state is "killed" — no double-abort
+
+    expect(mockSession.abort).toHaveBeenCalledOnce();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Monitor: stuck detection
 // ---------------------------------------------------------------------------
 
