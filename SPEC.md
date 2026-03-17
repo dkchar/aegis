@@ -19,6 +19,7 @@ The core thesis is that orchestration should be a thin, understandable layer —
 3. **The browser is the primary interface.** No tmux dependency. No terminal UI. Olympus runs in any browser on any OS. The terminal is just the orchestrator's log output.
 4. **LLMs are expensive — use them only where they add value.** The dispatch loop is deterministic. The steering interpreter uses a cheap model. The strategic planner uses an expensive model only on explicit request. Agents are tiered by cost to match task complexity.
 5. **Windows-first design.** Git Bash, PowerShell, and cmd are all valid launch environments. Pi's TUI limitations on Windows are irrelevant because the orchestrator uses Pi's SDK, not its CLI.
+6. **Conversational-first, autonomous-second.** Aegis starts idle and waits for direction. The human decides what to work on, which issues to scout, implement, or review. Autonomous background polling is an opt-in mode ("auto on"), not the default. The orchestrator is a tool you direct, not a daemon that runs unsupervised.
 
 ---
 
@@ -111,13 +112,29 @@ User creates beads issues (manually or via planner)
 
 ### 3.1 Layer 1: Deterministic Dispatch (No LLM)
 
-This is the orchestrator's heartbeat. It runs continuously on a configurable interval (default: 5 seconds) and never makes an LLM call.
+This is the orchestrator's execution engine. It runs deterministic dispatch logic and never makes an LLM call. Layer 1 operates in two modes:
 
-**The loop:**
+#### Conversational Mode (default)
 
-```
+On startup, Aegis is **idle**. It serves Olympus, accepts steering commands, and waits for the user to direct it. No polling, no automatic dispatch. The user explicitly tells Aegis what to do:
+
+| User command | Action |
+|-------------|--------|
+| `scout <issue-id>` | Dispatch an Oracle for that specific issue |
+| `implement <issue-id>` | Dispatch a Titan for that issue (bypasses Oracle if unscouted) |
+| `review <issue-id>` | Dispatch a Sentinel for that closed issue |
+| `process <issue-id>` | Run the full Oracle → Titan → Sentinel cycle for one issue |
+| `status` | Report current agent state and beads queue |
+
+These commands invoke the same triage → dispatch → monitor → reap pipeline as auto mode, but for a single explicitly-named issue. The user stays in control of which issues get worked on and when API credits are spent.
+
+#### Auto Mode (opt-in)
+
+When the user sends `auto on`, Aegis activates the autonomous poll loop:
+
 POLL → TRIAGE → DISPATCH → MONITOR → REAP → POLL
-```
+
+This runs on a configurable interval (default: 5 seconds) and processes the beads ready queue without further user input. `auto off` (or `pause`) stops the loop and returns to conversational mode.
 
 **POLL:** Execute `bd ready --json`. Parse the result into a list of ready issues. Diff against the set of currently running agents to identify new work.
 
@@ -133,57 +150,70 @@ POLL → TRIAGE → DISPATCH → MONITOR → REAP → POLL
 
 "Oracle comment" and "sentinel comment" are identified by convention — scouts and Sentinels write `bd comment <id> "SCOUTED: ..."` or `bd comment <id> "REVIEWED: ..."` as their final action. The orchestrator greps for these prefixes.
 
+**Important:** In auto mode, only issues that entered the ready queue *after* auto mode was activated are processed. Aegis does NOT retroactively scan all closed issues for missing reviews. Sentinel dispatch in auto mode is limited to issues whose Titan was dispatched by the current Aegis session.
+
 **DISPATCH:** Create a Pi agent session via the SDK with caste-appropriate configuration (see Section 4). Set the agent's working directory to a Labor (git worktree). Inject the beads issue details + relevant learnings into the initial prompt.
 
 **MONITOR:** Subscribe to each agent session's event stream. Track turn count, token usage, elapsed time, and tool call activity. Forward events to Olympus via SSE.
 
 **REAP:** When an agent finishes (session ends or turn/token budget exceeded):
 - Verify beads state matches expected outcome (Titan should have closed the issue, Oracle should have left a comment, etc.)
-- If the agent failed or was killed: mark the issue back to open, record a failure learning
+- If the agent failed or was killed: mark the issue back to open, record a failure learning, record a dispatch failure for backoff tracking
+- If the agent completed successfully: reset the dispatch failure counter for that issue
 - Clean up the Labor
 - Reclaim the concurrency slot
+
+**Dispatch failure backoff:** Three consecutive agent failures (spawn errors, budget kills, or session crashes) for the same issue within a 10-minute window causes that issue to be skipped until the window expires. This prevents infinite respawn loops where an agent repeatedly fails on the same issue.
 
 **Active priority filtering:** Layer 1 maintains an optional priority filter set by the user via steering (e.g., "focus on auth issues"). When active, only issues matching the filter are dispatched. This is a simple text match on issue title/description — no LLM needed.
 
 ### 3.2 Metis: Natural Language Interpreter (Haiku)
 
-This layer activates only when the user sends a message through Olympus's command bar in Steer or Ask mode. It translates natural language intent into structured actions that Layer 1 can execute.
+Metis is the conversational interface between the user and Layer 1. It activates when the user sends a message through Olympus's command bar in Steer or Ask mode, and is also the handler for direct dispatch commands in conversational mode.
 
 **Model:** Claude Haiku (or equivalent cheap/fast model). Target cost: < $0.001 per interaction.
 
 **System prompt (~500 tokens):** Describes the orchestrator's available actions as a JSON schema. Includes current swarm state summary (active agents, beads queue size, active filters). Instructs the model to output a JSON array of actions.
 
 **Available action types:**
-
 ```typescript
 type SteerAction =
-  | { type: "pause" }
-  | { type: "resume" }
-  | { type: "scale", concurrency: number }
-  | { type: "focus", filter: string }  // text match on issues
-  | { type: "clear_focus" }
-  | { type: "rush", issue_id: string }  // bypass Oracle, dispatch Titan immediately
-  | { type: "kill", agent_id: string }
-  | { type: "restart", issue_id: string }
-  | { type: "tell_agent", agent_id: string, message: string }
-  | { type: "tell_all", message: string }  // steering message to all active agents
-  | { type: "add_learning", domain: string, text: string }
-  | { type: "dispatch_oracle", target: string, note: string }
-  | { type: "reprioritize", issue_id: string, priority: number }
-  | { type: "summarize" }  // read-only, return status summary
-  | { type: "noop", explanation: string }  // understood but no action needed
+| { type: "pause" }
+| { type: "resume" }
+| { type: "auto_on" }
+| { type: "auto_off" }
+| { type: "scale", concurrency: number }
+| { type: "focus", filter: string }
+| { type: "clear_focus" }
+| { type: "scout", issue_id: string }       // dispatch Oracle for specific issue
+| { type: "implement", issue_id: string }    // dispatch Titan for specific issue
+| { type: "review", issue_id: string }       // dispatch Sentinel for specific issue
+| { type: "process", issue_id: string }      // full cycle: Oracle → Titan → Sentinel
+| { type: "rush", issue_id: string }         // bypass Oracle, dispatch Titan immediately
+| { type: "kill", agent_id: string }
+| { type: "restart", issue_id: string }
+| { type: "tell_agent", agent_id: string, message: string }
+| { type: "tell_all", message: string }
+| { type: "add_learning", domain: string, text: string }
+| { type: "dispatch_oracle", target: string, note: string }
+| { type: "reprioritize", issue_id: string, priority: number }
+| { type: "summarize" }
+| { type: "noop", explanation: string }
 ```
 
 **Example interactions:**
 
 | User input | Mode | Interpreted actions |
 |------------|------|-------------------|
+| "scout aegis-001" | Direct | `scout` with issue_id |
+| "implement that auth issue" | Steer | `implement` (Metis resolves "that auth issue" to an issue ID) |
+| "review the last 3 closed issues" | Steer | multiple `review` actions |
+| "process the backlog" | Steer | `auto_on` |
+| "stop auto" | Direct | `auto_off` |
 | "the auth module seems like a mess" | Steer | `dispatch_oracle` for auth + `add_learning` |
 | "kill that stuck worker" | Steer | `kill` (identifies stuck agent from context) |
-| "let's wrap up for today" | Steer | `pause` |
 | "how's it going?" | Ask | `summarize` (no state changes) |
 | "scale up, there's a lot of work" | Steer | `scale` with increased concurrency |
-| "stop touching package.json" | Steer | `tell_all` with the instruction |
 
 The interpreter LLM call includes the current swarm state (list of active agents, their issue assignments, queue depth) so it can resolve references like "that stuck worker" to a specific agent ID.
 
@@ -445,10 +475,11 @@ Olympus is a single-page application with a persistent top bar and four main pan
   - 💬 **Steer** — routes to Metis (Haiku interpreter → structured actions)
   - 📋 **Plan** — routes to Prometheus (Sonnet/Opus → beads issue generation)
   - 🔍 **Ask** — routes to read-only Haiku call (summarize state, no actions taken)
-  - ⚡ **Direct** — bypasses LLM, pattern-matches deterministic commands for instant execution (kill, pause, scale, restart)
+  - ⚡ **Direct** — bypasses LLM, pattern-matches deterministic commands for instant execution (scout, implement, review, process, kill, pause, resume, scale, auto on/off, restart)
 - Text input field
 - Send button / Enter to submit
 - Response area below the input showing the orchestrator's interpretation and actions taken
+- Auto mode indicator: when auto mode is active, a pulsing badge appears next to the mode selector showing "AUTO" with a click-to-disable action
 
 Each mode implicitly selects the cost tier and model. The user never needs to choose a model directly — the mode implies it.
 
@@ -624,7 +655,7 @@ When `aegis start` is executed:
 5. Start the HTTP server on the configured port.
 6. Serve the static Olympus files.
 7. Open the browser to `http://localhost:{port}` (unless `--no-browser`).
-8. Begin the Layer 1 polling loop.
+8. Register the Layer 1 dispatch engine (but do NOT begin polling — Aegis starts in conversational mode, idle, waiting for user commands).
 9. Print a one-line status to the terminal: "Aegis running at http://localhost:3847 — Ctrl+C to stop"
 
 ### 9.2 Graceful Shutdown
