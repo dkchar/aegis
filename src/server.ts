@@ -116,6 +116,44 @@ async function handleDirect(input: string, aegis: Aegis): Promise<DirectResult> 
     return { ok: true, message: `Rushing ${issueId} — Titan dispatched.` };
   }
 
+  const scoutMatch = /^scout\s+(\S+)$/.exec(trimmed);
+  if (scoutMatch) {
+    const issueId = scoutMatch[1] ?? "";
+    await aegis.scout(issueId);
+    return { ok: true, message: `Oracle dispatched for ${issueId}.` };
+  }
+
+  const implementMatch = /^implement\s+(\S+)$/.exec(trimmed);
+  if (implementMatch) {
+    const issueId = implementMatch[1] ?? "";
+    await aegis.implement(issueId);
+    return { ok: true, message: `Titan dispatched for ${issueId}.` };
+  }
+
+  const reviewMatch = /^review\s+(\S+)$/.exec(trimmed);
+  if (reviewMatch) {
+    const issueId = reviewMatch[1] ?? "";
+    await aegis.review(issueId);
+    return { ok: true, message: `Sentinel dispatched for ${issueId}.` };
+  }
+
+  const processMatch = /^process\s+(\S+)$/.exec(trimmed);
+  if (processMatch) {
+    const issueId = processMatch[1] ?? "";
+    await aegis.process(issueId);
+    return { ok: true, message: `Processing ${issueId} — full Oracle → Titan → Sentinel cycle started.` };
+  }
+
+  if (trimmed === "auto on") {
+    aegis.autoOn();
+    return { ok: true, message: "Auto mode activated — poll loop running." };
+  }
+
+  if (trimmed === "auto off") {
+    aegis.autoOff();
+    return { ok: true, message: "Auto mode deactivated — returning to conversational mode." };
+  }
+
   const statusCmds = new Set(["status", "state", "info"]);
   if (statusCmds.has(trimmed)) {
     const state = aegis.getState();
@@ -127,7 +165,7 @@ async function handleDirect(input: string, aegis: Aegis): Promise<DirectResult> 
     return { ok: true, message: "Orchestrator stopping." };
   }
 
-  return { ok: false, message: `Unknown direct command: "${input}". Try: pause, resume, stop, kill <id>, scale <n>, focus <text>, rush <issue-id>` };
+  return { ok: false, message: `Unknown direct command: "${input}". Try: pause, resume, stop, kill <id>, scale <n>, focus <text>, rush <issue-id>, scout <id>, implement <id>, review <id>, process <id>, auto on, auto off` };
 }
 
 // ---------------------------------------------------------------------------

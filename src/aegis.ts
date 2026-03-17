@@ -112,6 +112,25 @@ export class Aegis {
   /** Whether a tick is currently in progress (prevents re-entrant ticks) */
   private ticking = false;
 
+  /**
+   * Whether the autonomous poll loop is active (opt-in per SPEC §3.1).
+   * Starts false; activated via autoOn() / "auto on" command.
+   */
+  private autoMode = false;
+
+  /**
+   * Issue IDs for which a Titan was dispatched in this session.
+   * findClosedUnreviewed() only checks these issues so Sentinels are not
+   * dispatched for issues closed outside the current session (SPEC §3.1).
+   */
+  private titanDispatchedIssues = new Set<string>();
+
+  /**
+   * Issue IDs being processed through the full Oracle → Titan → Sentinel
+   * cycle via the process() command.  reap() auto-advances these.
+   */
+  private processQueue = new Set<string>();
+
   constructor(config: AegisConfig, projectRoot: string = process.cwd()) {
     this.config = config;
     this.projectRoot = projectRoot;
@@ -123,8 +142,9 @@ export class Aegis {
   // --------------------------------------------------------------------------
 
   /**
-   * Start the Layer 1 dispatch loop.
-   * Runs the first tick immediately, then on the configured interval.
+   * Start the orchestrator in conversational-first (idle) mode per SPEC §3.1.
+   * Performs crash recovery, then waits for user direction.
+   * The autonomous poll loop does NOT start here — use autoOn() / "auto on".
    */
   async start(): Promise<void> {
     this._running = true;
@@ -138,15 +158,7 @@ export class Aegis {
     // stale labors left over from a previous crash (SPEC §2.3).
     await this.recover();
 
-    // First tick immediately
-    await this.tick();
-
-    // Then on interval
-    this.pollTimer = setInterval(() => {
-      if (!this._paused && !this._stopping && !this.ticking) {
-        void this.tick();
-      }
-    }, this.config.timing.poll_interval_seconds * 1000);
+    // Aegis is now idle — awaiting user commands or autoOn().
   }
 
   /**
@@ -290,6 +302,7 @@ export class Aegis {
         ? Math.floor((Date.now() - this.startedAt) / 1000)
         : 0,
       focus_filter: this.focusFilter,
+      auto_mode: this.autoMode,
     };
   }
 
@@ -321,6 +334,64 @@ export class Aegis {
     const issue = await beads.show(issueId);
     await this.dispatchTitan(issue, "(rushed — no oracle assessment)");
     this.emit({ type: "orchestrator.rushed", data: { issue_id: issueId }, timestamp: Date.now() });
+  }
+
+  /** Scout: dispatch an Oracle for the given issue (conversational mode) */
+  async scout(issueId: string): Promise<void> {
+    const issue = await beads.show(issueId);
+    await this.dispatchOracle(issue);
+  }
+
+  /** Implement: dispatch a Titan for the given issue (conversational mode) */
+  async implement(issueId: string): Promise<void> {
+    const issue = await beads.show(issueId);
+    await this.dispatchTitan(issue, "");
+  }
+
+  /** Review: dispatch a Sentinel for the given issue (conversational mode) */
+  async review(issueId: string): Promise<void> {
+    const issue = await beads.show(issueId);
+    await this.dispatchSentinel(issue, "");
+  }
+
+  /**
+   * Process: run the full Oracle → Titan → Sentinel cycle for one issue.
+   * Dispatches the appropriate agent for the current stage; reap() auto-advances
+   * to the next stage on completion (SPEC §3.1).
+   */
+  async process(issueId: string): Promise<void> {
+    this.processQueue.add(issueId);
+    await this.advanceProcess(issueId);
+    this.emit({ type: "orchestrator.processing", data: { issue_id: issueId }, timestamp: Date.now() });
+  }
+
+  /**
+   * Activate the autonomous poll loop (SPEC §3.1 auto mode).
+   * Runs the first tick immediately, then on the configured interval.
+   */
+  autoOn(): void {
+    if (this.autoMode) return; // already active
+    this.autoMode = true;
+    void this.tick();
+    this.pollTimer = setInterval(() => {
+      if (!this._paused && !this._stopping && !this.ticking) {
+        void this.tick();
+      }
+    }, this.config.timing.poll_interval_seconds * 1000);
+    this.emit({ type: "orchestrator.auto_on", data: {}, timestamp: Date.now() });
+  }
+
+  /**
+   * Deactivate the autonomous poll loop, returning to conversational mode.
+   */
+  autoOff(): void {
+    if (!this.autoMode) return; // already inactive
+    this.autoMode = false;
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+    this.emit({ type: "orchestrator.auto_off", data: {}, timestamp: Date.now() });
   }
 
   async kill(agentId: string): Promise<void> {
@@ -621,11 +692,9 @@ export class Aegis {
       // runningByIssueId() for the rest of the current tick's dispatch loop.
       // reapCompleted() will mark it "failed" and clean it up.
       this.spawnPendingReap.add(agentId);
-      this.recordDispatchFailure(issue.id);
       return;
     }
 
-    this.resetDispatchFailures(issue.id);
     this.registerAgent(agentId, state, session);
     this.emit({
       type: "agent.spawned",
@@ -662,12 +731,15 @@ export class Aegis {
         timestamp: Date.now(),
       });
       this.spawnPendingReap.add(agentId);
-      this.recordDispatchFailure(issue.id);
       return;
     }
 
     // Update the pre-registered state with the labor path now that we have it.
     state.labor_path = laborPath;
+
+    // Track that a Titan was dispatched for this issue so findClosedUnreviewed()
+    // can limit Sentinel dispatch to session-dispatched issues (SPEC §3.1).
+    this.titanDispatchedIssues.add(issue.id);
 
     let session: AgentSession;
     try {
@@ -679,13 +751,11 @@ export class Aegis {
         timestamp: Date.now(),
       });
       this.spawnPendingReap.add(agentId);
-      this.recordDispatchFailure(issue.id);
       // Clean up the Labor we just created
       await labors.cleanup(issue.id, this.config, this.projectRoot).catch(() => undefined);
       return;
     }
 
-    this.resetDispatchFailures(issue.id);
     this.registerAgent(agentId, state, session);
     this.emit({
       type: "agent.spawned",
@@ -728,11 +798,9 @@ export class Aegis {
         timestamp: Date.now(),
       });
       this.spawnPendingReap.add(agentId);
-      this.recordDispatchFailure(issue.id);
       return;
     }
 
-    this.resetDispatchFailures(issue.id);
     this.registerAgent(agentId, state, session);
     this.emit({
       type: "agent.spawned",
@@ -886,6 +954,15 @@ export class Aegis {
       timestamp: Date.now(),
     });
 
+    // Update dispatch failure tracking (aegis-0in).
+    // Consolidating here (instead of per-spawn-path) ensures budget-killed and
+    // stuck-killed agents also count toward the backoff window.
+    if (state.status === "killed" || state.status === "failed") {
+      this.recordDispatchFailure(state.issue_id);
+    } else if (state.status === "completed") {
+      this.resetDispatchFailures(state.issue_id);
+    }
+
     // For Titans: merge Labor back into main
     if (state.caste === "titan" && state.labor_path !== null) {
       await this.reapTitanLabor(state);
@@ -929,6 +1006,13 @@ export class Aegis {
     // Remove agent from active map (slot is now free)
     this.agents.delete(agentId);
     this.recentToolCalls.delete(agentId);
+
+    // Auto-advance process() cycle if this issue is being processed.
+    if (state.status === "completed" && this.processQueue.has(state.issue_id)) {
+      void this.advanceProcess(state.issue_id).catch(() => {
+        this.processQueue.delete(state.issue_id);
+      });
+    }
   }
 
   private async reapTitanLabor(state: AgentState): Promise<void> {
@@ -1045,27 +1129,38 @@ export class Aegis {
   }
 
   /**
-   * Find closed issues that have no REVIEWED: comment.
-   * These need a Sentinel dispatched.
+   * Find closed issues that need a Sentinel review.
+   * Only checks issues whose Titan was dispatched by this session (SPEC §3.1)
+   * to avoid dispatching Sentinels for issues closed manually or outside Aegis.
    */
   private async findClosedUnreviewed(): Promise<BeadsIssue[]> {
-    let allIssues: BeadsIssue[];
-    try {
-      allIssues = await beads.list();
-    } catch {
-      return [];
-    }
+    if (this.titanDispatchedIssues.size === 0) return [];
 
-    const closedIds = allIssues
-      .filter((i) => i.status === "closed")
-      .map((i) => i.id);
-
-    if (closedIds.length === 0) return [];
-
-    const closedFull = await this.fetchFullIssues(closedIds);
-    return closedFull.filter(
-      (i) => !i.comments.some((c) => c.body.startsWith("REVIEWED:"))
+    const candidates = await this.fetchFullIssues([...this.titanDispatchedIssues]);
+    return candidates.filter(
+      (i) =>
+        i.status === "closed" &&
+        !i.comments.some((c) => c.body.startsWith("REVIEWED:"))
     );
+  }
+
+  /**
+   * Advance a process()-managed issue to its next dispatch stage.
+   * Called from reap() when an agent for the issue completes successfully.
+   */
+  private async advanceProcess(issueId: string): Promise<void> {
+    const issue = await beads.show(issueId);
+    const action = triage(issue, this.runningByIssueId(), this.config.concurrency);
+    if (action.type !== "skip") {
+      await this.dispatch(action);
+    } else if (
+      issue.status === "closed" &&
+      issue.comments.some((c) => c.body.startsWith("REVIEWED:"))
+    ) {
+      // Full cycle complete — remove from process queue
+      this.processQueue.delete(issueId);
+    }
+    // Otherwise: still waiting (e.g., concurrency limit hit). Will retry on next reap.
   }
 
   private dedupById(issues: BeadsIssue[]): BeadsIssue[] {

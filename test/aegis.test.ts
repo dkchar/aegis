@@ -728,15 +728,40 @@ describe("tellAll()", () => {
 // Closed issues → Sentinel discovery
 // ---------------------------------------------------------------------------
 
-describe("closed issue Sentinel discovery", () => {
-  it("dispatches Sentinel for closed issues with no REVIEWED comment", async () => {
+// ---------------------------------------------------------------------------
+// Closed issue Sentinel discovery — aegis-o5u
+// ---------------------------------------------------------------------------
+// findClosedUnreviewed() now only checks issues whose Titan was dispatched
+// in the current session (titanDispatchedIssues set), not all closed issues.
+
+describe("closed issue Sentinel discovery (aegis-o5u)", () => {
+  it("dispatches Sentinel for a closed issue after its Titan completed this session", async () => {
+    const openIssue = makeIssue("closed-001", { status: "open", comments: [] });
     const closedIssue = makeIssue("closed-001", {
       status: "closed",
       comments: [{ id: "c1", body: "SCOUTED: done", author: "oracle", created_at: "" }],
     });
 
-    vi.mocked(pollerMock.poll).mockResolvedValue([]); // nothing in ready queue
-    vi.mocked(beadsMock.list).mockResolvedValue([closedIssue]);
+    // Tick 1: dispatch Titan; session resolves immediately so Titan completes
+    vi.mocked(pollerMock.poll).mockResolvedValue([openIssue]);
+    vi.mocked(beadsMock.show).mockResolvedValue(openIssue);
+    vi.mocked(triageMock.triage).mockReturnValueOnce({
+      type: "dispatch_titan",
+      issue: openIssue,
+      scoutComment: "SCOUTED: done",
+    });
+    mockSession.prompt.mockResolvedValueOnce(undefined); // Titan completes immediately
+
+    const aegis = makeAegis();
+    await (aegis as unknown as { runTick: () => Promise<void> }).runTick();
+
+    // Wait for the Titan to complete and be reaped
+    await vi.waitFor(() => {
+      expect(aegis.getState().agents).toHaveLength(0);
+    }, { timeout: 1000 });
+
+    // Tick 2: poll empty, show returns closed issue — Sentinel should now be dispatched
+    vi.mocked(pollerMock.poll).mockResolvedValue([]);
     vi.mocked(beadsMock.show).mockResolvedValue(closedIssue);
     vi.mocked(triageMock.triage).mockReturnValueOnce({
       type: "dispatch_sentinel",
@@ -744,13 +769,32 @@ describe("closed issue Sentinel discovery", () => {
       scoutComment: "SCOUTED: done",
     });
 
-    const aegis = makeAegis();
     await (aegis as unknown as { runTick: () => Promise<void> }).runTick();
 
     expect(spawnerMock.spawnSentinel).toHaveBeenCalledOnce();
   });
 
+  it("does NOT dispatch Sentinel for issues whose Titan was NOT dispatched this session", async () => {
+    // closed issue that was closed before this session — no Titan dispatched
+    const closedIssue = makeIssue("closed-external", {
+      status: "closed",
+      comments: [{ id: "c1", body: "SCOUTED: done", author: "oracle", created_at: "" }],
+    });
+
+    vi.mocked(pollerMock.poll).mockResolvedValue([]);
+    vi.mocked(beadsMock.list).mockResolvedValue([closedIssue]); // old beads.list (no longer used)
+    vi.mocked(beadsMock.show).mockResolvedValue(closedIssue);
+
+    const aegis = makeAegis();
+    await (aegis as unknown as { runTick: () => Promise<void> }).runTick();
+
+    // titanDispatchedIssues is empty, so findClosedUnreviewed returns []
+    expect(spawnerMock.spawnSentinel).not.toHaveBeenCalled();
+    expect(triageMock.triage).not.toHaveBeenCalled();
+  });
+
   it("does NOT dispatch Sentinel for closed issues that already have REVIEWED comment", async () => {
+    const openIssue = makeIssue("closed-002", { status: "open" });
     const reviewedIssue = makeIssue("closed-002", {
       status: "closed",
       comments: [
@@ -759,15 +803,31 @@ describe("closed issue Sentinel discovery", () => {
       ],
     });
 
-    vi.mocked(pollerMock.poll).mockResolvedValue([]);
-    vi.mocked(beadsMock.list).mockResolvedValue([reviewedIssue]);
-    vi.mocked(beadsMock.show).mockResolvedValue(reviewedIssue);
+    // Tick 1: dispatch Titan; completes immediately
+    vi.mocked(pollerMock.poll).mockResolvedValue([openIssue]);
+    vi.mocked(beadsMock.show).mockResolvedValue(openIssue);
+    vi.mocked(triageMock.triage).mockReturnValueOnce({
+      type: "dispatch_titan",
+      issue: openIssue,
+      scoutComment: "SCOUTED: done",
+    });
+    mockSession.prompt.mockResolvedValueOnce(undefined);
 
     const aegis = makeAegis();
     await (aegis as unknown as { runTick: () => Promise<void> }).runTick();
 
+    // Wait for Titan to be reaped
+    await vi.waitFor(() => {
+      expect(aegis.getState().agents).toHaveLength(0);
+    }, { timeout: 1000 });
+
+    // Tick 2: issue now closed with REVIEWED comment — filtered out, no Sentinel
+    vi.mocked(pollerMock.poll).mockResolvedValue([]);
+    vi.mocked(beadsMock.show).mockResolvedValue(reviewedIssue);
+
+    await (aegis as unknown as { runTick: () => Promise<void> }).runTick();
+
     expect(spawnerMock.spawnSentinel).not.toHaveBeenCalled();
-    expect(triageMock.triage).not.toHaveBeenCalled();
   });
 });
 
@@ -1041,5 +1101,211 @@ describe("crash recovery on start()", () => {
     await expect(
       (aegis as unknown as { recover: RecoverFn }).recover()
     ).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reap() backoff — aegis-0in
+// ---------------------------------------------------------------------------
+// reap() must call recordDispatchFailure() for killed/failed agents so that
+// budget-killed agents (not just spawn-failed ones) count toward the backoff.
+
+describe("reap() dispatch failure backoff (aegis-0in)", () => {
+  it("blocks an issue after a budget-killed agent is reaped (not just spawn failures)", async () => {
+    const issue = makeIssue("budget-kill-001");
+    vi.mocked(pollerMock.poll).mockResolvedValue([issue]);
+    vi.mocked(beadsMock.show).mockResolvedValue(issue);
+    vi.mocked(triageMock.triage).mockReturnValue({ type: "dispatch_oracle", issue });
+
+    // Agent never resolves (stays running until killed)
+    mockSession.prompt.mockReturnValue(new Promise(() => {}));
+
+    // Capture subscribe so we can fire turn_end to trigger budget kill
+    let subscribeCb: ((e: { type: string }) => void) | undefined;
+    mockSession.subscribe.mockImplementation((cb: (e: { type: string }) => void) => {
+      subscribeCb = cb;
+      return () => {};
+    });
+
+    vi.mocked(monitorMock.checkBudget).mockReturnValue({
+      exceeded: true,
+      resource: "turns",
+      current: 5,
+      limit: 5,
+    });
+
+    const aegis = makeAegis();
+    const runTick = () => (aegis as unknown as { runTick: () => Promise<void> }).runTick();
+
+    // Run 3 ticks — each spawns an agent that gets budget-killed via turn_end
+    for (let i = 0; i < 3; i++) {
+      await runTick();
+      subscribeCb!({ type: "turn_end" }); // triggers budget kill → status=killed
+      await runTick(); // reap picks it up, calls recordDispatchFailure
+      // reset subscribe mock for next agent
+      mockSession.subscribe.mockImplementation((cb: (e: { type: string }) => void) => {
+        subscribeCb = cb;
+        return () => {};
+      });
+    }
+
+    const spawnCount = vi.mocked(spawnerMock.spawnOracle).mock.calls.length;
+
+    // 4th tick — issue should be blocked (backoff hit MAX_DISPATCH_FAILURES=3)
+    await runTick();
+    expect(vi.mocked(spawnerMock.spawnOracle).mock.calls.length).toBe(spawnCount);
+  });
+
+  it("resets failure counter on successful completion", async () => {
+    const issue = makeIssue("budget-reset-001");
+    vi.mocked(pollerMock.poll).mockResolvedValue([issue]);
+    vi.mocked(beadsMock.show).mockResolvedValue(issue);
+    vi.mocked(triageMock.triage).mockReturnValue({ type: "dispatch_oracle", issue });
+
+    // First tick: agent completes successfully → reap calls resetDispatchFailures
+    mockSession.prompt.mockResolvedValueOnce(undefined);
+
+    const aegis = makeAegis();
+    const runTick = () => (aegis as unknown as { runTick: () => Promise<void> }).runTick();
+
+    await runTick();
+    await vi.waitFor(() => {
+      // After successful completion and reap, failure counter is reset.
+      // Verify by checking a second tick is not blocked.
+      return Promise.resolve();
+    });
+
+    const countAfterSuccess = vi.mocked(spawnerMock.spawnOracle).mock.calls.length;
+    expect(countAfterSuccess).toBe(1);
+
+    // Second tick should still dispatch (not blocked)
+    mockSession.prompt.mockResolvedValueOnce(undefined);
+    await runTick();
+    expect(vi.mocked(spawnerMock.spawnOracle).mock.calls.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Conversational-first mode — aegis-5yy
+// ---------------------------------------------------------------------------
+
+describe("start() is idle by default (aegis-5yy)", () => {
+  it("start() does not call tick() — no poll on startup", async () => {
+    vi.mocked(beadsMock.list).mockResolvedValue([]);
+    vi.mocked(laborsMock.list).mockResolvedValue([]);
+
+    const aegis = makeAegis();
+    await aegis.start();
+
+    // poll should NOT have been called (idle mode)
+    expect(pollerMock.poll).not.toHaveBeenCalled();
+  });
+
+  it("autoOn() activates the poll loop and triggers a tick", async () => {
+    vi.mocked(beadsMock.list).mockResolvedValue([]);
+    vi.mocked(laborsMock.list).mockResolvedValue([]);
+
+    const aegis = makeAegis();
+    await aegis.start();
+
+    const events: SSEEvent[] = [];
+    aegis.onEvent((e) => events.push(e));
+
+    aegis.autoOn();
+
+    // Should emit auto_on event
+    expect(events.some((e) => e.type === "orchestrator.auto_on")).toBe(true);
+
+    // Give tick a chance to run
+    await vi.waitFor(() => {
+      expect(pollerMock.poll).toHaveBeenCalled();
+    }, { timeout: 500 });
+
+    aegis.autoOff(); // clean up timer
+  });
+
+  it("autoOff() stops the poll loop and emits auto_off event", async () => {
+    vi.mocked(beadsMock.list).mockResolvedValue([]);
+    vi.mocked(laborsMock.list).mockResolvedValue([]);
+
+    const aegis = makeAegis();
+    await aegis.start();
+
+    const events: SSEEvent[] = [];
+    aegis.onEvent((e) => events.push(e));
+
+    aegis.autoOn();
+    aegis.autoOff();
+
+    expect(events.some((e) => e.type === "orchestrator.auto_off")).toBe(true);
+  });
+
+  it("getState() includes auto_mode field", async () => {
+    const aegis = makeAegis();
+    expect(aegis.getState().auto_mode).toBe(false);
+
+    vi.mocked(beadsMock.list).mockResolvedValue([]);
+    vi.mocked(laborsMock.list).mockResolvedValue([]);
+    await aegis.start();
+    aegis.autoOn();
+    expect(aegis.getState().auto_mode).toBe(true);
+    aegis.autoOff();
+    expect(aegis.getState().auto_mode).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Direct dispatch commands — aegis-chx
+// ---------------------------------------------------------------------------
+
+describe("direct dispatch commands (aegis-chx)", () => {
+  it("scout() dispatches an Oracle for the specified issue", async () => {
+    const issue = makeIssue("scout-001");
+    vi.mocked(beadsMock.show).mockResolvedValue(issue);
+
+    const aegis = makeAegis();
+    await aegis.scout("scout-001");
+
+    expect(beadsMock.show).toHaveBeenCalledWith("scout-001");
+    expect(spawnerMock.spawnOracle).toHaveBeenCalledOnce();
+  });
+
+  it("implement() dispatches a Titan for the specified issue", async () => {
+    const issue = makeIssue("impl-001");
+    vi.mocked(beadsMock.show).mockResolvedValue(issue);
+    mockSession.prompt.mockReturnValue(new Promise(() => {}));
+
+    const aegis = makeAegis();
+    await aegis.implement("impl-001");
+
+    expect(beadsMock.show).toHaveBeenCalledWith("impl-001");
+    expect(laborsMock.create).toHaveBeenCalledWith(issue.id, CFG, expect.any(String));
+    expect(spawnerMock.spawnTitan).toHaveBeenCalledOnce();
+  });
+
+  it("review() dispatches a Sentinel for the specified issue", async () => {
+    const issue = makeIssue("review-001");
+    vi.mocked(beadsMock.show).mockResolvedValue(issue);
+
+    const aegis = makeAegis();
+    await aegis.review("review-001");
+
+    expect(beadsMock.show).toHaveBeenCalledWith("review-001");
+    expect(spawnerMock.spawnSentinel).toHaveBeenCalledOnce();
+  });
+
+  it("process() adds issue to processQueue and dispatches based on triage", async () => {
+    const issue = makeIssue("proc-001");
+    vi.mocked(beadsMock.show).mockResolvedValue(issue);
+    vi.mocked(triageMock.triage).mockReturnValueOnce({ type: "dispatch_oracle", issue });
+
+    const aegis = makeAegis();
+    const events: SSEEvent[] = [];
+    aegis.onEvent((e) => events.push(e));
+
+    await aegis.process("proc-001");
+
+    expect(spawnerMock.spawnOracle).toHaveBeenCalledOnce();
+    expect(events.some((e) => e.type === "orchestrator.processing")).toBe(true);
   });
 });

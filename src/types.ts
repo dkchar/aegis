@@ -125,4 +125,5 @@ export interface SwarmState {
   total_cost_usd: number;
   uptime_seconds: number;
   focus_filter: string | null;
+  auto_mode: boolean;
 }

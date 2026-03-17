@@ -19,6 +19,12 @@ function makeAegisMock(overrides: Partial<{
   focus: (f: string) => void;
   clearFocus: () => void;
   rush: (id: string) => Promise<void>;
+  scout: (id: string) => Promise<void>;
+  implement: (id: string) => Promise<void>;
+  review: (id: string) => Promise<void>;
+  process: (id: string) => Promise<void>;
+  autoOn: () => void;
+  autoOff: () => void;
   getState: () => SwarmState;
   onEvent: () => void;
 }> = {}) {
@@ -31,6 +37,12 @@ function makeAegisMock(overrides: Partial<{
     focus: vi.fn(),
     clearFocus: vi.fn(),
     rush: vi.fn().mockResolvedValue(undefined),
+    scout: vi.fn().mockResolvedValue(undefined),
+    implement: vi.fn().mockResolvedValue(undefined),
+    review: vi.fn().mockResolvedValue(undefined),
+    process: vi.fn().mockResolvedValue(undefined),
+    autoOn: vi.fn(),
+    autoOff: vi.fn(),
     getState: vi.fn().mockReturnValue({
       status: "running",
       agents: [],
@@ -38,6 +50,7 @@ function makeAegisMock(overrides: Partial<{
       total_cost_usd: 0,
       uptime_seconds: 10,
       focus_filter: null,
+      auto_mode: false,
     } satisfies SwarmState),
     onEvent: vi.fn(),
     ...overrides,
@@ -238,5 +251,77 @@ describe("GET /api/config", () => {
     expect(body).toHaveProperty("models");
     expect(body).toHaveProperty("concurrency");
     expect(body).not.toHaveProperty("auth");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Direct mode: conversational dispatch commands (aegis-chx)
+// ---------------------------------------------------------------------------
+
+describe("POST /api/steer direct mode: scout/implement/review/process (aegis-chx)", () => {
+  it("scout <id> calls aegis.scout() and returns ok:true", async () => {
+    const aegis = makeAegisMock();
+    await startServer(aegis, 19930);
+
+    const res = await post("http://localhost:19930/api/steer", { mode: "direct", input: "scout aegis-001" });
+
+    expect(res.status).toBe(200);
+    expect((res.body as { ok: boolean }).ok).toBe(true);
+    expect(aegis.scout).toHaveBeenCalledWith("aegis-001");
+  });
+
+  it("implement <id> calls aegis.implement() and returns ok:true", async () => {
+    const aegis = makeAegisMock();
+    await startServer(aegis, 19931);
+
+    const res = await post("http://localhost:19931/api/steer", { mode: "direct", input: "implement aegis-002" });
+
+    expect(res.status).toBe(200);
+    expect((res.body as { ok: boolean }).ok).toBe(true);
+    expect(aegis.implement).toHaveBeenCalledWith("aegis-002");
+  });
+
+  it("review <id> calls aegis.review() and returns ok:true", async () => {
+    const aegis = makeAegisMock();
+    await startServer(aegis, 19932);
+
+    const res = await post("http://localhost:19932/api/steer", { mode: "direct", input: "review aegis-003" });
+
+    expect(res.status).toBe(200);
+    expect((res.body as { ok: boolean }).ok).toBe(true);
+    expect(aegis.review).toHaveBeenCalledWith("aegis-003");
+  });
+
+  it("process <id> calls aegis.process() and returns ok:true", async () => {
+    const aegis = makeAegisMock();
+    await startServer(aegis, 19933);
+
+    const res = await post("http://localhost:19933/api/steer", { mode: "direct", input: "process aegis-004" });
+
+    expect(res.status).toBe(200);
+    expect((res.body as { ok: boolean }).ok).toBe(true);
+    expect(aegis.process).toHaveBeenCalledWith("aegis-004");
+  });
+
+  it("'auto on' calls aegis.autoOn() and returns ok:true", async () => {
+    const aegis = makeAegisMock();
+    await startServer(aegis, 19934);
+
+    const res = await post("http://localhost:19934/api/steer", { mode: "direct", input: "auto on" });
+
+    expect(res.status).toBe(200);
+    expect((res.body as { ok: boolean }).ok).toBe(true);
+    expect(aegis.autoOn).toHaveBeenCalledOnce();
+  });
+
+  it("'auto off' calls aegis.autoOff() and returns ok:true", async () => {
+    const aegis = makeAegisMock();
+    await startServer(aegis, 19935);
+
+    const res = await post("http://localhost:19935/api/steer", { mode: "direct", input: "auto off" });
+
+    expect(res.status).toBe(200);
+    expect((res.body as { ok: boolean }).ok).toBe(true);
+    expect(aegis.autoOff).toHaveBeenCalledOnce();
   });
 });
