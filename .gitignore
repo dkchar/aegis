@@ -1,11 +1,12 @@
+# Local runtime state
+.beads/
 
 # Dolt database files (added by bd init)
 .dolt/
 *.db
 
-# Aegis
-.aegis/config.json
-.aegis/labors/
+# Aegis local state
+.aegis/
 dist/
 node_modules/
 
@@ -16,3 +17,4 @@ olympus/node_modules/
 # Coding agents
 .claude/
 .ant-colony/
+.pi/

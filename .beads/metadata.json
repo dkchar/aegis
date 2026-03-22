@@ -1,7 +1,0 @@
-{
-  "database": "dolt",
-  "backend": "dolt",
-  "dolt_mode": "server",
-  "dolt_database": "aegis",
-  "project_id": "19c725b3-3279-4de0-ba38-4332beec0815"
-}
