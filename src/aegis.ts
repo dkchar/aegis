@@ -16,6 +16,7 @@ import * as labors from "./labors.js";
 import * as beads from "./beads.js";
 
 import type {
+  AgentHandle,
   AgentState,
   AegisConfig,
   SSEEvent,
@@ -23,7 +24,6 @@ import type {
   BeadsIssue,
   MnemosyneRecord,
 } from "./types.js";
-import type { AgentSession } from "@mariozechner/pi-coding-agent";
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -33,10 +33,10 @@ interface RunningAgent {
   state: AgentState;
   /**
    * Null during the brief window between slot pre-registration and a
-   * successful createAgentSession() call.  All code that uses session must
+   * successful runtime spawn. All code that uses session must
    * guard against null.
    */
-  session: AgentSession | null;
+  session: AgentHandle | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -769,7 +769,7 @@ export class Aegis {
     });
     this.agents.set(agentId, { state, session: null });
 
-    let session: AgentSession;
+    let session: AgentHandle;
     try {
       session = await spawner.spawnOracle(issue, learnings, this.config, this.agentsMd);
     } catch (err) {
@@ -831,7 +831,7 @@ export class Aegis {
     // can limit Sentinel dispatch to session-dispatched issues (SPEC §3.1).
     this.titanDispatchedIssues.add(issue.id);
 
-    let session: AgentSession;
+    let session: AgentHandle;
     try {
       session = await spawner.spawnTitan(issue, learnings, laborPath, this.config, this.agentsMd);
     } catch (err) {
@@ -878,7 +878,7 @@ export class Aegis {
     });
     this.agents.set(agentId, { state, session: null });
 
-    let session: AgentSession;
+    let session: AgentHandle;
     try {
       session = await spawner.spawnSentinel(issue, learnings, this.config, this.agentsMd);
     } catch (err) {
@@ -905,7 +905,7 @@ export class Aegis {
   // Session management
   // --------------------------------------------------------------------------
 
-  private registerAgent(agentId: string, state: AgentState, session: AgentSession): void {
+  private registerAgent(agentId: string, state: AgentState, session: AgentHandle): void {
     // Update the pre-registered entry (session was null) with the live session.
     this.agents.set(agentId, { state, session });
 
@@ -930,11 +930,11 @@ export class Aegis {
         state.last_tool_call_at = Date.now();
         // Refresh cumulative cost and token usage
         try {
-          const stats = session.getSessionStats();
+          const stats = session.getStats();
           state.tokens = stats.tokens.total;
           state.cost_usd = stats.cost;
         } catch {
-          // getSessionStats() may fail if session is shutting down
+          // getStats() may fail if session is shutting down
         }
 
         // Real-time budget enforcement — kill immediately on the turn boundary
@@ -978,7 +978,7 @@ export class Aegis {
   private runSession(
     agentId: string,
     state: AgentState,
-    session: AgentSession,
+    session: AgentHandle,
     initialPrompt: string
   ): void {
     void session

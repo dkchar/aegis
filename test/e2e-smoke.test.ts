@@ -62,16 +62,10 @@ function makeSession(onPrompt: () => void) {
       unsubscribe = () => {};
       return () => { unsubscribe?.(); };
     }),
-    getSessionStats: vi.fn().mockReturnValue({
+    getStats: vi.fn().mockReturnValue({
       tokens: { total: 200, input: 150, output: 50, cacheRead: 0, cacheWrite: 0 },
       cost: 0.002,
-      sessionFile: undefined,
       sessionId: "fake-sid",
-      userMessages: 1,
-      assistantMessages: 1,
-      toolCalls: 3,
-      toolResults: 3,
-      totalMessages: 5,
     }),
   };
 }

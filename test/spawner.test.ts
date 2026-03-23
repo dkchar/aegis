@@ -4,7 +4,25 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { BeadsIssue, MnemosyneRecord, AegisConfig } from "../src/types.js";
 
-const mockSession = { id: "mock-session", prompt: vi.fn() };
+const mockSessionStats = {
+  tokens: { total: 42, input: 30, output: 12, cacheRead: 0, cacheWrite: 0 },
+  cost: 0.123,
+  sessionFile: undefined,
+  sessionId: "mock-session",
+  userMessages: 1,
+  assistantMessages: 1,
+  toolCalls: 2,
+  toolResults: 2,
+  totalMessages: 4,
+};
+const mockSession = {
+  id: "mock-session",
+  prompt: vi.fn().mockResolvedValue(undefined),
+  steer: vi.fn().mockResolvedValue(undefined),
+  abort: vi.fn().mockResolvedValue(undefined),
+  subscribe: vi.fn().mockReturnValue(() => {}),
+  getSessionStats: vi.fn().mockReturnValue(mockSessionStats),
+};
 const mockCreate = vi.fn().mockResolvedValue({ session: mockSession });
 const mockSMInMemory = vi.fn().mockReturnValue("in-memory-sm");
 const mockSetRuntimeApiKey = vi.fn();
@@ -107,7 +125,17 @@ describe("buildSystemPrompt()", () => {
 });
 
 describe("spawn functions", () => {
-  beforeEach(() => { mockCreate.mockClear(); mockGetModel.mockClear(); mockModelRegistryCtor.mockClear(); });
+  beforeEach(() => {
+    mockCreate.mockClear();
+    mockGetModel.mockClear();
+    mockModelRegistryCtor.mockClear();
+    mockSession.prompt.mockClear();
+    mockSession.steer.mockClear();
+    mockSession.abort.mockClear();
+    mockSession.subscribe.mockClear();
+    mockSession.getSessionStats.mockClear();
+    mockSession.getSessionStats.mockReturnValue(mockSessionStats);
+  });
 
   it("spawnOracle uses read-only tools", async () => {
     await spawnOracle(makeIssue(), [], CFG, "AGENTS");
@@ -149,9 +177,32 @@ describe("spawn functions", () => {
     expect(mockCreate.mock.calls[0][0].sessionManager).toBe("in-memory-sm");
   });
 
-  it("returns the session object", async () => {
-    const r = await spawnOracle(makeIssue(), [], CFG, "AGENTS");
-    expect(r).toBe(mockSession);
+  it("returns an AgentHandle that proxies the Pi session", async () => {
+    const handle = await spawnOracle(makeIssue(), [], CFG, "AGENTS");
+    await handle.prompt("hello");
+    await handle.steer("focus");
+    await handle.abort();
+    handle.subscribe(() => undefined);
+
+    expect(mockSession.prompt).toHaveBeenCalledWith("hello");
+    expect(mockSession.steer).toHaveBeenCalledWith("focus");
+    expect(mockSession.abort).toHaveBeenCalledOnce();
+    expect(mockSession.subscribe).toHaveBeenCalledOnce();
+  });
+
+  it("maps session stats to AgentStats", async () => {
+    const handle = await spawnOracle(makeIssue(), [], CFG, "AGENTS");
+    expect(handle.getStats()).toEqual({
+      sessionId: "mock-session",
+      cost: 0.123,
+      tokens: {
+        total: 42,
+        input: 30,
+        output: 12,
+        cacheRead: 0,
+        cacheWrite: 0,
+      },
+    });
   });
 
   it("handles provider:model format", async () => {

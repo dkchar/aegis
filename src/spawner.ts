@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { createAgentSession, SessionManager, AuthStorage, ModelRegistry, readOnlyTools, codingTools } from "@mariozechner/pi-coding-agent";
 import { getModel } from "@mariozechner/pi-ai";
 import type { AgentSession } from "@mariozechner/pi-coding-agent";
-import type { BeadsIssue, MnemosyneRecord, AegisConfig, Caste } from "./types.js";
+import type { AgentHandle, AgentStats, BeadsIssue, MnemosyneRecord, AegisConfig, Caste } from "./types.js";
 
 /**
  * Returns the default Pi agent config directory (~/.pi/agent).
@@ -57,6 +57,33 @@ function applyWindowsSpawnFixes(): void {
 export function casteToolFilter(caste: Caste): typeof codingTools | typeof readOnlyTools {
   if (caste === "titan") return codingTools;
   return readOnlyTools;
+}
+
+function toAgentStats(session: Pick<AgentSession, "getSessionStats">): AgentStats {
+  const stats = session.getSessionStats();
+  return {
+    sessionId: stats.sessionId,
+    cost: stats.cost,
+    tokens: {
+      total: stats.tokens.total,
+      input: stats.tokens.input,
+      output: stats.tokens.output,
+      cacheRead: stats.tokens.cacheRead,
+      cacheWrite: stats.tokens.cacheWrite,
+    },
+  };
+}
+
+function toAgentHandle(
+  session: Pick<AgentSession, "prompt" | "steer" | "abort" | "subscribe" | "getSessionStats">
+): AgentHandle {
+  return {
+    prompt: (text) => session.prompt(text),
+    steer: (text) => session.steer(text),
+    abort: () => session.abort(),
+    subscribe: (listener) => session.subscribe((event) => listener(event)),
+    getStats: () => toAgentStats(session),
+  };
 }
 
 function formatLearnings(learnings: MnemosyneRecord[]): string {
@@ -166,7 +193,7 @@ function makeAuthStorage(config: AegisConfig): AuthStorage {
   return s;
 }
 
-async function spawnSession(caste: Caste, issue: BeadsIssue, learnings: MnemosyneRecord[], config: AegisConfig, agentsMd: string, workingDir: string, modelName: string): Promise<AgentSession> {
+async function spawnSession(caste: Caste, issue: BeadsIssue, learnings: MnemosyneRecord[], config: AegisConfig, agentsMd: string, workingDir: string, modelName: string): Promise<AgentHandle> {
   applyWindowsSpawnFixes();
   const authStorage = makeAuthStorage(config);
   const modelRegistry = new ModelRegistry(authStorage);
@@ -194,17 +221,17 @@ async function spawnSession(caste: Caste, issue: BeadsIssue, learnings: Mnemosyn
     tools: casteToolFilter(caste),
     systemPrompt: buildSystemPrompt(caste, issue, learnings, agentsMd),
   } as Parameters<typeof createAgentSession>[0]);
-  return session;
+  return toAgentHandle(session);
 }
 
-export async function spawnOracle(issue: BeadsIssue, learnings: MnemosyneRecord[], config: AegisConfig, agentsMd: string): Promise<AgentSession> {
+export async function spawnOracle(issue: BeadsIssue, learnings: MnemosyneRecord[], config: AegisConfig, agentsMd: string): Promise<AgentHandle> {
   return spawnSession("oracle", issue, learnings, config, agentsMd, process.cwd(), config.models.oracle);
 }
 
-export async function spawnTitan(issue: BeadsIssue, learnings: MnemosyneRecord[], laborPath: string, config: AegisConfig, agentsMd: string): Promise<AgentSession> {
+export async function spawnTitan(issue: BeadsIssue, learnings: MnemosyneRecord[], laborPath: string, config: AegisConfig, agentsMd: string): Promise<AgentHandle> {
   return spawnSession("titan", issue, learnings, config, agentsMd, laborPath, config.models.titan);
 }
 
-export async function spawnSentinel(issue: BeadsIssue, learnings: MnemosyneRecord[], config: AegisConfig, agentsMd: string): Promise<AgentSession> {
+export async function spawnSentinel(issue: BeadsIssue, learnings: MnemosyneRecord[], config: AegisConfig, agentsMd: string): Promise<AgentHandle> {
   return spawnSession("sentinel", issue, learnings, config, agentsMd, process.cwd(), config.models.sentinel);
 }

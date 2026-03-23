@@ -16,16 +16,10 @@ const mockSession = {
   followUp: vi.fn().mockResolvedValue(undefined),
   abort: vi.fn().mockResolvedValue(undefined),
   subscribe: vi.fn().mockReturnValue(() => {}),
-  getSessionStats: vi.fn().mockReturnValue({
+  getStats: vi.fn().mockReturnValue({
     tokens: { total: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     cost: 0,
-    sessionFile: undefined,
     sessionId: "mock-sid",
-    userMessages: 0,
-    assistantMessages: 0,
-    toolCalls: 0,
-    toolResults: 0,
-    totalMessages: 0,
   }),
 };
 
@@ -165,16 +159,10 @@ beforeEach(() => {
   // Reset session mocks
   mockSession.prompt.mockResolvedValue(undefined);
   mockSession.subscribe.mockReturnValue(() => {});
-  mockSession.getSessionStats.mockReturnValue({
+  mockSession.getStats.mockReturnValue({
     tokens: { total: 100, input: 80, output: 20, cacheRead: 0, cacheWrite: 0 },
     cost: 0.001,
-    sessionFile: undefined,
     sessionId: "mock-sid",
-    userMessages: 1,
-    assistantMessages: 1,
-    toolCalls: 2,
-    toolResults: 2,
-    totalMessages: 4,
   });
 });
 
@@ -846,16 +834,10 @@ describe("totalCost() accumulation across reap", () => {
     mockSession.prompt.mockReturnValue(new Promise(() => {}));
 
     // Report a non-zero cost on each turn_end
-    mockSession.getSessionStats.mockReturnValue({
+    mockSession.getStats.mockReturnValue({
       tokens: { total: 500, input: 400, output: 100, cacheRead: 0, cacheWrite: 0 },
       cost: 0.05,
-      sessionFile: undefined,
       sessionId: "mock-sid",
-      userMessages: 1,
-      assistantMessages: 1,
-      toolCalls: 2,
-      toolResults: 2,
-      totalMessages: 4,
     });
 
     // Capture the subscribe callback so we can fire turn_end manually
