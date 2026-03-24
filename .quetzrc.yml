@@ -1,0 +1,15 @@
+github:
+  owner: dkchar
+  repo: aegis
+  defaultBranch: main
+  automergeLabel: automerge
+agent:
+  timeout: 30
+  model: sonnet
+poll:
+  interval: 30
+  mergeTimeout: 15
+  prDetectionTimeout: 60
+display:
+  animations: true
+  colors: true
