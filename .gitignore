@@ -16,3 +16,5 @@ olympus/node_modules/
 # Coding agents
 .claude/
 .ant-colony/
+
+temp/
