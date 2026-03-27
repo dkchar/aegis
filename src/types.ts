@@ -48,10 +48,8 @@ export interface AgentRuntime {
 export type RuntimeAdapter = "pi";
 
 export interface AegisConfig {
-  version: number;
-  runtime: {
-    adapter: RuntimeAdapter;
-  };
+  version: 2;
+  runtime: RuntimeAdapter;
   auth: {
     anthropic: string | null;
     openai: string | null;

@@ -37,7 +37,7 @@ afterEach(() => {
 describe("getDefaultConfig()", () => {
   it("returns an object with all required fields", () => {
     const cfg = getDefaultConfig();
-    expect(cfg.version).toBe(1);
+    expect(cfg.version).toBe(2);
     expect(cfg.runtime).toBeDefined();
     expect(cfg.auth).toBeDefined();
     expect(cfg.models).toBeDefined();
@@ -56,7 +56,7 @@ describe("getDefaultConfig()", () => {
 
   it("has the correct default model names", () => {
     const cfg = getDefaultConfig();
-    expect(cfg.runtime.adapter).toBe("pi");
+    expect(cfg.runtime).toBe("pi");
     expect(cfg.models.oracle).toBe("claude-haiku-4-5");
     expect(cfg.models.titan).toBe("claude-sonnet-4-6");
     expect(cfg.models.sentinel).toBe("claude-sonnet-4-6");
@@ -74,8 +74,8 @@ describe("getDefaultConfig()", () => {
 
   it("has correct default budget values matching SPEC §4.1", () => {
     const cfg = getDefaultConfig();
-    expect(cfg.budgets.oracle_turns).toBe(5);
-    expect(cfg.budgets.oracle_tokens).toBe(50000);
+    expect(cfg.budgets.oracle_turns).toBe(10);
+    expect(cfg.budgets.oracle_tokens).toBe(80000);
     expect(cfg.budgets.titan_turns).toBe(20);
     expect(cfg.budgets.titan_tokens).toBe(300000);
     expect(cfg.budgets.sentinel_turns).toBe(8);
@@ -108,9 +108,22 @@ describe("validateConfig()", () => {
     expect(() => validateConfig([])).toThrow(/JSON object/);
   });
 
-  it("throws when version is not 1", () => {
-    const bad = { ...getDefaultConfig(), version: 2 };
+  it("throws when version is not 2", () => {
+    const bad = { ...getDefaultConfig(), version: 99 };
     expect(() => validateConfig(bad)).toThrow(/version/);
+  });
+
+  it("transparently migrates a v1 config to v2 on load", () => {
+    const v1Config = {
+      ...getDefaultConfig(),
+      version: 1,
+      runtime: { adapter: "pi" },
+    };
+    const result = validateConfig(v1Config);
+    expect(result.version).toBe(2);
+    expect(result.runtime).toBe("pi");
+    expect(result.budgets.oracle_turns).toBe(10);
+    expect(result.budgets.oracle_tokens).toBe(80000);
   });
 
   it("throws when auth is missing", () => {
@@ -125,16 +138,16 @@ describe("validateConfig()", () => {
     expect(() => validateConfig(bad)).toThrow(/models/);
   });
 
-  it("defaults the runtime adapter to pi when runtime is omitted", () => {
+  it("defaults the runtime to pi when runtime is omitted", () => {
     const bad = getDefaultConfig() as unknown as Record<string, unknown>;
     delete bad["runtime"];
 
-    expect(validateConfig(bad).runtime.adapter).toBe("pi");
+    expect(validateConfig(bad).runtime).toBe("pi");
   });
 
-  it("throws when runtime.adapter is unsupported", () => {
-    const bad = { ...getDefaultConfig(), runtime: { adapter: "cursor" } };
-    expect(() => validateConfig(bad)).toThrow(/runtime\.adapter/);
+  it("throws when runtime is unsupported", () => {
+    const bad = { ...getDefaultConfig(), runtime: "cursor" };
+    expect(() => validateConfig(bad)).toThrow(/runtime/);
   });
 
   it("throws when a model name is empty string", () => {
@@ -239,7 +252,7 @@ describe("loadConfig()", () => {
   it("loads a valid config file", () => {
     writeConfig(tmpDir, getDefaultConfig());
     const cfg = loadConfig(tmpDir);
-    expect(cfg.version).toBe(1);
+    expect(cfg.version).toBe(2);
     expect(cfg.models.oracle).toBe("claude-haiku-4-5");
   });
 

@@ -98,7 +98,7 @@ export function buildSystemPrompt(caste: Caste, issue: BeadsIssue, learnings: Mn
 }
 
 function getRuntime(config: AegisConfig): AgentRuntime {
-  switch (config.runtime.adapter) {
+  switch (config.runtime) {
     case "pi":
       return new PiRuntime(config);
   }

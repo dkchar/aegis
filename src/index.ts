@@ -144,6 +144,7 @@ async function runInit(): Promise<void> {
   const gitignoreEntries = [
     ".aegis/config.json",
     ".aegis/labors/",
+    ".aegis/dispatch-state.json",
   ];
 
   let gitignoreContent = fs.existsSync(gitignorePath)

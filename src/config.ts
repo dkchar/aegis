@@ -8,10 +8,8 @@ import type { AegisConfig } from "./types.js";
 
 export function getDefaultConfig(): AegisConfig {
   return {
-    version: 1,
-    runtime: {
-      adapter: "pi",
-    },
+    version: 2,
+    runtime: "pi",
     auth: {
       anthropic: null,
       openai: null,
@@ -31,8 +29,8 @@ export function getDefaultConfig(): AegisConfig {
       max_sentinels: 1,
     },
     budgets: {
-      oracle_turns: 5,
-      oracle_tokens: 50000,
+      oracle_turns: 10,
+      oracle_tokens: 80000,
       titan_turns: 20,
       titan_tokens: 300000,
       sentinel_turns: 8,
@@ -133,23 +131,53 @@ function requireBoolean(
   return val;
 }
 
+// --- Migration ---
+
+function migrateV1toV2(r: Record<string, unknown>): Record<string, unknown> {
+  // runtime: { adapter: "pi" }  →  runtime: "pi"
+  const rt = r["runtime"];
+  if (rt !== null && typeof rt === "object" && !Array.isArray(rt)) {
+    r = { ...r, runtime: (rt as Record<string, unknown>)["adapter"] ?? "pi" };
+  }
+  // Coerce oracle budget defaults to v2 values
+  const budgets = r["budgets"];
+  if (budgets !== null && typeof budgets === "object" && !Array.isArray(budgets)) {
+    r = {
+      ...r,
+      budgets: {
+        ...(budgets as Record<string, unknown>),
+        oracle_turns: 10,
+        oracle_tokens: 80000,
+      },
+    };
+  }
+  return { ...r, version: 2 };
+}
+
 // --- Public API ---
 
 export function validateConfig(raw: unknown): AegisConfig {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
     throw new Error("Config must be a JSON object");
   }
-  const r = raw as Record<string, unknown>;
+  let r = raw as Record<string, unknown>;
 
-  if (r["version"] !== 1) {
+  if (r["version"] === 1) {
+    r = migrateV1toV2(r);
+  }
+  if (r["version"] !== 2) {
     throw new Error(
-      `Config: 'version' must be 1, got ${JSON.stringify(r["version"])}`
+      `Config: 'version' must be 2, got ${JSON.stringify(r["version"])}`
     );
   }
 
-  const runtime = r["runtime"] === undefined
-    ? { adapter: "pi" }
-    : requireObject(r, "runtime");
+  const runtimeStr = r["runtime"] === undefined ? "pi" : r["runtime"];
+  if (runtimeStr !== "pi") {
+    throw new Error(
+      `Config: 'runtime' must be "pi", got ${JSON.stringify(runtimeStr)}`
+    );
+  }
+
   const auth = requireObject(r, "auth");
   const models = requireObject(r, "models");
   const concurrency = requireObject(r, "concurrency");
@@ -158,18 +186,11 @@ export function validateConfig(raw: unknown): AegisConfig {
   const mnemosyne = requireObject(r, "mnemosyne");
   const labors = requireObject(r, "labors");
   const olympus = requireObject(r, "olympus");
-  const runtimeAdapter = requireString(runtime, "runtime.adapter");
-
-  if (runtimeAdapter !== "pi") {
-    throw new Error(`Config: 'runtime.adapter' must be \"pi\", got ${JSON.stringify(runtimeAdapter)}`);
-  }
 
   return {
-    version: 1,
+    version: 2,
 
-    runtime: {
-      adapter: runtimeAdapter,
-    },
+    runtime: "pi",
 
     auth: {
       anthropic: requireStringOrNull(auth, "anthropic"),
