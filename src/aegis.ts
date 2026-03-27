@@ -14,6 +14,7 @@ import * as mnemo from "./mnemosyne.js";
 import { prune, shouldPrune } from "./lethe.js";
 import * as labors from "./labors.js";
 import * as beads from "./beads.js";
+import * as store from "./dispatch-store.js";
 
 import type {
   AgentHandle,
@@ -160,6 +161,9 @@ export class Aegis {
     this.startedAt = Date.now();
 
     this.emit({ type: "orchestrator.started", data: {}, timestamp: Date.now() });
+
+    // Load dispatch state from disk before crash recovery (SPEC §5.4)
+    store.load(this.projectRoot);
 
     // Crash recovery: reset any orphaned in_progress issues and clean up
     // stale labors left over from a previous crash (SPEC §2.3).
