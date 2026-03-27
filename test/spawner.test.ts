@@ -46,8 +46,8 @@ function makeLearning(o = {}): MnemosyneRecord {
 }
 
 const CFG: AegisConfig = {
-  version: 1,
-  runtime: { adapter: "pi" },
+  version: 2,
+  runtime: "pi",
   auth: { anthropic: "sk-ant-test", openai: null, google: null },
   models: { oracle: "claude-haiku-4-5", titan: "claude-sonnet-4-5", sentinel: "claude-opus-4-5", metis: "claude-haiku-4-5", prometheus: "claude-opus-4-5" },
   concurrency: { max_agents: 10, max_oracles: 3, max_titans: 3, max_sentinels: 2 },
