@@ -180,3 +180,34 @@ export interface SwarmState {
   focus_filter: string | null;
   auto_mode: boolean;
 }
+
+export type DispatchStage =
+  | "pending"
+  | "scouting"
+  | "scouted"
+  | "implementing"
+  | "implemented"
+  | "reviewing"
+  | "complete"
+  | "failed";
+
+export interface OracleAssessment {
+  files_affected: string[];
+  estimated_complexity: "trivial" | "moderate" | "complex";
+  decompose: boolean;
+  sub_issues?: string[];
+  blockers?: string[];
+  ready: boolean;
+}
+
+export interface DispatchRecord {
+  issue_id: string;
+  stage: DispatchStage;
+  oracle_assessment: OracleAssessment | null;
+  sentinel_verdict: "pass" | "fail" | null;
+  failure_count: number;
+  last_failure_at: number | null;
+  current_agent_id: string | null;
+  created_at: number;
+  updated_at: number;
+}
