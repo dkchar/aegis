@@ -45,7 +45,10 @@ Plans:
   2. The old `SCOUTED:`/`REVIEWED:` prefix logic is removed from the codebase
   3. On startup after a crash, records stuck in `scouting`, `implementing`, or `reviewing` with no running agent are transitioned to `failed` and their issues are reopened in Beads
   4. Records at `stage=implemented` survive a crash and are picked up for Sentinel dispatch on the next tick without manual intervention
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 02-01-PLAN.md — Rewrite triage.ts with stage-based dispatch rules and update triage.test.ts
+- [ ] 02-02-PLAN.md — Update aegis.ts tick loop, remove comment-based logic, add crash recovery
 
 ### Phase 3: Conversational Mode
 **Goal**: Orchestrator starts idle and responds to explicit commands; auto mode is opt-in
@@ -90,7 +93,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Dispatch Store | 3/3 | Complete   | 2026-03-27 |
-| 2. Triage Pivot | 0/TBD | Not started | - |
+| 2. Triage Pivot | 0/2 | Not started | - |
 | 3. Conversational Mode | 0/TBD | Not started | - |
 | 4. Structured Outputs | 0/TBD | Not started | - |
 | 5. Olympus Dashboard | 0/TBD | Not started | - |
