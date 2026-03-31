@@ -17,6 +17,7 @@ olympus/node_modules/
 .claude/
 .ant-colony/
 .codex/
+.agent/
 
 # Planning artifacts
 .planning/
