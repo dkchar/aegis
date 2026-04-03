@@ -18,6 +18,7 @@ olympus/node_modules/
 .ant-colony/
 .codex/
 .agent/
+.worktrees/
 
 # Planning artifacts
 plandocs/
