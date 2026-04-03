@@ -1,0 +1,21 @@
+{
+  "requiredPaths": [
+    "src",
+    "tests",
+    "tests/unit",
+    "tests/integration",
+    "tests/fixtures",
+    "olympus",
+    "olympus/index.html",
+    "olympus/package.json",
+    "olympus/tsconfig.json",
+    "olympus/src/App.tsx",
+    "olympus/src",
+    "olympus/src/main.tsx",
+    "olympus/vite.config.ts",
+    "tsconfig.tests.json",
+    "evals",
+    "evals/fixtures",
+    "evals/scenarios"
+  ]
+}

@@ -8,6 +8,12 @@
 
 **Tech Stack:** Node.js, TypeScript, Vitest, React, Vite, Server-Sent Events, Beads, git worktrees, Pi runtime adapter.
 
+## Current Status
+
+- `2026-04-03`: `S00` is complete on `feat/s00-project-skeleton`.
+- `bd ready --json` now surfaces `aegis-fjm.2.1` (`[S01] Contract seed`) as the next executable child.
+- The local tracker mirror in `plandocs/2026-04-03-aegis-mvp-tracker.md` was refreshed after the S00 gate evidence update.
+
 ---
 
 ## File Structure Map
@@ -40,10 +46,10 @@ The slices below assume this file ownership pattern:
 - Create: `olympus/vite.config.ts`
 - Test: `tests/unit/bootstrap/project-skeleton.test.ts`
 
-- [ ] **Contract seed:** establish the TypeScript, test, and workspace skeleton so later slices inherit one build and test path.
-- [ ] **Parallel lane A:** scaffold the Node entrypoint, shared path helpers, and baseline scripts.
-- [ ] **Parallel lane B:** scaffold the Olympus workspace and frontend build shell.
-- [ ] **Verification:** add bootstrap smoke tests and wire `npm run build`, `npm run test`, and Olympus build scripts.
+- [x] **Contract seed:** establish the TypeScript, test, and workspace skeleton so later slices inherit one build and test path.
+- [x] **Parallel lane A:** scaffold the Node entrypoint, shared path helpers, and baseline scripts.
+- [x] **Parallel lane B:** scaffold the Olympus workspace and frontend build shell.
+- [x] **Verification:** add bootstrap smoke tests and wire `npm run build`, `npm run test`, and Olympus build scripts.
 
 **Automated gate**
 - `npm run build`

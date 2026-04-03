@@ -7,17 +7,26 @@
   "bin": {
     "aegis": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "olympus/dist"
+  ],
+  "workspaces": [
+    "olympus"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "npm run build:node && npm run build:olympus",
+    "build:node": "node --eval \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc --project tsconfig.json",
     "dev": "tsx src/index.ts",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "lint": "tsc --noEmit",
-    "build:olympus": "cd olympus && npm run build",
-    "build:all": "npm run build && npm run build:olympus"
+    "test": "vitest run --config vitest.config.ts",
+    "test:watch": "vitest --config vitest.config.ts",
+    "lint": "tsc --project tsconfig.tests.json --noEmit && npm run lint --workspace olympus",
+    "build:olympus": "npm run build --workspace olympus",
+    "build:all": "npm run build",
+    "prepack": "npm run build"
   },
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=22.12.0"
   },
   "keywords": [
     "ai",
@@ -35,6 +44,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.4.0",
+    "jsdom": "^29.0.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
