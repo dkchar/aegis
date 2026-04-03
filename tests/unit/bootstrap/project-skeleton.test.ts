@@ -10,6 +10,9 @@ interface RootPackageJson {
   main: string;
   bin: Record<string, string>;
   scripts: Record<string, string>;
+  files?: string[];
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
 }
 
 interface TsConfigShape {
@@ -17,6 +20,7 @@ interface TsConfigShape {
     rootDir?: string;
     outDir?: string;
     noEmit?: boolean;
+    jsx?: string;
   };
   include?: string[];
 }
@@ -44,12 +48,16 @@ describe("S00 project skeleton contract", () => {
 
     expect(packageJson.main).toBe("dist/index.js");
     expect(packageJson.bin.aegis).toBe("dist/index.js");
-    expect(scripts.build).toContain("tsc --project tsconfig.json");
+    expect((packageJson.files ?? [])).toContain("dist");
+    expect(scripts.build).toContain("build:node");
+    expect(scripts.build).toContain("build:olympus");
+    expect(scripts["build:node"]).toContain("tsc --project tsconfig.json");
     expect(scripts.dev).toBe("tsx src/index.ts");
     expect(scripts.test).toBe("vitest run --config vitest.config.ts");
     expect(scripts.lint).toContain("tsconfig.tests.json");
     expect(scripts.lint).toContain("lint --workspace olympus");
     expect(scripts["build:olympus"]).toBe("npm run build --workspace olympus");
+    expect(scripts.prepack).toBe("npm run build");
 
     expect(tsconfig.compilerOptions.rootDir).toBe("src");
     expect(tsconfig.compilerOptions.outDir).toBe("dist");
@@ -100,26 +108,37 @@ describe("S00 project skeleton contract", () => {
   it("defines a minimal Olympus Vite build shell", async () => {
     const olympusPackageJson = readJson<RootPackageJson>("olympus/package.json");
     const scripts = olympusPackageJson.scripts ?? {};
+    const olympusTsconfig = readJson<TsConfigShape>("olympus/tsconfig.json");
     const vitestConfig = (await import(
       pathToFileURL(path.join(repoRoot, "vitest.config.ts")).href
     )) as {
       default: {
         test?: {
           include?: string[];
+          environment?: string;
         };
       };
     };
 
     expect(existsSync(path.join(repoRoot, "olympus/tsconfig.json"))).toBe(true);
+    expect((olympusPackageJson.dependencies as Record<string, string>).react).toBeTruthy();
+    expect((olympusPackageJson.dependencies as Record<string, string>)["react-dom"]).toBeTruthy();
+    expect((olympusPackageJson.devDependencies as Record<string, string>).typescript).toBeTruthy();
+    expect((olympusPackageJson.devDependencies as Record<string, string>)["@vitejs/plugin-react"]).toBeTruthy();
     expect(scripts.lint).toContain("tsc --project tsconfig.json --noEmit");
     expect(scripts.build).toContain("npm run lint");
     expect(scripts.build).toContain("vite build");
+    expect(olympusTsconfig.compilerOptions.jsx).toBe("react-jsx");
+    expect((olympusTsconfig.include as string[])).toEqual(
+      expect.arrayContaining(["src/**/*.ts", "src/**/*.tsx"]),
+    );
     expect(vitestConfig.default.test?.include).toEqual(
       expect.arrayContaining([
         "tests/**/*.{test,spec}.{ts,tsx}",
         "olympus/src/**/*.{test,spec}.{ts,tsx}",
       ]),
     );
+    expect(vitestConfig.default.test?.environment).toBe("jsdom");
   });
 
   it("creates the workspace skeleton needed by the implementation lanes", () => {
