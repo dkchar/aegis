@@ -68,6 +68,13 @@ describe("S00 project skeleton contract", () => {
     });
   });
 
+  it("defines a minimal Olympus Vite build shell", () => {
+    const olympusPackageJson = readJson("olympus/package.json");
+    const scripts = (olympusPackageJson.scripts ?? {}) as Record<string, string>;
+
+    expect(scripts.build).toBe("vite build");
+  });
+
   it("creates the workspace skeleton needed by the implementation lanes", () => {
     const fixture = readJson("tests/fixtures/bootstrap/workspace-contract.json");
     const expectedPaths = fixture.requiredPaths as string[];
