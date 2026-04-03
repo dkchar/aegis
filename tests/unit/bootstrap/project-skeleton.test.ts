@@ -7,7 +7,6 @@ import {
   rmSync,
   symlinkSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -19,6 +18,7 @@ interface RootPackageJson {
   main: string;
   bin: Record<string, string>;
   scripts: Record<string, string>;
+  engines?: Record<string, string>;
   files?: string[];
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
@@ -69,6 +69,7 @@ describe("S00 project skeleton contract", () => {
     expect(scripts.lint).toContain("lint --workspace olympus");
     expect(scripts["build:olympus"]).toBe("npm run build --workspace olympus");
     expect(scripts.prepack).toBe("npm run build");
+    expect(packageJson.engines?.node).toBe(">=22.12.0");
 
     expect(tsconfig.compilerOptions.rootDir).toBe("src");
     expect(tsconfig.compilerOptions.outDir).toBe("dist");
@@ -145,7 +146,7 @@ describe("S00 project skeleton contract", () => {
       cwd: repoRoot,
       encoding: "utf8",
     });
-    const linkedRoot = mkdtempSync(path.join(tmpdir(), "aegis-cli-"));
+    const linkedRoot = mkdtempSync(path.join(repoRoot, ".aegis-cli-"));
     const repoLinkPath = path.join(linkedRoot, "repo-link");
     const linkedCliPath = path.join(linkedRoot, "aegis-linked.js");
 
