@@ -7,13 +7,16 @@
   "bin": {
     "aegis": "dist/index.js"
   },
+  "workspaces": [
+    "olympus"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc --project tsconfig.json",
     "dev": "tsx src/index.ts",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "lint": "tsc --noEmit",
-    "build:olympus": "cd olympus && npm run build",
+    "test": "vitest run --config vitest.config.ts",
+    "test:watch": "vitest --config vitest.config.ts",
+    "lint": "tsc --noEmit --project tsconfig.json",
+    "build:olympus": "npm run build --workspace olympus",
     "build:all": "npm run build && npm run build:olympus"
   },
   "engines": {
