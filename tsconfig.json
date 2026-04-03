@@ -12,5 +12,5 @@
     "outDir": "dist",
     "types": ["node", "vitest/importMeta"]
   },
-  "include": ["tests/**/*.ts", "vitest.config.ts"]
+  "include": ["src/**/*.ts", "tests/**/*.ts", "vitest.config.ts"]
 }
