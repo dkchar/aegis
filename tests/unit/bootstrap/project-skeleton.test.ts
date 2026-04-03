@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -48,7 +49,9 @@ describe("S00 project skeleton contract", () => {
 
     expect(packageJson.main).toBe("dist/index.js");
     expect(packageJson.bin.aegis).toBe("dist/index.js");
-    expect((packageJson.files ?? [])).toContain("dist");
+    expect((packageJson.files ?? [])).toEqual(
+      expect.arrayContaining(["dist", "olympus/dist"]),
+    );
     expect(scripts.build).toContain("build:node");
     expect(scripts.build).toContain("build:olympus");
     expect(scripts["build:node"]).toContain("tsc --project tsconfig.json");
@@ -103,6 +106,38 @@ describe("S00 project skeleton contract", () => {
       appName: "aegis",
       paths,
     });
+
+    const packageJson = readJson<RootPackageJson>("package.json");
+    const cleanupRun = spawnSync(
+      process.execPath,
+      [
+        "--eval",
+        "require('node:fs').rmSync('dist', { recursive: true, force: true })",
+      ],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+      },
+    );
+    const buildRun = spawnSync(
+      process.execPath,
+      [path.join(repoRoot, "node_modules", "typescript", "bin", "tsc"), "--project", "tsconfig.json"],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+      },
+    );
+    const cliPath = path.join(repoRoot, packageJson.bin.aegis);
+    const cliRun = spawnSync(process.execPath, [cliPath], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    });
+
+    expect(cleanupRun.status).toBe(0);
+    expect(buildRun.status).toBe(0);
+    expect(existsSync(cliPath)).toBe(true);
+    expect(cliRun.status).toBe(0);
+    expect(cliRun.stdout).toContain("Aegis CLI scaffold ready");
   });
 
   it("defines a minimal Olympus Vite build shell", async () => {
@@ -116,6 +151,12 @@ describe("S00 project skeleton contract", () => {
         test?: {
           include?: string[];
           environment?: string;
+          projects?: Array<{
+            test?: {
+              include?: string[];
+              environment?: string;
+            };
+          }>;
         };
       };
     };
@@ -133,12 +174,24 @@ describe("S00 project skeleton contract", () => {
       expect.arrayContaining(["src/**/*.ts", "src/**/*.tsx"]),
     );
     expect(vitestConfig.default.test?.include).toEqual(
+      undefined,
+    );
+    expect(vitestConfig.default.test?.projects).toEqual(
       expect.arrayContaining([
-        "tests/**/*.{test,spec}.{ts,tsx}",
-        "olympus/src/**/*.{test,spec}.{ts,tsx}",
+        expect.objectContaining({
+          test: expect.objectContaining({
+            include: ["tests/**/*.{test,spec}.{ts,tsx}"],
+            environment: "node",
+          }),
+        }),
+        expect.objectContaining({
+          test: expect.objectContaining({
+            include: ["olympus/src/**/*.{test,spec}.{ts,tsx}"],
+            environment: "jsdom",
+          }),
+        }),
       ]),
     );
-    expect(vitestConfig.default.test?.environment).toBe("jsdom");
   });
 
   it("creates the workspace skeleton needed by the implementation lanes", () => {
