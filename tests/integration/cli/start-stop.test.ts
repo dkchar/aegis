@@ -351,6 +351,33 @@ describe("S06 launch lifecycle contract seed", () => {
       expect(rootResponse.status).toBe(200);
       expect(shellHtml).toContain("Olympus");
 
+      const assetMatch = shellHtml.match(/src="([^"]*\/assets\/[^"]+)"/);
+      expect(assetMatch).not.toBeNull();
+      const assetUrl = new URL(assetMatch![1], `http://127.0.0.1:${port}/`);
+      const assetResponse = await fetch(assetUrl);
+
+      expect(assetResponse.status).toBe(200);
+      expect(assetResponse.headers.get("content-type")).toContain("javascript");
+
+      const stateResponse = await fetch(`http://127.0.0.1:${port}/api/state`);
+      const statePayload = await stateResponse.json() as {
+        orchestrator: {
+          server_state: string;
+          mode: string;
+        };
+      };
+
+      expect(stateResponse.status).toBe(200);
+      expect(statePayload.orchestrator.server_state).toBe("running");
+      expect(statePayload.orchestrator.mode).toBe("conversational");
+
+      const eventsResponse = await fetch(`http://127.0.0.1:${port}/api/events`);
+      expect(eventsResponse.status).toBe(200);
+      expect(eventsResponse.headers.get("content-type")).toContain(
+        "text/event-stream",
+      );
+      await eventsResponse.body?.cancel();
+
       const stopRun = runCliCommand(tempRepo, ["stop"]);
       expect(stopRun.status, stopRun.stderr).toBe(0);
       expect(stopRun.stdout).toContain("stopped");

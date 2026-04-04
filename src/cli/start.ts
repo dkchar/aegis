@@ -95,6 +95,21 @@ export interface StartCommandOptions {
   registerSignalHandlers?: boolean;
 }
 
+function spawnDetachedBrowser(command: string, args: string[], options: {
+  windowsHide?: boolean;
+}) {
+  const browser = spawn(command, args, {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: options.windowsHide,
+  });
+
+  browser.once("error", () => {});
+  browser.unref();
+
+  return typeof browser.pid === "number";
+}
+
 function parseNumberFlag(flagName: string, value: string | undefined) {
   if (!value) {
     throw new Error(`Missing value for ${flagName}`);
@@ -231,30 +246,16 @@ function registerLifecycleSignalHandlers(stop: () => Promise<void>) {
 export function openBrowserUrl(url: string) {
   try {
     if (process.platform === "win32") {
-      const browser = spawn("cmd", ["/c", "start", "", url], {
-        detached: true,
-        stdio: "ignore",
+      return spawnDetachedBrowser("cmd", ["/c", "start", "", url], {
         windowsHide: true,
       });
-      browser.unref();
-      return true;
     }
 
     if (process.platform === "darwin") {
-      const browser = spawn("open", [url], {
-        detached: true,
-        stdio: "ignore",
-      });
-      browser.unref();
-      return true;
+      return spawnDetachedBrowser("open", [url], {});
     }
 
-    const browser = spawn("xdg-open", [url], {
-      detached: true,
-      stdio: "ignore",
-    });
-    browser.unref();
-    return true;
+    return spawnDetachedBrowser("xdg-open", [url], {});
   } catch {
     return false;
   }

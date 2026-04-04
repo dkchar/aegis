@@ -12,6 +12,7 @@ export const STOP_COMMAND_REASONS = [
   "signal",
   "shutdown",
 ] as const;
+export const DEFAULT_STOP_GRACEFUL_TIMEOUT_MS = 60_000;
 
 export type StopCommandReason = (typeof STOP_COMMAND_REASONS)[number];
 
@@ -48,7 +49,7 @@ async function waitForExit(pid: number, timeoutMs: number) {
 }
 
 export function createStopCommandContract(
-  gracefulTimeoutMs = 60_000,
+  gracefulTimeoutMs = DEFAULT_STOP_GRACEFUL_TIMEOUT_MS,
 ): StopCommandContract {
   return {
     command: STOP_COMMAND_NAME,
@@ -60,7 +61,7 @@ export function createStopCommandContract(
 export async function stopAegis(
   root = process.cwd(),
   reason: StopCommandReason = "manual",
-  gracefulTimeoutMs = 30_000,
+  gracefulTimeoutMs = DEFAULT_STOP_GRACEFUL_TIMEOUT_MS,
 ): Promise<StopResult> {
   const recoveredRuntime = readRuntimeState(root);
 
@@ -98,10 +99,7 @@ export async function stopAegis(
     reason,
     requested_at: new Date().toISOString(),
   });
-  let stoppedGracefully = await waitForExit(
-    recoveredRuntime.pid,
-    Math.min(gracefulTimeoutMs, 10_000),
-  );
+  let stoppedGracefully = await waitForExit(recoveredRuntime.pid, gracefulTimeoutMs);
 
   if (!stoppedGracefully && isProcessRunning(recoveredRuntime.pid)) {
     process.kill(recoveredRuntime.pid, "SIGTERM");
