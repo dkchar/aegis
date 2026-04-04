@@ -1,0 +1,72 @@
+import type { AegisConfig } from "./schema.js";
+
+export const DEFAULT_AEGIS_CONFIG: AegisConfig = {
+  runtime: "pi",
+  auth: {
+    provider: "pi",
+    mode: "subscription",
+    plan: "pro",
+  },
+  models: {
+    oracle: "pi:default",
+    titan: "pi:default",
+    sentinel: "pi:default",
+    janus: "anthropic:claude-sonnet",
+    metis: "anthropic:claude-haiku",
+    prometheus: "anthropic:claude-sonnet",
+  },
+  concurrency: {
+    max_agents: 3,
+    max_oracles: 2,
+    max_titans: 3,
+    max_sentinels: 1,
+    max_janus: 1,
+  },
+  budgets: {
+    oracle: { turns: 10, tokens: 80_000 },
+    titan: { turns: 20, tokens: 300_000 },
+    sentinel: { turns: 8, tokens: 100_000 },
+    janus: { turns: 12, tokens: 120_000 },
+  },
+  thresholds: {
+    poll_interval_seconds: 5,
+    stuck_warning_seconds: 90,
+    stuck_kill_seconds: 150,
+    allow_complex_auto_dispatch: false,
+    scope_overlap_threshold: 0,
+    janus_retry_threshold: 2,
+  },
+  economics: {
+    metering_fallback: "stats_only",
+    per_issue_cost_warning_usd: 3,
+    daily_cost_warning_usd: 10,
+    daily_hard_stop_usd: 20,
+    quota_warning_floor_pct: 35,
+    quota_hard_stop_floor_pct: 20,
+    credit_warning_floor: null,
+    credit_hard_stop_floor: null,
+    allow_exact_cost_estimation: true,
+  },
+  janus: {
+    enabled: true,
+    max_invocations_per_issue: 1,
+  },
+  mnemosyne: {
+    max_records: 500,
+    prompt_token_budget: 1_000,
+  },
+  labor: {
+    base_path: ".aegis/labors",
+  },
+  olympus: {
+    port: 3847,
+    open_browser: true,
+  },
+  evals: {
+    enabled: true,
+    results_path: ".aegis/evals",
+    benchmark_suite: "core",
+    minimum_pass_rate: 0.8,
+    max_human_interventions_per_10_issues: 2,
+  },
+};

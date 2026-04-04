@@ -1,12 +1,12 @@
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
-  linkSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   symlinkSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -148,7 +148,6 @@ describe("S00 project skeleton contract", () => {
     });
     const linkedRoot = mkdtempSync(path.join(repoRoot, ".aegis-cli-"));
     const repoLinkPath = path.join(linkedRoot, "repo-link");
-    const linkedCliPath = path.join(linkedRoot, "aegis-linked.js");
 
     expect(cleanupRun.status).toBe(0);
     expect(buildRun.status).toBe(0);
@@ -168,11 +167,14 @@ describe("S00 project skeleton contract", () => {
         repoLinkPath,
         process.platform === "win32" ? "junction" : "dir",
       );
-      linkSync(cliPath, linkedCliPath);
-      const linkedCliRun = spawnSync(process.execPath, [linkedCliPath], {
+      const linkedCliRun = spawnSync(
+        process.execPath,
+        [path.join(repoLinkPath, packageJson.bin.aegis)],
+        {
         cwd: repoRoot,
         encoding: "utf8",
-      });
+      },
+      );
 
       expect(
         entrypointModule.isDirectExecution(
@@ -254,6 +256,52 @@ describe("S00 project skeleton contract", () => {
       expect(existsSync(path.join(repoRoot, expectedPath)), expectedPath).toBe(
         true,
       );
+    }
+  });
+
+  it("wires `aegis init` through the built CLI entrypoint", () => {
+    const packageJson = readJson<RootPackageJson>("package.json");
+    const cleanupRun = spawnSync(
+      process.execPath,
+      [
+        "--eval",
+        "require('node:fs').rmSync('dist', { recursive: true, force: true })",
+      ],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+      },
+    );
+    const buildRun = spawnSync(
+      process.execPath,
+      [
+        path.join(repoRoot, "node_modules", "typescript", "bin", "tsc"),
+        "--project",
+        "tsconfig.json",
+      ],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+      },
+    );
+    const cliPath = path.join(repoRoot, packageJson.bin.aegis);
+    const tempRepo = mkdtempSync(path.join(tmpdir(), "aegis-cli-init-"));
+    const initRun = spawnSync(process.execPath, [cliPath, "init"], {
+      cwd: tempRepo,
+      encoding: "utf8",
+    });
+
+    try {
+      expect(cleanupRun.status).toBe(0);
+      expect(buildRun.status).toBe(0);
+      expect(initRun.status).toBe(0);
+      expect(initRun.stdout).toContain("Aegis project initialized");
+      expect(existsSync(path.join(tempRepo, ".aegis", "config.json"))).toBe(true);
+      expect(existsSync(path.join(tempRepo, ".aegis", "dispatch-state.json"))).toBe(true);
+      expect(existsSync(path.join(tempRepo, ".aegis", "merge-queue.json"))).toBe(true);
+      expect(existsSync(path.join(tempRepo, ".aegis", "mnemosyne.jsonl"))).toBe(true);
+    } finally {
+      rmSync(tempRepo, { recursive: true, force: true });
     }
   });
 });

@@ -1,0 +1,20 @@
+{
+  "directories": [
+    ".aegis",
+    ".aegis/labors",
+    ".aegis/evals"
+  ],
+  "files": [
+    ".aegis/config.json",
+    ".aegis/dispatch-state.json",
+    ".aegis/merge-queue.json",
+    ".aegis/mnemosyne.jsonl"
+  ],
+  "gitIgnoreEntries": [
+    ".aegis/config.json",
+    ".aegis/dispatch-state.json",
+    ".aegis/merge-queue.json",
+    ".aegis/labors/",
+    ".aegis/evals/"
+  ]
+}

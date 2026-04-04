@@ -3,6 +3,7 @@ import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { initProject } from "./config/init-project.js";
 import type { ProjectPaths } from "./shared/paths.js";
 
 export interface BootstrapManifest {
@@ -39,8 +40,27 @@ export function buildBootstrapManifest(
   };
 }
 
-export function runCli(root = process.cwd()): BootstrapManifest {
+export function runCli(
+  root = process.cwd(),
+  argv = process.argv.slice(2),
+): BootstrapManifest {
   const manifest = buildBootstrapManifest(root);
+  const [command] = argv;
+
+  if (command === "init") {
+    const result = initProject(root);
+    const createdPathCount =
+      result.createdDirectories.length + result.createdFiles.length;
+    const gitIgnoreNote = result.updatedGitIgnore
+      ? "; .gitignore updated"
+      : "";
+
+    console.log(
+      `Aegis project initialized at ${manifest.paths.repoRoot} (${createdPathCount} paths created${gitIgnoreNote})`,
+    );
+    return manifest;
+  }
+
   console.log(`Aegis CLI scaffold ready at ${manifest.paths.repoRoot}`);
   return manifest;
 }
