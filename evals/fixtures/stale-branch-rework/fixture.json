@@ -1,0 +1,15 @@
+{
+  "fixture_type": "rework",
+  "reset_rules": "git_reset",
+  "scenario_tags": ["merge", "rework", "stale-branch", "phase1"],
+  "issues": [
+    {
+      "id": "stale-001",
+      "type": "task",
+      "expected_completion": "completed",
+      "expected_merge": "merged_after_rework"
+    }
+  ],
+  "human_interventions": [],
+  "config_overrides": {}
+}

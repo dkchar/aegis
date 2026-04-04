@@ -1,0 +1,15 @@
+{
+  "fixture_type": "complex_pause",
+  "reset_rules": "noop",
+  "scenario_tags": ["oracle", "complex", "pause", "phase1"],
+  "issues": [
+    {
+      "id": "complex-001",
+      "type": "task",
+      "expected_completion": "paused_complex",
+      "expected_merge": "not_attempted"
+    }
+  ],
+  "human_interventions": ["complex-001"],
+  "config_overrides": {}
+}

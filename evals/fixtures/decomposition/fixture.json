@@ -1,0 +1,27 @@
+{
+  "fixture_type": "decomposition",
+  "reset_rules": "noop",
+  "scenario_tags": ["oracle", "decomposition", "child-issues", "phase1"],
+  "issues": [
+    {
+      "id": "decomp-parent-001",
+      "type": "feature",
+      "expected_completion": "completed",
+      "expected_merge": "merged_clean"
+    },
+    {
+      "id": "decomp-child-001",
+      "type": "task",
+      "expected_completion": "completed",
+      "expected_merge": "merged_clean"
+    },
+    {
+      "id": "decomp-child-002",
+      "type": "task",
+      "expected_completion": "completed",
+      "expected_merge": "merged_clean"
+    }
+  ],
+  "human_interventions": [],
+  "config_overrides": {}
+}

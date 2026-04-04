@@ -1,10 +1,10 @@
 {
-  "fixture_type": "clean",
-  "reset_rules": "noop",
-  "scenario_tags": ["happy-path", "baseline", "phase0"],
+  "fixture_type": "restart",
+  "reset_rules": "file_copy",
+  "scenario_tags": ["restart", "recovery", "merge", "phase1"],
   "issues": [
     {
-      "id": "test-001",
+      "id": "restart-merge-001",
       "type": "task",
       "expected_completion": "completed",
       "expected_merge": "merged_clean"

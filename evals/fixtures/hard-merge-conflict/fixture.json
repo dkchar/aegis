@@ -1,0 +1,15 @@
+{
+  "fixture_type": "merge_conflict",
+  "reset_rules": "git_reset",
+  "scenario_tags": ["merge", "conflict", "preserved-labor", "phase1"],
+  "issues": [
+    {
+      "id": "conflict-001",
+      "type": "task",
+      "expected_completion": "failed",
+      "expected_merge": "conflict_unresolved"
+    }
+  ],
+  "human_interventions": ["conflict-001"],
+  "config_overrides": {}
+}

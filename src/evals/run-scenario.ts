@@ -12,6 +12,8 @@ import crypto from "node:crypto";
 import { execSync } from "node:child_process";
 
 import type { EvalRunResult, EvalScenario, CompletionOutcome, MergeOutcome } from "./result-schema.js";
+import type { Fixture } from "./fixture-schema.js";
+import { validateFixture } from "./fixture-schema.js";
 
 // ---------------------------------------------------------------------------
 // Options
@@ -44,20 +46,11 @@ export interface RunScenarioOptions {
 
 // ---------------------------------------------------------------------------
 // Fixture format
+//
+// The Fixture type is now defined canonically in fixture-schema.ts (S03
+// contract seed).  The inline FixtureIssue and Fixture interfaces that
+// previously lived here have been replaced with the formalized imports above.
 // ---------------------------------------------------------------------------
-
-interface FixtureIssue {
-  id: string;
-  type: string;
-  expected_completion: CompletionOutcome;
-  expected_merge: MergeOutcome;
-}
-
-interface Fixture {
-  issues: FixtureIssue[];
-  human_interventions: string[];
-  config_overrides: Record<string, unknown>;
-}
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -110,7 +103,12 @@ function loadFixture(projectRoot: string, fixturePath: string): Fixture {
     throw new Error(`fixture_path "${fixturePath}" escapes the fixtures directory`);
   }
   const raw = readFileSync(fullPath, "utf8");
-  return JSON.parse(raw) as Fixture;
+  const parsed: unknown = JSON.parse(raw);
+  const validation = validateFixture(parsed);
+  if (!validation.valid) {
+    throw new Error(`Invalid fixture at "${fullPath}": ${validation.errors.join("; ")}`);
+  }
+  return parsed as Fixture;
 }
 
 // ---------------------------------------------------------------------------

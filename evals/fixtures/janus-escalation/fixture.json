@@ -1,0 +1,15 @@
+{
+  "fixture_type": "janus",
+  "reset_rules": "git_reset",
+  "scenario_tags": ["janus", "escalation", "tier3", "merge", "phase1"],
+  "issues": [
+    {
+      "id": "janus-esc-001",
+      "type": "task",
+      "expected_completion": "completed",
+      "expected_merge": "conflict_resolved_janus"
+    }
+  ],
+  "human_interventions": [],
+  "config_overrides": {}
+}

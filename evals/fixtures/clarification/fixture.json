@@ -1,0 +1,15 @@
+{
+  "fixture_type": "clarification",
+  "reset_rules": "noop",
+  "scenario_tags": ["titan", "ambiguity", "clarification", "phase1"],
+  "issues": [
+    {
+      "id": "ambiguous-001",
+      "type": "task",
+      "expected_completion": "paused_ambiguous",
+      "expected_merge": "not_attempted"
+    }
+  ],
+  "human_interventions": ["ambiguous-001"],
+  "config_overrides": {}
+}

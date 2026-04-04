@@ -1,0 +1,15 @@
+{
+  "fixture_type": "janus",
+  "reset_rules": "git_reset",
+  "scenario_tags": ["janus", "human-decision", "semantic-ambiguity", "phase1"],
+  "issues": [
+    {
+      "id": "janus-hd-001",
+      "type": "task",
+      "expected_completion": "failed",
+      "expected_merge": "conflict_unresolved"
+    }
+  ],
+  "human_interventions": ["janus-hd-001"],
+  "config_overrides": {}
+}
