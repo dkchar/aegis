@@ -47,9 +47,32 @@ function assertBoolean(value: unknown, fieldPath: string) {
   }
 }
 
-function assertNumber(value: unknown, fieldPath: string) {
+function assertNumber(value: unknown, fieldPath: string): asserts value is number {
   if (typeof value !== "number" || Number.isNaN(value)) {
     throw new Error(`Expected "${fieldPath}" to be a number`);
+  }
+}
+
+function assertNumberAtLeast(value: unknown, fieldPath: string, minimum: number) {
+  assertNumber(value, fieldPath);
+
+  if (value < minimum) {
+    throw new Error(`Expected "${fieldPath}" to be at least ${minimum}`);
+  }
+}
+
+function assertNumberInRange(
+  value: unknown,
+  fieldPath: string,
+  minimum: number,
+  maximum: number,
+) {
+  assertNumber(value, fieldPath);
+
+  if (value < minimum || value > maximum) {
+    throw new Error(
+      `Expected "${fieldPath}" to be between ${minimum} and ${maximum}`,
+    );
   }
 }
 
@@ -144,7 +167,7 @@ function validatePartialConfig(config: unknown): asserts config is PartialConfig
       "max_janus",
     ]);
     for (const key of Object.keys(config.concurrency)) {
-      assertNumber(config.concurrency[key], `concurrency.${key}`);
+      assertNumberAtLeast(config.concurrency[key], `concurrency.${key}`, 1);
     }
   }
 
@@ -163,10 +186,10 @@ function validatePartialConfig(config: unknown): asserts config is PartialConfig
         "tokens",
       ]);
       if ("turns" in config.budgets[key]) {
-        assertNumber(config.budgets[key].turns, `budgets.${key}.turns`);
+        assertNumberAtLeast(config.budgets[key].turns, `budgets.${key}.turns`, 1);
       }
       if ("tokens" in config.budgets[key]) {
-        assertNumber(config.budgets[key].tokens, `budgets.${key}.tokens`);
+        assertNumberAtLeast(config.budgets[key].tokens, `budgets.${key}.tokens`, 1);
       }
     }
   }
@@ -190,7 +213,7 @@ function validatePartialConfig(config: unknown): asserts config is PartialConfig
       "janus_retry_threshold",
     ] as const) {
       if (key in config.thresholds) {
-        assertNumber(config.thresholds[key], `thresholds.${key}`);
+        assertNumberAtLeast(config.thresholds[key], `thresholds.${key}`, 0);
       }
     }
 
@@ -235,6 +258,17 @@ function validatePartialConfig(config: unknown): asserts config is PartialConfig
     ] as const) {
       if (key in config.economics) {
         assertNullableNumber(config.economics[key], `economics.${key}`);
+        if (config.economics[key] !== null) {
+          assertNumberAtLeast(config.economics[key], `economics.${key}`, 0);
+        }
+      }
+    }
+    for (const key of [
+      "quota_warning_floor_pct",
+      "quota_hard_stop_floor_pct",
+    ] as const) {
+      if (key in config.economics && config.economics[key] !== null) {
+        assertNumberInRange(config.economics[key], `economics.${key}`, 0, 100);
       }
     }
     if ("allow_exact_cost_estimation" in config.economics) {
@@ -255,9 +289,10 @@ function validatePartialConfig(config: unknown): asserts config is PartialConfig
       assertBoolean(config.janus.enabled, "janus.enabled");
     }
     if ("max_invocations_per_issue" in config.janus) {
-      assertNumber(
+      assertNumberAtLeast(
         config.janus.max_invocations_per_issue,
         "janus.max_invocations_per_issue",
+        1,
       );
     }
   }
@@ -269,12 +304,13 @@ function validatePartialConfig(config: unknown): asserts config is PartialConfig
       "prompt_token_budget",
     ]);
     if ("max_records" in config.mnemosyne) {
-      assertNumber(config.mnemosyne.max_records, "mnemosyne.max_records");
+      assertNumberAtLeast(config.mnemosyne.max_records, "mnemosyne.max_records", 1);
     }
     if ("prompt_token_budget" in config.mnemosyne) {
-      assertNumber(
+      assertNumberAtLeast(
         config.mnemosyne.prompt_token_budget,
         "mnemosyne.prompt_token_budget",
+        1,
       );
     }
   }
@@ -291,7 +327,7 @@ function validatePartialConfig(config: unknown): asserts config is PartialConfig
     assertRecord(config.olympus, "olympus");
     validateKnownKeys(config.olympus, "olympus", ["port", "open_browser"]);
     if ("port" in config.olympus) {
-      assertNumber(config.olympus.port, "olympus.port");
+      assertNumberInRange(config.olympus.port, "olympus.port", 1, 65535);
     }
     if ("open_browser" in config.olympus) {
       assertBoolean(config.olympus.open_browser, "olympus.open_browser");
@@ -317,12 +353,18 @@ function validatePartialConfig(config: unknown): asserts config is PartialConfig
       assertString(config.evals.benchmark_suite, "evals.benchmark_suite");
     }
     if ("minimum_pass_rate" in config.evals) {
-      assertNumber(config.evals.minimum_pass_rate, "evals.minimum_pass_rate");
+      assertNumberInRange(
+        config.evals.minimum_pass_rate,
+        "evals.minimum_pass_rate",
+        0,
+        1,
+      );
     }
     if ("max_human_interventions_per_10_issues" in config.evals) {
-      assertNumber(
+      assertNumberAtLeast(
         config.evals.max_human_interventions_per_10_issues,
         "evals.max_human_interventions_per_10_issues",
+        0,
       );
     }
   }

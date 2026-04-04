@@ -167,6 +167,40 @@ describe("S01 config contract seed", () => {
     );
   });
 
+  it("rejects out-of-range numeric values", () => {
+    const projectRoot = createTempProjectRoot();
+
+    writeConfigFixture(projectRoot, {
+      concurrency: {
+        max_agents: 0,
+      },
+    });
+
+    expect(() => loadConfig(projectRoot)).toThrow(
+      'Expected "concurrency.max_agents" to be at least 1',
+    );
+
+    writeConfigFixture(projectRoot, {
+      olympus: {
+        port: 0,
+      },
+    });
+
+    expect(() => loadConfig(projectRoot)).toThrow(
+      'Expected "olympus.port" to be between 1 and 65535',
+    );
+
+    writeConfigFixture(projectRoot, {
+      economics: {
+        quota_warning_floor_pct: 150,
+      },
+    });
+
+    expect(() => loadConfig(projectRoot)).toThrow(
+      'Expected "economics.quota_warning_floor_pct" to be between 0 and 100',
+    );
+  });
+
   it("reports malformed json with the config path", () => {
     const projectRoot = createTempProjectRoot();
 
