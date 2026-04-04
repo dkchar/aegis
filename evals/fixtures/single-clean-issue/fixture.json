@@ -1,0 +1,12 @@
+{
+  "issues": [
+    {
+      "id": "test-001",
+      "type": "task",
+      "expected_completion": "completed",
+      "expected_merge": "merged_clean"
+    }
+  ],
+  "human_interventions": [],
+  "config_overrides": {}
+}

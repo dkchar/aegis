@@ -1,18 +1,12 @@
 /**
- * Result persistence scaffold — S02 contract seed.
+ * Result persistence — S02 lane A implementation.
  *
- * This file defines the public interface for writing and reading eval run
- * artifacts.  The implementation is intentionally left as a "not implemented"
- * stub so that lane A can fill it in without merge conflicts.
- *
- * Output directory rules (SPECv2 §24.5):
- *   - Results live under `<resultsPath>/<scenario_id>/<run_timestamp>.json`
- *   - `resultsPath` defaults to `.aegis/evals` (EVALS_RESULTS_PATH)
- *   - Lane A must create the directory tree if it does not exist
- *   - Files must be valid JSON and human-readable (pretty-printed)
- *
- * DO NOT add implementation logic here — this is contract-only.
+ * Implements writeResult and readResult for persisting eval run artifacts
+ * under `<resultsPath>/<scenario_id>/<run_timestamp>.json` (SPECv2 §24.5).
  */
+
+import path from "node:path";
+import fs from "node:fs";
 
 import type { EvalRunResult } from "./result-schema.js";
 import { EVALS_RESULTS_PATH } from "./result-schema.js";
@@ -20,7 +14,22 @@ import { EVALS_RESULTS_PATH } from "./result-schema.js";
 export { EVALS_RESULTS_PATH };
 
 // ---------------------------------------------------------------------------
-// Write stub — lane A will implement this
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert an ISO-8601 timestamp to a filesystem-safe string by replacing
+ * colons with hyphens.
+ *
+ * Example: "2026-04-04T18:00:00.000Z" → "2026-04-04T18-00-00.000Z"
+ */
+function toSafeTimestamp(iso: string): string {
+  // Replace only the colons in the time portion (after the 'T').
+  return iso.replace(/:/g, "-");
+}
+
+// ---------------------------------------------------------------------------
+// writeResult
 // ---------------------------------------------------------------------------
 
 /**
@@ -36,20 +45,26 @@ export { EVALS_RESULTS_PATH };
  * @param resultsPath Absolute or repo-relative path to the results root.
  *                    Defaults to EVALS_RESULTS_PATH (".aegis/evals").
  * @returns           The absolute path of the file that was written.
- *
- * @throws {Error} "Not implemented" until lane A fills in the body.
  */
 export async function writeResult(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _result: EvalRunResult,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _resultsPath: string = EVALS_RESULTS_PATH,
+  result: EvalRunResult,
+  resultsPath: string = EVALS_RESULTS_PATH,
 ): Promise<string> {
-  throw new Error("Not implemented: writeResult — lane A will implement this");
+  const scenarioDir = path.resolve(resultsPath, result.scenario_id);
+  fs.mkdirSync(scenarioDir, { recursive: true });
+
+  const safeTimestamp = toSafeTimestamp(result.timing.started_at);
+  const fileName = `${safeTimestamp}.json`;
+  const filePath = path.join(scenarioDir, fileName);
+
+  const content = JSON.stringify(result, null, 2);
+  fs.writeFileSync(filePath, content, "utf8");
+
+  return path.resolve(filePath);
 }
 
 // ---------------------------------------------------------------------------
-// Read stub — lane A will implement this
+// readResult
 // ---------------------------------------------------------------------------
 
 /**
@@ -57,10 +72,8 @@ export async function writeResult(
  *
  * @param filePath Absolute path to the result JSON file.
  * @returns        The parsed EvalRunResult.
- *
- * @throws {Error} "Not implemented" until lane A fills in the body.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function readResult(_filePath: string): Promise<EvalRunResult> {
-  throw new Error("Not implemented: readResult — lane A will implement this");
+export async function readResult(filePath: string): Promise<EvalRunResult> {
+  const raw = fs.readFileSync(filePath, "utf8");
+  return JSON.parse(raw) as EvalRunResult;
 }
