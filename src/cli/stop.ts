@@ -122,11 +122,22 @@ export async function stopAegis(
     } else {
       forced = true;
       process.kill(recoveredRuntime.pid, "SIGKILL");
-      await waitForExit(recoveredRuntime.pid, 2_000);
+      stoppedGracefully = await waitForExit(recoveredRuntime.pid, 2_000);
     }
   }
 
   clearStopRequest(root);
+  if (!stoppedGracefully) {
+    const stillOwned = recoveredRuntime.server_token
+      ? await isAegisOwned(recoveredRuntime)
+      : isProcessRunning(recoveredRuntime.pid);
+
+    if (stillOwned) {
+      throw new Error(
+        `Failed to stop Aegis pid ${recoveredRuntime.pid}; process is still running after escalation.`,
+      );
+    }
+  }
   writeRuntimeState(
     {
       ...recoveredRuntime,

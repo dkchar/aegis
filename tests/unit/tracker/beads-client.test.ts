@@ -286,8 +286,8 @@ describe("BeadsCliClient.createIssue", () => {
         "--title", "New issue",
         "--description", "Details",
         "--priority", "2",
-        "--label", "fix",
-        "--label", "mvp",
+        "--type", "fix",
+        "--labels", "fix,mvp",
         "--json",
       ]),
     );

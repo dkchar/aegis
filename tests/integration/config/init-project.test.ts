@@ -19,6 +19,10 @@ import {
   buildInitProjectPlan,
   initProject,
 } from "../../../src/config/init-project.js";
+import {
+  emptyDispatchState,
+  loadDispatchState,
+} from "../../../src/core/dispatch-state.js";
 
 const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
 
@@ -89,8 +93,8 @@ describe("S01 init project contract seed", () => {
         ),
       ).toEqual(DEFAULT_AEGIS_CONFIG);
       expect(
-        readFileSync(path.join(tempRepo, ".aegis", "dispatch-state.json"), "utf8"),
-      ).toBe("{}\n");
+        loadDispatchState(tempRepo),
+      ).toEqual(emptyDispatchState());
       expect(
         readFileSync(path.join(tempRepo, ".aegis", "merge-queue.json"), "utf8"),
       ).toBe("{}\n");

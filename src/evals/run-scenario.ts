@@ -11,7 +11,14 @@ import { readFileSync } from "node:fs";
 import crypto from "node:crypto";
 import { execSync } from "node:child_process";
 
-import type { EvalRunResult, EvalScenario, CompletionOutcome, MergeOutcome } from "./result-schema.js";
+import { DEFAULT_AEGIS_CONFIG } from "../config/defaults.js";
+import { loadConfig } from "../config/load-config.js";
+import type {
+  EvalRunResult,
+  EvalScenario,
+  CompletionOutcome,
+  MergeOutcome,
+} from "./result-schema.js";
 import type { Fixture } from "./fixture-schema.js";
 import { validateFixture } from "./fixture-schema.js";
 
@@ -24,9 +31,14 @@ export interface RunScenarioOptions {
   scenario: EvalScenario;
   /**
    * Absolute path to the project root (repository) the scenario should run
-   * against.  Lane A will clone or set up the fixture repo here.
+   * against. Lane A will clone or set up the fixture repo here.
    */
   projectRoot: string;
+  /**
+   * Absolute path to the Aegis checkout whose provenance and fixture corpus
+   * should be used for the run.
+   */
+  aegisRoot?: string;
   /**
    * Absolute path to the Aegis binary or entry point to invoke.
    * Defaults to the current process when undefined.
@@ -39,7 +51,7 @@ export interface RunScenarioOptions {
   verbose?: boolean;
   /**
    * Maximum wall-clock milliseconds before the runner forcibly terminates the
-   * scenario.  Defaults to 30 minutes (1_800_000 ms).
+   * scenario. Defaults to 30 minutes (1_800_000 ms).
    */
   timeoutMs?: number;
 }
@@ -48,7 +60,7 @@ export interface RunScenarioOptions {
 // Fixture format
 //
 // The Fixture type is now defined canonically in fixture-schema.ts (S03
-// contract seed).  The inline FixtureIssue and Fixture interfaces that
+// contract seed). The inline FixtureIssue and Fixture interfaces that
 // previously lived here have been replaced with the formalized imports above.
 // ---------------------------------------------------------------------------
 
@@ -56,8 +68,12 @@ export interface RunScenarioOptions {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-function readAegisVersion(projectRoot: string): string {
-  const pkgPath = path.join(projectRoot, "package.json");
+function defaultAegisRoot(): string {
+  return path.resolve(import.meta.dirname, "..", "..");
+}
+
+function readAegisVersion(aegisRoot: string): string {
+  const pkgPath = path.join(aegisRoot, "package.json");
   const raw = readFileSync(pkgPath, "utf8");
   const pkg = JSON.parse(raw) as { version?: unknown };
   if (typeof pkg.version !== "string" || pkg.version.length === 0) {
@@ -66,10 +82,10 @@ function readAegisVersion(projectRoot: string): string {
   return pkg.version;
 }
 
-function readGitSha(projectRoot: string): string {
+function readGitSha(aegisRoot: string): string {
   try {
     const sha = execSync("git rev-parse HEAD", {
-      cwd: projectRoot,
+      cwd: aegisRoot,
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
     }).trim();
@@ -81,23 +97,27 @@ function readGitSha(projectRoot: string): string {
   }
 }
 
-function buildConfigFingerprint(projectRoot: string): string {
-  // We fingerprint the resolved config JSON.  If no config file is present
-  // (common in test environments), we fingerprint an empty object so the
-  // runner still produces a deterministic string.
-  let configJson: string;
+function loadResolvedConfig(projectRoot: string) {
   try {
-    const configPath = path.join(projectRoot, ".aegis", "config.json");
-    configJson = readFileSync(configPath, "utf8");
-  } catch {
-    configJson = "{}";
-  }
+    return loadConfig(projectRoot);
+  } catch (error) {
+    if (
+      error instanceof Error
+      && error.message.startsWith("Missing Aegis config at ")
+    ) {
+      return DEFAULT_AEGIS_CONFIG;
+    }
 
-  return crypto.createHash("sha256").update(configJson).digest("hex");
+    throw error;
+  }
 }
 
-function loadFixture(projectRoot: string, fixturePath: string): Fixture {
-  const base = path.resolve(projectRoot, "evals", "fixtures");
+function buildConfigFingerprint(config: unknown): string {
+  return crypto.createHash("sha256").update(JSON.stringify(config)).digest("hex");
+}
+
+function loadFixture(aegisRoot: string, fixturePath: string): Fixture {
+  const base = path.resolve(aegisRoot, "evals", "fixtures");
   const fullPath = path.resolve(base, fixturePath);
   if (!fullPath.startsWith(base + path.sep) && fullPath !== base) {
     throw new Error(`fixture_path "${fixturePath}" escapes the fixtures directory`);
@@ -122,18 +142,21 @@ function loadFixture(projectRoot: string, fixturePath: string): Fixture {
  * The real pipeline wiring arrives in S16A.
  */
 export async function runScenario(options: RunScenarioOptions): Promise<EvalRunResult> {
-  const { scenario, projectRoot } = options;
+  const { scenario } = options;
+  const projectRoot = path.resolve(options.projectRoot);
+  const aegisRoot = path.resolve(options.aegisRoot ?? defaultAegisRoot());
+  const resolvedConfig = loadResolvedConfig(projectRoot);
 
   const startedAt = new Date();
   const startedAtIso = startedAt.toISOString();
 
   // Identity fields
-  const aegis_version = readAegisVersion(projectRoot);
-  const git_sha = readGitSha(projectRoot);
-  const config_fingerprint = buildConfigFingerprint(projectRoot);
+  const aegis_version = readAegisVersion(aegisRoot);
+  const git_sha = readGitSha(aegisRoot);
+  const config_fingerprint = buildConfigFingerprint(resolvedConfig);
 
   // Load the fixture to determine issues and simulate outcomes
-  const fixture = loadFixture(projectRoot, scenario.fixture_path);
+  const fixture = loadFixture(aegisRoot, scenario.fixture_path);
 
   // Build issue statistics
   const issue_count = fixture.issues.length;
@@ -151,39 +174,8 @@ export async function runScenario(options: RunScenarioOptions): Promise<EvalRunR
     merge_outcomes[issue.id] = issue.expected_merge;
   }
 
-  // Determine runtime / model mapping from the project config (best-effort)
-  let runtime = "pi";
-  let model_mapping: Record<string, string> = {
-    oracle: "pi:default",
-    titan: "pi:default",
-    sentinel: "pi:default",
-    janus: "pi:default",
-  };
-
-  try {
-    const configPath = path.join(projectRoot, ".aegis", "config.json");
-    const rawConfig = readFileSync(configPath, "utf8");
-    const cfg = JSON.parse(rawConfig) as {
-      runtime?: unknown;
-      models?: Record<string, unknown>;
-    };
-    if (typeof cfg.runtime === "string") {
-      runtime = cfg.runtime;
-    }
-    if (cfg.models != null && typeof cfg.models === "object") {
-      const mapped: Record<string, string> = {};
-      for (const [role, model] of Object.entries(cfg.models)) {
-        if (typeof model === "string") {
-          mapped[role] = model;
-        }
-      }
-      if (Object.keys(mapped).length > 0) {
-        model_mapping = mapped;
-      }
-    }
-  } catch {
-    // No config present — use defaults
-  }
+  const runtime = resolvedConfig.runtime;
+  const model_mapping = { ...resolvedConfig.models };
 
   const finishedAt = new Date();
   const finishedAtIso = finishedAt.toISOString();

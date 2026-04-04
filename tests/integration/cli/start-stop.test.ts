@@ -14,6 +14,12 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { initProject } from "../../../src/config/init-project.js";
+import { DispatchStage } from "../../../src/core/stage-transition.js";
+import {
+  loadDispatchState,
+  saveDispatchState,
+} from "../../../src/core/dispatch-state.js";
+import type { DispatchRecord, DispatchState } from "../../../src/core/dispatch-state.js";
 
 interface LaunchSequenceFixture {
   startCommand: string;
@@ -48,6 +54,26 @@ function createTempRepo() {
   const tempRepo = mkdtempSync(path.join(tmpdir(), "aegis-s06-cli-"));
   temporaryRoots.push(tempRepo);
   return tempRepo;
+}
+
+function makeDispatchRecord(
+  issueId: string,
+  stage: DispatchStage,
+  sessionProvenanceId: string,
+): DispatchRecord {
+  return {
+    issueId,
+    stage,
+    runningAgent: null,
+    oracleAssessmentRef: null,
+    sentinelVerdictRef: null,
+    failureCount: 0,
+    consecutiveFailures: 0,
+    cooldownUntil: null,
+    cumulativeSpendUsd: null,
+    sessionProvenanceId,
+    updatedAt: "2026-04-05T00:00:00.000Z",
+  };
 }
 
 async function reservePort() {
@@ -306,6 +332,205 @@ describe("S06 launch lifecycle contract seed", () => {
     expect(startedWithoutBrowser.openedBrowser).toBe(false);
     expect(openBrowserDisabled).not.toHaveBeenCalled();
     await startedWithoutBrowser.runtime.stop();
+  });
+
+  it("reconciles stale in-progress dispatch records during startup", async () => {
+    const tempRepo = createTempRepo();
+    const port = await reservePort();
+    initProject(tempRepo);
+    initializeGitRepo(tempRepo);
+
+    const staleState: DispatchState = {
+      schemaVersion: 1,
+      records: {
+        "aegis-fjm.44": {
+          ...makeDispatchRecord(
+            "aegis-fjm.44",
+            DispatchStage.Implementing,
+            "old-session",
+          ),
+          runningAgent: {
+            caste: "titan",
+            sessionId: "pi-session-old",
+            startedAt: "2026-04-05T00:00:00.000Z",
+          },
+        },
+      },
+    };
+    saveDispatchState(tempRepo, staleState);
+
+    const startModule = (await import(
+      pathToFileURL(path.join(repoRoot, "src", "cli", "start.ts")).href
+    )) as {
+      startAegis: (
+        root?: string,
+        overrides?: {
+          port?: number;
+          noBrowser?: boolean;
+        },
+        options?: {
+          verifyTracker?: () => void;
+          verifyGitRepo?: () => void;
+          openBrowser?: (url: string) => boolean;
+          registerSignalHandlers?: boolean;
+        },
+      ) => Promise<{
+        runtime: {
+          stop: () => Promise<void>;
+        };
+      }>;
+    };
+
+    let started:
+      | {
+        runtime: {
+          stop: () => Promise<void>;
+        };
+      }
+      | undefined;
+
+    try {
+      started = await startModule.startAegis(
+        tempRepo,
+        { port, noBrowser: true },
+        {
+          verifyGitRepo: () => undefined,
+          verifyTracker: () => undefined,
+          openBrowser: vi.fn(() => true),
+          registerSignalHandlers: false,
+        },
+      );
+
+      const reconciled = loadDispatchState(tempRepo);
+      expect(reconciled.records["aegis-fjm.44"].runningAgent).toBeNull();
+      expect(reconciled.records["aegis-fjm.44"].stage).toBe(
+        DispatchStage.Implementing,
+      );
+      expect(reconciled.records["aegis-fjm.44"].sessionProvenanceId).not.toBe(
+        "old-session",
+      );
+    } finally {
+      await started?.runtime.stop();
+    }
+  });
+
+  it("does not mutate dispatch state when start is invoked against an already-running instance", async () => {
+    const tempRepo = createTempRepo();
+    const port = await reservePort();
+    initProject(tempRepo);
+    initializeGitRepo(tempRepo);
+
+    const startModule = (await import(
+      pathToFileURL(path.join(repoRoot, "src", "cli", "start.ts")).href
+    )) as {
+      startAegis: (
+        root?: string,
+        overrides?: {
+          port?: number;
+          noBrowser?: boolean;
+        },
+        options?: {
+          verifyTracker?: () => void;
+          verifyGitRepo?: () => void;
+          openBrowser?: (url: string) => boolean;
+          registerSignalHandlers?: boolean;
+        },
+      ) => Promise<{
+        runtime: {
+          stop: () => Promise<void>;
+        };
+      }>;
+    };
+
+    const started = await startModule.startAegis(
+      tempRepo,
+      { port, noBrowser: true },
+      {
+        verifyGitRepo: () => undefined,
+        verifyTracker: () => undefined,
+        openBrowser: vi.fn(() => true),
+        registerSignalHandlers: false,
+      },
+    );
+
+    const activeState: DispatchState = {
+      schemaVersion: 1,
+      records: {
+        "aegis-fjm.55": {
+          ...makeDispatchRecord(
+            "aegis-fjm.55",
+            DispatchStage.Implementing,
+            "live-session",
+          ),
+          runningAgent: {
+            caste: "titan",
+            sessionId: "pi-session-live",
+            startedAt: "2026-04-05T00:00:00.000Z",
+          },
+        },
+      },
+    };
+    saveDispatchState(tempRepo, activeState);
+
+    try {
+      await expect(
+        startModule.startAegis(
+          tempRepo,
+          { port, noBrowser: true },
+          {
+            verifyGitRepo: () => undefined,
+            verifyTracker: () => undefined,
+            registerSignalHandlers: false,
+          },
+        ),
+      ).rejects.toThrow(/already running/i);
+
+      expect(loadDispatchState(tempRepo)).toEqual(activeState);
+    } finally {
+      await started.runtime.stop();
+    }
+  });
+
+  it("fails startup clearly when dispatch state is malformed", async () => {
+    const tempRepo = createTempRepo();
+    const port = await reservePort();
+    initProject(tempRepo);
+    initializeGitRepo(tempRepo);
+
+    writeFileSync(
+      path.join(tempRepo, ".aegis", "dispatch-state.json"),
+      "{\n  \"schemaVersion\": 1\n}\n",
+      "utf8",
+    );
+
+    const startModule = (await import(
+      pathToFileURL(path.join(repoRoot, "src", "cli", "start.ts")).href
+    )) as {
+      startAegis: (
+        root?: string,
+        overrides?: {
+          port?: number;
+          noBrowser?: boolean;
+        },
+        options?: {
+          verifyTracker?: () => void;
+          verifyGitRepo?: () => void;
+          registerSignalHandlers?: boolean;
+        },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      startModule.startAegis(
+        tempRepo,
+        { port, noBrowser: true },
+        {
+          verifyGitRepo: () => undefined,
+          verifyTracker: () => undefined,
+          registerSignalHandlers: false,
+        },
+      ),
+    ).rejects.toThrow(/dispatch-state|records/i);
   });
 
   it.skipIf(!isBeadsCliAvailable())("runs start, status, and stop commands with graceful shutdown semantics", { timeout: 30_000 }, async () => {

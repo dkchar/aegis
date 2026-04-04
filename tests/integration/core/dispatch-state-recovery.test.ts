@@ -196,6 +196,7 @@ describe("reconcileDispatchState", () => {
     const reconciled = reconcileDispatchState(state, "new-session");
 
     expect(reconciled.records["issue-1"].runningAgent).toBeNull();
+    expect(reconciled.records["issue-1"].sessionProvenanceId).toBe("new-session");
   });
 
   it("preserves runningAgent for records owned by the live session", () => {
