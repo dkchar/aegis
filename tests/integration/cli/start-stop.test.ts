@@ -77,6 +77,11 @@ async function reservePort() {
   });
 }
 
+function isBeadsCliAvailable() {
+  const probe = spawnSync("bd", ["--help"], { stdio: "ignore" });
+  return probe.status === 0;
+}
+
 function initializeGitRepo(root: string) {
   const gitInit = spawnSync("git", ["init"], {
     cwd: root,
@@ -303,7 +308,7 @@ describe("S06 launch lifecycle contract seed", () => {
     await startedWithoutBrowser.runtime.stop();
   });
 
-  it("runs start, status, and stop commands with graceful shutdown semantics", { timeout: 30_000 }, async () => {
+  it.skipIf(!isBeadsCliAvailable())("runs start, status, and stop commands with graceful shutdown semantics", { timeout: 30_000 }, async () => {
     const tempRepo = createTempRepo();
     const port = await reservePort();
     initProject(tempRepo);
