@@ -557,7 +557,7 @@ describe("S02 lane B — validateEvalRunResult", () => {
   });
 
   it("missing top-level field 'scenario_id' is detected", () => {
-    const data = makeMinimalResult() as Record<string, unknown>;
+    const data = makeMinimalResult() as unknown as Record<string, unknown>;
     delete data["scenario_id"];
 
     const result = validateEvalRunResult(data);
@@ -566,7 +566,7 @@ describe("S02 lane B — validateEvalRunResult", () => {
   });
 
   it("missing 'timing' object is detected", () => {
-    const data = makeMinimalResult() as Record<string, unknown>;
+    const data = makeMinimalResult() as unknown as Record<string, unknown>;
     delete data["timing"];
 
     const result = validateEvalRunResult(data);
@@ -575,7 +575,7 @@ describe("S02 lane B — validateEvalRunResult", () => {
   });
 
   it("invalid completion_outcome enum value is detected", () => {
-    const data = makeMinimalResult() as Record<string, unknown>;
+    const data = makeMinimalResult() as unknown as Record<string, unknown>;
     data["completion_outcomes"] = { "issue-1": "totally_invalid_outcome" };
 
     const result = validateEvalRunResult(data);
@@ -584,7 +584,7 @@ describe("S02 lane B — validateEvalRunResult", () => {
   });
 
   it("invalid merge_outcome enum value is detected", () => {
-    const data = makeMinimalResult() as Record<string, unknown>;
+    const data = makeMinimalResult() as unknown as Record<string, unknown>;
     data["merge_outcomes"] = { "issue-1": "bad_merge" };
 
     const result = validateEvalRunResult(data);
@@ -593,7 +593,7 @@ describe("S02 lane B — validateEvalRunResult", () => {
   });
 
   it("invalid ISO-8601 timestamp in timing.started_at is detected", () => {
-    const data = makeMinimalResult() as Record<string, unknown>;
+    const data = makeMinimalResult() as unknown as Record<string, unknown>;
     data["timing"] = {
       started_at: "not-a-date",
       finished_at: "2026-04-04T18:05:00.000Z",
@@ -606,7 +606,7 @@ describe("S02 lane B — validateEvalRunResult", () => {
   });
 
   it("invalid ISO-8601 timestamp in timing.finished_at is detected", () => {
-    const data = makeMinimalResult() as Record<string, unknown>;
+    const data = makeMinimalResult() as unknown as Record<string, unknown>;
     data["timing"] = {
       started_at: "2026-04-04T18:00:00.000Z",
       finished_at: "garbage",
@@ -619,7 +619,7 @@ describe("S02 lane B — validateEvalRunResult", () => {
   });
 
   it("negative issue_count is detected", () => {
-    const data = makeMinimalResult() as Record<string, unknown>;
+    const data = makeMinimalResult() as unknown as Record<string, unknown>;
     data["issue_count"] = -1;
 
     const result = validateEvalRunResult(data);
@@ -628,7 +628,7 @@ describe("S02 lane B — validateEvalRunResult", () => {
   });
 
   it("empty scenario_id string is detected", () => {
-    const data = makeMinimalResult() as Record<string, unknown>;
+    const data = makeMinimalResult() as unknown as Record<string, unknown>;
     data["scenario_id"] = "";
 
     const result = validateEvalRunResult(data);
