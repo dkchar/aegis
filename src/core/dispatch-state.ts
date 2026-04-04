@@ -260,6 +260,8 @@ export function reconcileDispatchState(
       reconciledRecords[issueId] = {
         ...record,
         runningAgent: null,
+        sessionProvenanceId: liveSessionId,
+        updatedAt: new Date().toISOString(),
       };
     } else {
       reconciledRecords[issueId] = { ...record };

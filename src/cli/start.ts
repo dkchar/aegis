@@ -3,6 +3,11 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import { loadConfig } from "../config/load-config.js";
+import {
+  loadDispatchState,
+  reconcileDispatchState,
+  saveDispatchState,
+} from "../core/dispatch-state.js";
 import { createHttpServerController } from "../server/http-server.js";
 import type { OrchestrationMode } from "../server/routes.js";
 import { STOP_COMMAND_REASONS } from "./stop.js";
@@ -277,6 +282,13 @@ export async function startAegis(
       `Aegis is already running on pid ${recoveredState.pid} (port ${recoveredState.port}).`,
     );
   }
+
+  const dispatchSessionId = randomUUID();
+  const recoveredDispatchState = reconcileDispatchState(
+    loadDispatchState(repoRoot),
+    dispatchSessionId,
+  );
+  saveDispatchState(repoRoot, recoveredDispatchState);
 
   const token = randomUUID();
   const controller = createHttpServerController();

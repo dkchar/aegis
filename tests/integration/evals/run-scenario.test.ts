@@ -8,9 +8,12 @@
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
+import crypto from "node:crypto";
+import { spawnSync } from "node:child_process";
 
 import { describe, it, expect, afterEach } from "vitest";
 
+import { DEFAULT_AEGIS_CONFIG } from "../../../src/config/defaults.js";
 import { runScenario } from "../../../src/evals/run-scenario.js";
 import { writeResult, readResult } from "../../../src/evals/write-result.js";
 import type { EvalRunResult, EvalScenario } from "../../../src/evals/result-schema.js";
@@ -71,6 +74,18 @@ function makeTempDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aegis-eval-test-"));
   tempDirs.push(dir);
   return dir;
+}
+
+function initializeEvalProject(root: string, configContents?: string) {
+  fs.mkdirSync(path.join(root, ".aegis"), { recursive: true });
+
+  if (configContents !== undefined) {
+    fs.writeFileSync(
+      path.join(root, ".aegis", "config.json"),
+      configContents,
+      "utf8",
+    );
+  }
 }
 
 afterEach(() => {
@@ -235,6 +250,96 @@ describe("S02 scenario runner — lane A (runScenario)", () => {
       const result = await runScenario({ scenario, projectRoot: repoRoot });
 
       expect(result.human_intervention_issue_ids).toEqual([]);
+    },
+  );
+
+  it(
+    "captures aegis_version and git_sha from the Aegis checkout even when the scenario project root is separate",
+    async () => {
+      const scenario = makeTestScenario();
+      const fixtureRepo = makeTempDir();
+      initializeEvalProject(fixtureRepo);
+      fs.writeFileSync(
+        path.join(fixtureRepo, "package.json"),
+        `${JSON.stringify({ name: "fixture-repo", version: "9.9.9" }, null, 2)}\n`,
+        "utf8",
+      );
+
+      const expectedVersion = JSON.parse(
+        fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"),
+      ) as { version: string };
+      const gitShaResult = spawnSync("git", ["rev-parse", "HEAD"], {
+        cwd: repoRoot,
+        encoding: "utf8",
+      });
+
+      expect(gitShaResult.status, gitShaResult.stderr).toBe(0);
+
+      const result = await runScenario({
+        scenario,
+        projectRoot: fixtureRepo,
+        aegisRoot: repoRoot,
+      });
+
+      expect(result.aegis_version).toBe(expectedVersion.version);
+      expect(result.git_sha).toBe(gitShaResult.stdout.trim());
+    },
+  );
+
+  it(
+    "builds config_fingerprint from the resolved config object rather than raw file formatting",
+    async () => {
+      const scenario = makeTestScenario();
+      const firstProjectRoot = makeTempDir();
+      const secondProjectRoot = makeTempDir();
+      const config = {
+        runtime: "openai",
+        models: {
+          oracle: "openai:gpt-5.4",
+        },
+        olympus: {
+          open_browser: false,
+        },
+      };
+      const expectedResolvedFingerprint = crypto
+        .createHash("sha256")
+        .update(JSON.stringify({
+          ...DEFAULT_AEGIS_CONFIG,
+          ...config,
+          models: {
+            ...DEFAULT_AEGIS_CONFIG.models,
+            ...config.models,
+          },
+          olympus: {
+            ...DEFAULT_AEGIS_CONFIG.olympus,
+            ...config.olympus,
+          },
+        }))
+        .digest("hex");
+
+      initializeEvalProject(
+        firstProjectRoot,
+        "{\n  \"runtime\": \"openai\",\n  \"models\": {\n    \"oracle\": \"openai:gpt-5.4\"\n  },\n  \"olympus\": {\n    \"open_browser\": false\n  }\n}\n",
+      );
+      initializeEvalProject(
+        secondProjectRoot,
+        "{\n  \"olympus\": {\n    \"open_browser\": false\n  },\n  \"models\": {\n    \"oracle\": \"openai:gpt-5.4\"\n  },\n  \"runtime\": \"openai\"\n}\n",
+      );
+
+      const firstResult = await runScenario({
+        scenario,
+        projectRoot: firstProjectRoot,
+        aegisRoot: repoRoot,
+      });
+      const secondResult = await runScenario({
+        scenario,
+        projectRoot: secondProjectRoot,
+        aegisRoot: repoRoot,
+      });
+
+      expect(firstResult.config_fingerprint).toBe(expectedResolvedFingerprint);
+      expect(secondResult.config_fingerprint).toBe(expectedResolvedFingerprint);
+      expect(firstResult.config_fingerprint).toBe(secondResult.config_fingerprint);
     },
   );
 });

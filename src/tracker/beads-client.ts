@@ -95,11 +95,12 @@ const CLASS_LABELS: readonly WorkIssueClass[] = [
   "sub",
   "message",
 ];
+const STRUCTURAL_ISSUE_TYPES = new Set<WorkIssueClass>(CLASS_LABELS);
 
 /**
  * Infer the WorkIssueClass from bd labels and issue_type.
  *
- * If `issue_type` is "message", returns "message" directly.
+ * If `issue_type` is one of the structured Aegis classes, returns it directly.
  * Otherwise scans labels for a recognised class keyword.
  * Falls back to "primary".
  */
@@ -107,7 +108,9 @@ function inferIssueClass(
   labels: string[],
   issueType: string,
 ): WorkIssueClass {
-  if (issueType === "message") return "message";
+  if (STRUCTURAL_ISSUE_TYPES.has(issueType as WorkIssueClass)) {
+    return issueType as WorkIssueClass;
+  }
   const labelSet = new Set(labels);
   for (const cls of CLASS_LABELS) {
     if (labelSet.has(cls)) return cls;
@@ -241,9 +244,10 @@ export class BeadsCliClient implements BeadsClient {
       "--title", input.title,
       "--description", input.description,
       "--priority", String(input.priority),
+      "--type", input.issueClass === "primary" ? "task" : input.issueClass,
     ];
-    for (const label of input.labels) {
-      args.push("--label", label);
+    if (input.labels.length > 0) {
+      args.push("--labels", input.labels.join(","));
     }
     args.push("--json");
 
