@@ -166,4 +166,15 @@ describe("S01 config contract seed", () => {
       'Expected "olympus.port" to be a number',
     );
   });
+
+  it("reports malformed json with the config path", () => {
+    const projectRoot = createTempProjectRoot();
+
+    mkdirSync(path.dirname(resolveConfigPath(projectRoot)), { recursive: true });
+    writeFileSync(resolveConfigPath(projectRoot), '{"runtime": "pi"', "utf8");
+
+    expect(() => loadConfig(projectRoot)).toThrow(
+      `Invalid Aegis config JSON at ${resolveConfigPath(projectRoot)}:`,
+    );
+  });
 });

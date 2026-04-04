@@ -410,7 +410,15 @@ export function loadConfig(root = process.cwd()): AegisConfig {
     throw error;
   }
 
-  const parsedConfig = JSON.parse(rawConfig) as unknown;
+  let parsedConfig: unknown;
+
+  try {
+    parsedConfig = JSON.parse(rawConfig) as unknown;
+  } catch (error) {
+    const details = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid Aegis config JSON at ${configPath}: ${details}`);
+  }
+
   validatePartialConfig(parsedConfig);
   return mergeConfig(parsedConfig);
 }
