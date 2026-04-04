@@ -187,11 +187,72 @@ export function normalizeStats(
   metering: MeteringCapability,
   obs?: UsageObservation
 ): NormalizedBudgetStatus {
-  void raw;
-  void authMode;
-  void metering;
-  void obs;
-  throw new Error("normalizeStats: not implemented — Lane B (aegis-fjm.6.3)");
+  const base = {
+    metering,
+    auth_mode: authMode,
+    total_tokens: raw.input_tokens + raw.output_tokens,
+    session_turns: raw.session_turns,
+    wall_time_sec: raw.wall_time_sec,
+    ...(raw.active_context_pct !== undefined
+      ? { active_context_pct: raw.active_context_pct }
+      : {}),
+  };
+
+  switch (metering) {
+    case "exact_usd": {
+      const hasExact = obs?.exact_cost_usd !== undefined;
+      return {
+        ...base,
+        ...(hasExact ? { exact_cost_usd: obs!.exact_cost_usd } : {}),
+        confidence: hasExact ? "exact" : "estimated",
+        budget_warning: false,
+      };
+    }
+
+    case "credits": {
+      return {
+        ...base,
+        ...(obs?.credits_used !== undefined ? { credits_used: obs.credits_used } : {}),
+        ...(obs?.credits_remaining !== undefined
+          ? { credits_remaining: obs.credits_remaining }
+          : {}),
+        confidence: "proxy",
+        budget_warning: false,
+      };
+    }
+
+    case "quota": {
+      return {
+        ...base,
+        ...(obs?.quota_used_pct !== undefined
+          ? { quota_used_pct: obs.quota_used_pct }
+          : {}),
+        ...(obs?.quota_remaining_pct !== undefined
+          ? { quota_remaining_pct: obs.quota_remaining_pct }
+          : {}),
+        confidence: "proxy",
+        budget_warning: false,
+      };
+    }
+
+    case "stats_only": {
+      return {
+        ...base,
+        confidence: "estimated",
+        budget_warning: false,
+      };
+    }
+
+    case "unknown":
+    default: {
+      // SPECv2 §8.2.2: conservative defaults — always warn when metering is unknown
+      return {
+        ...base,
+        confidence: "proxy",
+        budget_warning: true,
+      };
+    }
+  }
 }
 
 /**
@@ -212,7 +273,20 @@ export function isWithinBudget(
   status: NormalizedBudgetStatus,
   limits: BudgetLimit
 ): boolean {
-  void status;
-  void limits;
-  throw new Error("isWithinBudget: not implemented — Lane B (aegis-fjm.6.3)");
+  // Hard turn limit
+  if (status.session_turns >= limits.turns) {
+    return false;
+  }
+
+  // Hard token limit
+  if (status.total_tokens >= limits.tokens) {
+    return false;
+  }
+
+  // SPECv2 §8.2.2: unknown metering with budget_warning = conservative over-budget
+  if (status.metering === "unknown" && status.budget_warning === true) {
+    return false;
+  }
+
+  return true;
 }
