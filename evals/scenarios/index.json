@@ -1,0 +1,19 @@
+{
+  "$schema": "../../src/evals/result-schema.ts",
+  "$comment": "Scenario manifest for the Aegis eval harness (SPECv2 §24.6). Each entry must conform to the EvalScenario interface defined in src/evals/result-schema.ts. Lane B will populate this manifest with the full benchmark corpus.",
+  "scenarios": [
+    {
+      "$comment": "Placeholder entry showing the expected EvalScenario shape. Replace with real fixture paths when lane B is implemented.",
+      "id": "single-clean-issue",
+      "name": "Single clean issue with no blockers",
+      "description": "A single well-defined task issue with no scope overlap, no ambiguity, and no merge conflict. The happy-path baseline scenario. Aegis must dispatch, complete, and merge without any human intervention.",
+      "fixture_path": "single-clean-issue/fixture.json",
+      "expected_outcomes": {
+        "min_completion_rate": 1.0,
+        "expects_human_intervention": false,
+        "expects_janus": false,
+        "expects_restart_recovery": false
+      }
+    }
+  ]
+}
