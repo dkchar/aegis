@@ -307,6 +307,45 @@ describe("BeadsCliClient.createIssue", () => {
     });
     expect(result.id).toBe("aegis-fjm.99");
   });
+
+  it("links to originId when non-null (SPECv2 §5.5)", async () => {
+    const created = makeBdIssue({ id: "aegis-fjm.99" });
+    // First call: create returns the new issue
+    // Second call: link (returns empty)
+    exec
+      .mockResolvedValueOnce(JSON.stringify([created]))
+      .mockResolvedValueOnce("");
+
+    await client.createIssue({
+      title: "Fix issue",
+      description: "fix details",
+      issueClass: "fix",
+      priority: 1,
+      originId: "aegis-fjm.5",
+      labels: ["fix"],
+    });
+
+    // Verify link was called after create
+    expect(exec).toHaveBeenCalledTimes(2);
+    expect(exec.mock.calls[1][0]).toEqual([
+      "link", "aegis-fjm.99", "aegis-fjm.5", "--type", "parent-child", "--json",
+    ]);
+  });
+
+  it("does not call link when originId is null", async () => {
+    const created = makeBdIssue({ id: "aegis-fjm.99" });
+    exec.mockResolvedValue(JSON.stringify([created]));
+
+    await client.createIssue({
+      title: "New",
+      description: "d",
+      issueClass: "primary",
+      priority: 1,
+      originId: null,
+      labels: [],
+    });
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

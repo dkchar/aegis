@@ -13,7 +13,7 @@
 
 import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import type { DispatchStage } from "./stage-transition.js";
+import { DispatchStage } from "./stage-transition.js";
 
 // ---------------------------------------------------------------------------
 // Agent assignment
@@ -126,12 +126,12 @@ export interface DispatchState {
  * Records in these stages may have a stale `runningAgent` after a crash and
  * must be reconciled on restart (SPECv2 §6.3).
  */
-const IN_PROGRESS_STAGES: ReadonlySet<string> = new Set([
-  "scouting",
-  "implementing",
-  "merging",
-  "reviewing",
-  "resolving_integration",
+const IN_PROGRESS_STAGES: ReadonlySet<DispatchStage> = new Set<DispatchStage>([
+  DispatchStage.Scouting,
+  DispatchStage.Implementing,
+  DispatchStage.Merging,
+  DispatchStage.Reviewing,
+  DispatchStage.ResolvingIntegration,
 ]);
 
 // ---------------------------------------------------------------------------

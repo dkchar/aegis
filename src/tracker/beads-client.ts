@@ -193,9 +193,10 @@ export type BdExecutor = (args: string[]) => Promise<string>;
 /** Default executor: runs `bd` as a child process. */
 function defaultBdExecutor(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile("bd", args, { encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
+    execFile("bd", args, { encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) {
-        reject(new Error(`bd ${args[0]} failed: ${err.message}`));
+        const detail = stderr?.trim() ? ` — ${stderr.trim()}` : "";
+        reject(new Error(`bd ${args[0]} failed: ${err.message}${detail}`));
         return;
       }
       resolve(stdout);
@@ -251,7 +252,14 @@ export class BeadsCliClient implements BeadsClient {
     if (arr.length === 0) {
       throw new Error("bd create returned empty result");
     }
-    return mapBdIssueToAegis(arr[0]);
+    const created = mapBdIssueToAegis(arr[0]);
+
+    // Link the new issue to its origin if specified (SPECv2 §5.5).
+    if (input.originId) {
+      await this.linkIssue(input.originId, created.id);
+    }
+
+    return created;
   }
 
   async updateIssue(id: string, input: UpdateIssueInput): Promise<AegisIssue> {
