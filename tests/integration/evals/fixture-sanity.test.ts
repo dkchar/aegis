@@ -29,6 +29,7 @@ import type { EvalScenario } from "../../../src/evals/result-schema.js";
 const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
 const fixturesDir = path.resolve(repoRoot, "evals", "fixtures");
 const coreSuitePath = path.resolve(repoRoot, "evals", "scenarios", "core-suite.json");
+const indexPath = path.resolve(repoRoot, "evals", "scenarios", "index.json");
 
 /** SPECv2 §24.6 required benchmark scenario IDs (exactly 11). */
 const REQUIRED_SCENARIO_IDS: ReadonlySet<string> = new Set([
@@ -140,6 +141,17 @@ describe("S03 fixture sanity", () => {
           `${missing.length} scenario(s) from core-suite.json lack a valid fixture:\n  ${missing.join("\n  ")}`,
         );
       }
+    });
+
+    it("index.json and core-suite.json contain the same scenario IDs", () => {
+      const suite = loadCoreSuite();
+      const indexRaw = fs.readFileSync(indexPath, "utf8");
+      const index = JSON.parse(indexRaw) as CoreSuiteManifest;
+
+      const suiteIds = suite.scenarios.map((s) => s.id).sort();
+      const indexIds = index.scenarios.map((s) => s.id).sort();
+
+      expect(indexIds).toEqual(suiteIds);
     });
 
     it("every fixture directory has a matching scenario", () => {

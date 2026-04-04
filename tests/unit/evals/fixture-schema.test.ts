@@ -443,6 +443,22 @@ describe("S03 fixture schema — validateFixture rejects invalid issue fields", 
     expect(result.errors.some((e) => e.includes("scenario_tags"))).toBe(true);
   });
 
+  it("rejects scenario_tags array containing empty strings", () => {
+    const data = makeFixtureData({ scenario_tags: ["valid-tag", ""] });
+
+    const result = validateFixture(data);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("scenario_tags[1]"))).toBe(true);
+  });
+
+  it("rejects human_interventions array containing empty strings", () => {
+    const data = makeFixtureData({ human_interventions: [""] });
+
+    const result = validateFixture(data);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("human_interventions[0]"))).toBe(true);
+  });
+
   it("rejects human_interventions that is not an array", () => {
     const data = makeFixtureData({ human_interventions: "issue-1" });
 

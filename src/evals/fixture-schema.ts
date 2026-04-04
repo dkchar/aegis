@@ -212,8 +212,8 @@ export function validateFixture(data: unknown): FixtureValidationResult {
     errors.push('"scenario_tags" must be an array');
   } else {
     for (const [i, tag] of (data["scenario_tags"] as unknown[]).entries()) {
-      if (typeof tag !== "string") {
-        errors.push(`"scenario_tags[${i}]" must be a string`);
+      if (typeof tag !== "string" || tag.length === 0) {
+        errors.push(`"scenario_tags[${i}]" must be a non-empty string`);
       }
     }
   }
@@ -269,8 +269,8 @@ export function validateFixture(data: unknown): FixtureValidationResult {
     errors.push('"human_interventions" must be an array');
   } else {
     for (const [i, v] of (data["human_interventions"] as unknown[]).entries()) {
-      if (typeof v !== "string") {
-        errors.push(`"human_interventions[${i}]" must be a string`);
+      if (typeof v !== "string" || (v as string).length === 0) {
+        errors.push(`"human_interventions[${i}]" must be a non-empty string`);
       }
     }
   }

@@ -1,6 +1,6 @@
 {
   "$schema": "../../src/evals/result-schema.ts",
-  "$comment": "Core benchmark suite manifest — S03 contract seed. Lists all 11 SPECv2 §24.6 required scenarios. Fixture directories are stubs: Lane A and Lane B will create the actual fixture content. Scenario IDs are kebab-case and must match the fixture directory name under evals/fixtures/<scenario-id>/.",
+  "$comment": "Core benchmark suite manifest — S03. Lists all 11 SPECv2 §24.6 required scenarios. All fixture directories are populated with fixture.json files conforming to fixture-schema.ts. Scenario IDs are kebab-case and must match the fixture directory name under evals/fixtures/<scenario-id>/.",
   "scenarios": [
     {
       "id": "single-clean-issue",
