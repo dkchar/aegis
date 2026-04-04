@@ -91,3 +91,102 @@ export interface LiveEventPublisher {
   publish(event: AegisLiveEvent): void;
   subscribe(listener: (event: AegisLiveEvent) => void): () => void;
 }
+
+export interface ReplayableLiveEventPublisher extends LiveEventPublisher {
+  replay(afterEventId?: string | null): AegisLiveEvent[];
+  snapshot(): AegisLiveEvent[];
+}
+
+export interface InMemoryLiveEventBusOptions {
+  replayLimit?: number;
+}
+
+export const DEFAULT_LIVE_EVENT_REPLAY_LIMIT = 250;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function assertLiveEvent(event: AegisLiveEvent) {
+  if (event.id.trim().length === 0) {
+    throw new Error("Live event id must be a non-empty string.");
+  }
+
+  if (!isLiveEventType(event.type)) {
+    throw new Error(`Unknown live event type: ${event.type}`);
+  }
+
+  if (!Number.isInteger(event.sequence) || event.sequence < 1) {
+    throw new Error("Live event sequence must be a positive integer.");
+  }
+
+  if (Number.isNaN(Date.parse(event.timestamp))) {
+    throw new Error("Live event timestamp must be a valid ISO-8601 string.");
+  }
+
+  if (!isRecord(event.payload)) {
+    throw new Error("Live event payload must be an object.");
+  }
+
+  const requiredFields = getLiveEventPayloadFields(event.type);
+
+  for (const field of requiredFields) {
+    if (!Object.hasOwn(event.payload, field)) {
+      throw new Error(`Missing required payload field "${field}" for ${event.type}.`);
+    }
+  }
+}
+
+function normalizeReplayLimit(value: number | undefined) {
+  if (!Number.isInteger(value) || value === undefined || value < 1) {
+    return DEFAULT_LIVE_EVENT_REPLAY_LIMIT;
+  }
+
+  return value;
+}
+
+export function createInMemoryLiveEventBus(
+  options: InMemoryLiveEventBusOptions = {},
+): ReplayableLiveEventPublisher {
+  const replayLimit = normalizeReplayLimit(options.replayLimit);
+  const listeners = new Set<(event: AegisLiveEvent) => void>();
+  let history: AegisLiveEvent[] = [];
+
+  return {
+    publish(event) {
+      assertLiveEvent(event);
+      history.push(event);
+
+      if (history.length > replayLimit) {
+        history = history.slice(history.length - replayLimit);
+      }
+
+      for (const listener of listeners) {
+        listener(event);
+      }
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    replay(afterEventId) {
+      if (!afterEventId) {
+        return [...history];
+      }
+
+      const index = history.findIndex((event) => event.id === afterEventId);
+
+      if (index < 0) {
+        return [...history];
+      }
+
+      return history.slice(index + 1);
+    },
+    snapshot() {
+      return [...history];
+    },
+  };
+}

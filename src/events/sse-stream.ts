@@ -16,6 +16,20 @@ export interface SseFrame {
   retry?: number;
 }
 
+export interface SerializeLiveEventOptions {
+  retry?: number;
+}
+
+export interface SseReplaySource {
+  replay(afterEventId?: string | null): AegisLiveEvent[];
+  subscribe(listener: (event: AegisLiveEvent) => void): () => void;
+}
+
+export interface SsePublishReplayTransport {
+  replay(lastEventId?: string | null): string[];
+  subscribe(writeFrame: (frame: string) => void): () => void;
+}
+
 export function formatSseFrame(frame: SseFrame): string {
   const lines: string[] = [`id: ${frame.id}`, `event: ${frame.event}`];
 
@@ -30,10 +44,32 @@ export function formatSseFrame(frame: SseFrame): string {
   return `${lines.join("\n")}\n\n`;
 }
 
-export function serializeLiveEventForSse(event: AegisLiveEvent): SseFrame {
+export function serializeLiveEventForSse(
+  event: AegisLiveEvent,
+  options: SerializeLiveEventOptions = {},
+): SseFrame {
   return {
     id: event.id,
     event: event.type,
-    data: JSON.stringify(event.payload),
+    data: JSON.stringify(event),
+    retry: options.retry,
+  };
+}
+
+export function createSsePublishReplayTransport(
+  source: SseReplaySource,
+  options: SerializeLiveEventOptions = {},
+): SsePublishReplayTransport {
+  return {
+    replay(lastEventId) {
+      return source.replay(lastEventId).map((event) =>
+        formatSseFrame(serializeLiveEventForSse(event, options)),
+      );
+    },
+    subscribe(writeFrame) {
+      return source.subscribe((event) => {
+        writeFrame(formatSseFrame(serializeLiveEventForSse(event, options)));
+      });
+    },
   };
 }
