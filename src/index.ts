@@ -3,6 +3,9 @@ import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { formatStatusSnapshot, getAegisStatus } from "./cli/status.js";
+import { parseStartOverrides, startAegis } from "./cli/start.js";
+import { stopAegis } from "./cli/stop.js";
 import { initProject } from "./config/init-project.js";
 import type { ProjectPaths } from "./shared/paths.js";
 
@@ -43,9 +46,14 @@ export function buildBootstrapManifest(
 export function runCli(
   root = process.cwd(),
   argv = process.argv.slice(2),
-): BootstrapManifest {
+): Promise<BootstrapManifest> {
   const manifest = buildBootstrapManifest(root);
   const [command] = argv;
+
+  if (!command) {
+    console.log(`Aegis CLI scaffold ready at ${manifest.paths.repoRoot}`);
+    return Promise.resolve(manifest);
+  }
 
   if (command === "init") {
     const result = initProject(root);
@@ -58,11 +66,34 @@ export function runCli(
     console.log(
       `Aegis project initialized at ${manifest.paths.repoRoot} (${createdPathCount} paths created${gitIgnoreNote})`,
     );
-    return manifest;
+    return Promise.resolve(manifest);
   }
 
-  console.log(`Aegis CLI scaffold ready at ${manifest.paths.repoRoot}`);
-  return manifest;
+  if (command === "start") {
+    const overrides = parseStartOverrides(argv.slice(1));
+
+    return startAegis(root, overrides).then((result) => {
+      console.log(`Aegis started at ${result.url} (pid ${process.pid})`);
+      return manifest;
+    });
+  }
+
+  if (command === "status") {
+    return getAegisStatus(root).then((snapshot) => {
+      console.log(formatStatusSnapshot(snapshot));
+      return manifest;
+    });
+  }
+
+  if (command === "stop") {
+    return stopAegis(root, "manual").then((result) => {
+      const forcedSuffix = result.forced ? " (forced)" : "";
+      console.log(`Aegis stopped${forcedSuffix}.`);
+      return manifest;
+    });
+  }
+
+  return Promise.reject(new Error(`Unknown command: ${command}`));
 }
 
 export function isDirectExecution(
@@ -79,5 +110,9 @@ export function isDirectExecution(
 }
 
 if (isDirectExecution()) {
-  runCli();
+  runCli().catch((error) => {
+    const details = error instanceof Error ? error.message : String(error);
+    console.error(details);
+    process.exitCode = 1;
+  });
 }

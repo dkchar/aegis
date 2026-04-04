@@ -1,0 +1,38 @@
+{
+  "requiredEnvelopeFields": [
+    "id",
+    "type",
+    "timestamp",
+    "sequence",
+    "payload"
+  ],
+  "eventTypes": [
+    {
+      "type": "orchestrator.state",
+      "requiredPayloadFields": [
+        "server_state",
+        "mode",
+        "uptime_ms",
+        "queue_depth"
+      ]
+    },
+    {
+      "type": "launch.sequence",
+      "requiredPayloadFields": [
+        "phase",
+        "step",
+        "status",
+        "detail"
+      ]
+    },
+    {
+      "type": "control.command",
+      "requiredPayloadFields": [
+        "action",
+        "request_id",
+        "status",
+        "detail"
+      ]
+    }
+  ]
+}
