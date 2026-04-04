@@ -33,7 +33,32 @@ const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Typed helper for tests that need a real EvalRunResult. */
 function makeMinimalResult(): EvalRunResult {
+  return {
+    aegis_version: "0.1.0",
+    git_sha: "abc1234def5678901234567890123456789012345",
+    config_fingerprint: "sha256:deadbeef",
+    runtime: "pi",
+    model_mapping: { oracle: "pi:default", titan: "pi:default" },
+    scenario_id: "single-clean-issue",
+    issue_count: 1,
+    issue_types: { task: 1 },
+    completion_outcomes: { "issue-1": "completed" },
+    merge_outcomes: { "issue-1": "merged_clean" },
+    human_intervention_issue_ids: [],
+    cost_totals: null,
+    quota_totals: null,
+    timing: {
+      started_at: "2026-04-04T18:00:00.000Z",
+      finished_at: "2026-04-04T18:05:00.000Z",
+      elapsed_ms: 300_000,
+    },
+  };
+}
+
+/** Untyped helper for validation tests that need to mutate/delete fields. */
+function makeMinimalResultData(): Record<string, unknown> {
   return {
     aegis_version: "0.1.0",
     git_sha: "abc1234def5678901234567890123456789012345",
@@ -557,7 +582,7 @@ describe("S02 lane B — validateEvalRunResult", () => {
   });
 
   it("missing top-level field 'scenario_id' is detected", () => {
-    const data = makeMinimalResult() as unknown as Record<string, unknown>;
+    const data = makeMinimalResultData();
     delete data["scenario_id"];
 
     const result = validateEvalRunResult(data);
@@ -566,7 +591,7 @@ describe("S02 lane B — validateEvalRunResult", () => {
   });
 
   it("missing 'timing' object is detected", () => {
-    const data = makeMinimalResult() as unknown as Record<string, unknown>;
+    const data = makeMinimalResultData();
     delete data["timing"];
 
     const result = validateEvalRunResult(data);
@@ -575,7 +600,7 @@ describe("S02 lane B — validateEvalRunResult", () => {
   });
 
   it("invalid completion_outcome enum value is detected", () => {
-    const data = makeMinimalResult() as unknown as Record<string, unknown>;
+    const data = makeMinimalResultData();
     data["completion_outcomes"] = { "issue-1": "totally_invalid_outcome" };
 
     const result = validateEvalRunResult(data);
@@ -584,7 +609,7 @@ describe("S02 lane B — validateEvalRunResult", () => {
   });
 
   it("invalid merge_outcome enum value is detected", () => {
-    const data = makeMinimalResult() as unknown as Record<string, unknown>;
+    const data = makeMinimalResultData();
     data["merge_outcomes"] = { "issue-1": "bad_merge" };
 
     const result = validateEvalRunResult(data);
@@ -593,7 +618,7 @@ describe("S02 lane B — validateEvalRunResult", () => {
   });
 
   it("invalid ISO-8601 timestamp in timing.started_at is detected", () => {
-    const data = makeMinimalResult() as unknown as Record<string, unknown>;
+    const data = makeMinimalResultData();
     data["timing"] = {
       started_at: "not-a-date",
       finished_at: "2026-04-04T18:05:00.000Z",
@@ -606,7 +631,7 @@ describe("S02 lane B — validateEvalRunResult", () => {
   });
 
   it("invalid ISO-8601 timestamp in timing.finished_at is detected", () => {
-    const data = makeMinimalResult() as unknown as Record<string, unknown>;
+    const data = makeMinimalResultData();
     data["timing"] = {
       started_at: "2026-04-04T18:00:00.000Z",
       finished_at: "garbage",
@@ -619,7 +644,7 @@ describe("S02 lane B — validateEvalRunResult", () => {
   });
 
   it("negative issue_count is detected", () => {
-    const data = makeMinimalResult() as unknown as Record<string, unknown>;
+    const data = makeMinimalResultData();
     data["issue_count"] = -1;
 
     const result = validateEvalRunResult(data);
@@ -628,7 +653,7 @@ describe("S02 lane B — validateEvalRunResult", () => {
   });
 
   it("empty scenario_id string is detected", () => {
-    const data = makeMinimalResult() as unknown as Record<string, unknown>;
+    const data = makeMinimalResultData();
     data["scenario_id"] = "";
 
     const result = validateEvalRunResult(data);
