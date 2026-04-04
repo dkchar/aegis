@@ -1,4 +1,7 @@
 {
+  "fixture_type": "clean",
+  "reset_rules": "noop",
+  "scenario_tags": ["happy-path", "baseline", "phase0"],
   "issues": [
     {
       "id": "test-001",

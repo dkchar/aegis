@@ -12,6 +12,7 @@ import crypto from "node:crypto";
 import { execSync } from "node:child_process";
 
 import type { EvalRunResult, EvalScenario, CompletionOutcome, MergeOutcome } from "./result-schema.js";
+import type { Fixture } from "./fixture-schema.js";
 
 // ---------------------------------------------------------------------------
 // Options
@@ -44,20 +45,11 @@ export interface RunScenarioOptions {
 
 // ---------------------------------------------------------------------------
 // Fixture format
+//
+// The Fixture type is now defined canonically in fixture-schema.ts (S03
+// contract seed).  The inline FixtureIssue and Fixture interfaces that
+// previously lived here have been replaced with the formalized imports above.
 // ---------------------------------------------------------------------------
-
-interface FixtureIssue {
-  id: string;
-  type: string;
-  expected_completion: CompletionOutcome;
-  expected_merge: MergeOutcome;
-}
-
-interface Fixture {
-  issues: FixtureIssue[];
-  human_interventions: string[];
-  config_overrides: Record<string, unknown>;
-}
 
 // ---------------------------------------------------------------------------
 // Internal helpers

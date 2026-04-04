@@ -1,6 +1,6 @@
 {
   "$schema": "../../src/evals/result-schema.ts",
-  "$comment": "Scenario manifest for the Aegis eval harness (SPECv2 §24.6). Each entry conforms to the EvalScenario interface in src/evals/result-schema.ts. S03 contract seed populated all 11 required benchmark scenarios; Lane A and Lane B create the fixture content. Scenario IDs are kebab-case and must match the fixture directory name under evals/fixtures/<scenario-id>/.",
+  "$comment": "Core benchmark suite manifest — S03 contract seed. Lists all 11 SPECv2 §24.6 required scenarios. Fixture directories are stubs: Lane A and Lane B will create the actual fixture content. Scenario IDs are kebab-case and must match the fixture directory name under evals/fixtures/<scenario-id>/.",
   "scenarios": [
     {
       "id": "single-clean-issue",
