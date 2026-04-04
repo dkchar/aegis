@@ -1,0 +1,31 @@
+{
+  "routes": {
+    "root": "/",
+    "state": "/api/state",
+    "steer": "/api/steer",
+    "learning": "/api/learning",
+    "events": "/api/events",
+    "beadsHook": "/api/hooks/beads"
+  },
+  "steerActions": [
+    "start",
+    "status",
+    "stop"
+  ],
+  "requestFields": [
+    "action",
+    "request_id",
+    "issued_at",
+    "source",
+    "args"
+  ],
+  "responseFields": [
+    "ok",
+    "action",
+    "request_id",
+    "acknowledged_at",
+    "server_state",
+    "mode",
+    "message"
+  ]
+}

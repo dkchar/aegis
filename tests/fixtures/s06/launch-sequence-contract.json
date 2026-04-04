@@ -1,0 +1,32 @@
+{
+  "startCommand": "start",
+  "statusCommand": "status",
+  "stopCommand": "stop",
+  "startOverrides": [
+    "--port",
+    "--concurrency",
+    "--model",
+    "--no-browser",
+    "--verbose"
+  ],
+  "launchSequenceSteps": [
+    "load_config",
+    "verify_tracker",
+    "verify_git_repo",
+    "recover_dispatch_state",
+    "start_http_server",
+    "open_browser",
+    "enter_conversational_idle",
+    "print_runtime_summary"
+  ],
+  "shutdownSequenceSteps": [
+    "stop_polling",
+    "stop_active_agents",
+    "wait_for_graceful_completion",
+    "abort_stragglers",
+    "reconcile_tracker_work",
+    "cleanup_labors",
+    "persist_runtime_state",
+    "print_budget_summary"
+  ]
+}
