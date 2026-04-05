@@ -270,6 +270,7 @@ describe("runOracle", () => {
       "aegis-fjm.30.1",
       "aegis-fjm.30.2",
     ]);
+    expect(result.rolledBackIssues).toEqual([]);
     expect(tracker.createIssue).toHaveBeenNthCalledWith(1, {
       title: "Split prompt",
       description: expect.stringContaining("aegis-fjm.9.3"),
@@ -350,6 +351,7 @@ describe("runOracle", () => {
     expect(result.updatedRecord.stage).toBe(DispatchStage.Failed);
     expect(result.failureReason).toMatch(/JSON/i);
     expect(result.createdIssues).toEqual([]);
+    expect(result.rolledBackIssues).toEqual([]);
   });
 
   it("rolls back all created decomposition issues when parent blocker linkage fails", async () => {
@@ -383,7 +385,8 @@ describe("runOracle", () => {
     expect(result.failureReason).toMatch(/dep add failed/i);
     expect(result.assessment).not.toBeNull();
     expect(result.updatedRecord.oracleAssessmentRef).not.toBeNull();
-    expect(result.createdIssues.map((issue) => issue.id)).toEqual([
+    expect(result.createdIssues).toEqual([]);
+    expect(result.rolledBackIssues.map((issue) => issue.id)).toEqual([
       "aegis-fjm.30.1",
       "aegis-fjm.30.2",
     ]);
@@ -403,6 +406,33 @@ describe("runOracle", () => {
       "aegis-fjm.30.2",
       expect.stringContaining("Failed to materialize"),
     );
+  });
+
+  it("fails closed when Oracle emits a malformed final message after an earlier valid assessment", async () => {
+    const result = await runOracle({
+      issue: makeIssue(),
+      record: makeRecord(),
+      runtime: makeRuntime([
+        JSON.stringify({
+          files_affected: ["src/core/run-oracle.ts"],
+          estimated_complexity: "moderate",
+          decompose: false,
+          ready: true,
+        }),
+        "sorry, one more thing",
+      ]),
+      tracker: makeTracker(),
+      budget,
+      projectRoot,
+      operatingMode: "conversational",
+      allowComplexAutoDispatch: false,
+    });
+
+    expect(result.updatedRecord.stage).toBe(DispatchStage.Failed);
+    expect(result.failureReason).toMatch(/JSON/i);
+    expect(result.assessment).toBeNull();
+    expect(result.createdIssues).toEqual([]);
+    expect(result.rolledBackIssues).toEqual([]);
   });
 
   it("rejects non-scouting dispatch records", async () => {

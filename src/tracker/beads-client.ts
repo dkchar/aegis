@@ -269,7 +269,19 @@ export class BeadsCliClient implements BeadsClient {
 
     // Link the new issue to its origin if specified (SPECv2 §5.5).
     if (input.originId) {
-      await this.linkIssue(input.originId, created.id);
+      try {
+        await this.linkIssue(input.originId, created.id);
+      } catch (error) {
+        try {
+          await this.closeIssue(
+            created.id,
+            `Failed to link ${created.id} to origin ${input.originId}`,
+          );
+        } catch {
+          // Prefer the original link failure when rollback also fails.
+        }
+        throw error;
+      }
     }
 
     return created;

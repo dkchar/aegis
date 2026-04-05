@@ -51,6 +51,7 @@ export interface RunOracleResult {
   assessment: OracleAssessment | null;
   derivedIssues: CreateIssueInput[];
   createdIssues: CreatedIssue[];
+  rolledBackIssues: CreatedIssue[];
   updatedRecord: DispatchRecord;
   complexityDisposition: OracleComplexityDisposition;
   requiresComplexityGate: boolean;
@@ -59,12 +60,12 @@ export interface RunOracleResult {
 }
 
 class DerivedIssueMaterializationError extends Error {
-  readonly createdIssues: CreatedIssue[];
+  readonly rolledBackIssues: CreatedIssue[];
 
-  constructor(message: string, createdIssues: CreatedIssue[]) {
+  constructor(message: string, rolledBackIssues: CreatedIssue[]) {
     super(message);
     this.name = "DerivedIssueMaterializationError";
-    this.createdIssues = createdIssues;
+    this.rolledBackIssues = rolledBackIssues;
   }
 }
 
@@ -104,25 +105,16 @@ function determineComplexityDisposition(
   return "allow";
 }
 
-function findLastOraclePayloadMessage(messages: readonly string[]): string {
+function findFinalOraclePayloadMessage(messages: readonly string[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const candidate = messages[index].trim();
     if (candidate === "") {
       continue;
     }
-    try {
-      parseOracleAssessment(candidate);
-      return messages[index];
-    } catch {
-      // Continue scanning for the latest valid Oracle payload.
-    }
+    return messages[index];
   }
 
-  const fallback = messages.at(-1);
-  if (!fallback) {
-    throw new Error("Oracle did not return a final message payload");
-  }
-  return fallback;
+  throw new Error("Oracle did not return a final message payload");
 }
 
 async function collectOracleResponse(
@@ -169,7 +161,7 @@ async function collectOracleResponse(
     });
   });
 
-  return findLastOraclePayloadMessage(messages);
+  return findFinalOraclePayloadMessage(messages);
 }
 
 async function rollbackDerivedIssues(
@@ -245,6 +237,7 @@ export async function runOracle(input: RunOracleInput): Promise<RunOracleResult>
   let assessment: OracleAssessment | null = null;
   let derivedIssues: CreateIssueInput[] = [];
   let createdIssues: CreatedIssue[] = [];
+  let rolledBackIssues: CreatedIssue[] = [];
   let oracleAssessmentRef: string | null = null;
 
   try {
@@ -283,6 +276,7 @@ export async function runOracle(input: RunOracleInput): Promise<RunOracleResult>
       assessment,
       derivedIssues,
       createdIssues,
+      rolledBackIssues: [],
       updatedRecord: {
         ...transitionStage(input.record, DispatchStage.Scouted),
         runningAgent: null,
@@ -295,7 +289,8 @@ export async function runOracle(input: RunOracleInput): Promise<RunOracleResult>
     };
   } catch (error) {
     if (error instanceof DerivedIssueMaterializationError) {
-      createdIssues = error.createdIssues;
+      rolledBackIssues = error.rolledBackIssues;
+      createdIssues = [];
     }
 
     return {
@@ -303,6 +298,7 @@ export async function runOracle(input: RunOracleInput): Promise<RunOracleResult>
       assessment,
       derivedIssues,
       createdIssues,
+      rolledBackIssues,
       updatedRecord: {
         ...transitionStage(input.record, DispatchStage.Failed),
         runningAgent: null,
