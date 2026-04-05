@@ -4,13 +4,14 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
-  pull_request_review:
-    types: [submitted]
+  check_run:
+    types: [completed]
   pull_request_target:
     branches: [main]
     types: [labeled, synchronize, reopened, ready_for_review]
 
 permissions:
+  checks: read
   contents: write
   pull-requests: write
 
@@ -18,16 +19,114 @@ jobs:
   automerge:
     name: Auto-merge if checks pass
     runs-on: ubuntu-latest
-    if: |
-      github.event_name == 'pull_request_target' ||
-      github.event_name == 'pull_request_review' ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.name == 'CI' &&
-       github.event.workflow_run.event == 'pull_request' &&
-       github.event.workflow_run.conclusion == 'success')
 
     steps:
-      - uses: pascalgn/automerge-action@v0.16.4
+      - id: preflight
+        name: Guard automerge on passing checks
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const allowedConclusions = new Set(["success", "neutral", "skipped"]);
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            let pullNumber;
+            if (context.eventName === "pull_request_target") {
+              pullNumber = context.payload.pull_request?.number;
+            } else if (context.eventName === "workflow_run") {
+              const workflowRun = context.payload.workflow_run;
+              if (
+                workflowRun?.name !== "CI" ||
+                workflowRun?.event !== "pull_request" ||
+                workflowRun?.conclusion !== "success"
+              ) {
+                core.notice("Skipping: workflow_run did not report a successful pull_request CI run.");
+                core.setOutput("ready", "false");
+                return;
+              }
+              pullNumber = workflowRun.pull_requests?.[0]?.number;
+            } else if (context.eventName === "check_run") {
+              const checkRun = context.payload.check_run;
+              if (checkRun?.name === "Auto-merge if checks pass") {
+                core.notice("Skipping: ignoring the automerge workflow's own check run.");
+                core.setOutput("ready", "false");
+                return;
+              }
+              pullNumber = checkRun?.pull_requests?.[0]?.number;
+            }
+
+            if (!pullNumber) {
+              core.notice(`Skipping: no pull request found for ${context.eventName}.`);
+              core.setOutput("ready", "false");
+              return;
+            }
+
+            const { data: pullRequest } = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: pullNumber,
+            });
+
+            if (pullRequest.state !== "open" || pullRequest.draft) {
+              core.notice(`Skipping: PR #${pullNumber} is not open and ready for automerge.`);
+              core.setOutput("ready", "false");
+              return;
+            }
+
+            if (pullRequest.base.ref !== "main") {
+              core.notice(`Skipping: PR #${pullNumber} targets ${pullRequest.base.ref}, not main.`);
+              core.setOutput("ready", "false");
+              return;
+            }
+
+            const labels = pullRequest.labels.map((label) => label.name);
+            if (!labels.includes("automerge")) {
+              core.notice(`Skipping: PR #${pullNumber} does not have the automerge label.`);
+              core.setOutput("ready", "false");
+              return;
+            }
+
+            const { data: checks } = await github.rest.checks.listForRef({
+              owner,
+              repo,
+              ref: pullRequest.head.sha,
+              per_page: 100,
+            });
+
+            const relevantChecks = checks.check_runs.filter((check) => {
+              return check.name !== "Auto-merge if checks pass";
+            });
+
+            const ciCheck = relevantChecks.find(
+              (check) => check.name === "Lint, Test, Build, and Pack",
+            );
+            if (!ciCheck) {
+              core.notice(`Skipping: PR #${pullNumber} has no CI check run yet.`);
+              core.setOutput("ready", "false");
+              return;
+            }
+
+            const blockingChecks = relevantChecks.filter((check) => {
+              return (
+                check.status !== "completed" ||
+                !allowedConclusions.has(check.conclusion ?? "")
+              );
+            });
+
+            if (blockingChecks.length > 0) {
+              core.notice(
+                `Skipping: PR #${pullNumber} still has blocking checks: ${blockingChecks
+                  .map((check) => `${check.name} (${check.status}/${check.conclusion ?? "pending"})`)
+                  .join(", ")}`,
+              );
+              core.setOutput("ready", "false");
+              return;
+            }
+
+            core.notice(`PR #${pullNumber} is ready for automerge.`);
+            core.setOutput("ready", "true");
+      - if: steps.preflight.outputs.ready == 'true'
+        uses: pascalgn/automerge-action@v0.16.4
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MERGE_METHOD: squash
