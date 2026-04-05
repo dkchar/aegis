@@ -6,6 +6,11 @@ export const LABOR_DIRECTORY_SEGMENT = ".aegis/labors";
 export const LABOR_DIRECTORY_PREFIX = "labor-";
 export const LABOR_BRANCH_PREFIX = "aegis/";
 
+export interface LaborGitCommand {
+  command: string;
+  args: readonly string[];
+}
+
 export interface LaborCreationRequest {
   issueId: string;
   projectRoot: string;
@@ -17,6 +22,7 @@ export interface LaborCreationPlan {
   laborPath: string;
   branchName: string;
   baseBranch: string;
+  createWorktreeCommand: LaborGitCommand;
 }
 
 export function resolveLaborPath(projectRoot: string, issueId: string): string {
@@ -36,10 +42,18 @@ export function buildLaborBranchName(issueId: string): string {
 }
 
 export function planLaborCreation(request: LaborCreationRequest): LaborCreationPlan {
+  const issueId = assertSafeIssueId(request.issueId);
+  const laborPath = resolveLaborPath(request.projectRoot, issueId);
+  const branchName = buildLaborBranchName(issueId);
+
   return {
-    issueId: assertSafeIssueId(request.issueId),
-    laborPath: resolveLaborPath(request.projectRoot, request.issueId),
-    branchName: buildLaborBranchName(request.issueId),
+    issueId,
+    laborPath,
+    branchName,
     baseBranch: request.baseBranch,
+    createWorktreeCommand: {
+      command: "git",
+      args: ["worktree", "add", "-b", branchName, laborPath, request.baseBranch],
+    },
   };
 }
