@@ -5,9 +5,6 @@
  * SPECv2 §5: Aegis tracks seven functional issue classes and a shared lifecycle
  * type.  This module defines the shapes that flow through the orchestration
  * core; it does not define Beads wire types.
- *
- * Lane A (aegis-fjm.5.2) will implement the mapping from Beads API responses
- * to these types.
  */
 
 // ---------------------------------------------------------------------------
@@ -132,8 +129,6 @@ export interface ReadyIssue {
 
 /**
  * Minimal input required to create a generated Beads issue.
- *
- * Lane A (aegis-fjm.5.2) will use this shape to construct `bd` commands.
  */
 export interface CreateIssueInput {
   title: string;

@@ -1,10 +1,8 @@
 /**
- * Eval harness result schema — S02 contract seed.
+ * Eval harness result schema.
  *
  * Defines the canonical shape of every eval run artifact written under
- * `.aegis/evals/` (SPECv2 §24.5).  Implementation lanes (lane A, lane B)
- * fill in the runner and score-summary generator; this file is the shared
- * contract that both lanes and the test suite depend on.
+ * `.aegis/evals/` (SPECv2 §24.5).
  */
 
 // ---------------------------------------------------------------------------
@@ -18,21 +16,27 @@ export const EVALS_RESULTS_PATH = ".aegis/evals" as const;
 // Completion / merge outcomes
 // ---------------------------------------------------------------------------
 
-export type CompletionOutcome =
-  | "completed"
-  | "failed"
-  | "paused_complex"
-  | "paused_ambiguous"
-  | "killed_budget"
-  | "killed_stuck"
-  | "skipped";
+export const COMPLETION_OUTCOMES = [
+  "completed",
+  "failed",
+  "paused_complex",
+  "paused_ambiguous",
+  "killed_budget",
+  "killed_stuck",
+  "skipped",
+] as const;
 
-export type MergeOutcome =
-  | "merged_clean"
-  | "merged_after_rework"
-  | "conflict_resolved_janus"
-  | "conflict_unresolved"
-  | "not_attempted";
+export type CompletionOutcome = (typeof COMPLETION_OUTCOMES)[number];
+
+export const MERGE_OUTCOMES = [
+  "merged_clean",
+  "merged_after_rework",
+  "conflict_resolved_janus",
+  "conflict_unresolved",
+  "not_attempted",
+] as const;
+
+export type MergeOutcome = (typeof MERGE_OUTCOMES)[number];
 
 // ---------------------------------------------------------------------------
 // Cost / quota metering
@@ -145,7 +149,7 @@ export interface EvalScenario {
   description: string;
   /**
    * Path to the fixture repository or fixture branch configuration, relative
-   * to `evals/fixtures/`.  Lane B will resolve this path.
+   * to `evals/fixtures/`.
    */
   fixture_path: string;
   expected_outcomes: ScenarioExpectedOutcomes;

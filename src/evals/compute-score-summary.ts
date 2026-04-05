@@ -1,8 +1,8 @@
 /**
- * Score summary computation — S02 lane B.
+ * Score summary computation for completed eval run results.
  *
- * Implements `computeScoreSummary`, which derives all SPECv2 §24.7 canonical
- * metrics and §24.8 release-gate flags from a completed EvalRunResult.
+ * Derives the SPECv2 §24.7 metrics and §24.8 release-gate flags from a
+ * completed EvalRunResult.
  */
 
 import type { EvalRunResult, ScoreSummary } from "./result-schema.js";

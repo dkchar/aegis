@@ -7,21 +7,11 @@ import { formatStatusSnapshot, getAegisStatus } from "./cli/status.js";
 import { parseStartOverrides, startAegis } from "./cli/start.js";
 import { stopAegis } from "./cli/stop.js";
 import { initProject } from "./config/init-project.js";
-import type { ProjectPaths } from "./shared/paths.js";
+import { resolveProjectPaths, type ProjectPaths } from "./shared/paths.js";
 
 export interface BootstrapManifest {
   appName: "aegis";
   paths: ProjectPaths;
-}
-
-function resolveProjectPaths(root = process.cwd()): ProjectPaths {
-  const repoRoot = path.resolve(root);
-
-  return {
-    repoRoot,
-    srcRoot: path.join(repoRoot, "src"),
-    distRoot: path.join(repoRoot, "dist"),
-  };
 }
 
 function normalizeExecutionPath(candidate: string) {
@@ -34,9 +24,7 @@ function normalizeExecutionPath(candidate: string) {
   }
 }
 
-export function buildBootstrapManifest(
-  root = process.cwd(),
-): BootstrapManifest {
+export function buildBootstrapManifest(root = process.cwd()): BootstrapManifest {
   return {
     appName: "aegis",
     paths: resolveProjectPaths(root),

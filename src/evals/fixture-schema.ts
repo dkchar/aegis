@@ -1,8 +1,5 @@
 /**
- * Fixture schema — S03 contract seed.
- *
- * Defines the canonical Fixture interface and FixtureManifest types for the
- * Aegis eval harness benchmark corpus (SPECv2 §24.5 – §24.6).
+ * Fixture schema for the Aegis eval harness benchmark corpus.
  *
  * Naming conventions (enforced by contract, not runtime):
  * - Fixture directories: kebab-case under `evals/fixtures/<scenario-id>/`
@@ -18,6 +15,11 @@
  */
 
 import type { CompletionOutcome, MergeOutcome } from "./result-schema.js";
+import {
+  VALID_COMPLETION_OUTCOMES,
+  VALID_MERGE_OUTCOMES,
+  isRecord,
+} from "./schema-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Const sets — exported for runtime validation and documentation
@@ -73,7 +75,7 @@ export type ResetRule = "noop" | "git_reset" | "file_copy";
 
 /**
  * Describes a single issue within a fixture.  The runner uses these fields
- * to simulate outcomes in Phase 0.5; the real pipeline wires them in S16A.
+ * to derive the simulated outcome for a scenario run.
  */
 export interface FixtureIssue {
   /** Stable issue identifier (scoped to the fixture, not globally unique). */
@@ -96,9 +98,6 @@ export interface FixtureIssue {
  * This is a superset of the inline `Fixture` type that existed in
  * `run-scenario.ts` prior to S03.  The additional fields (`fixture_type`,
  * `reset_rules`, `scenario_tags`) are required for the benchmark corpus.
- *
- * Lane A and Lane B create the physical fixture directories and populate the
- * fixture.json files.  This interface is the contract they must conform to.
  */
 export interface Fixture {
   /**
@@ -138,31 +137,6 @@ export interface Fixture {
 // ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------
-
-/** Reused from validate-result.ts pattern — keeps validation self-contained. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/** Valid completion outcome strings (mirrors validate-result.ts). */
-const VALID_COMPLETION_OUTCOMES: ReadonlySet<string> = new Set<CompletionOutcome>([
-  "completed",
-  "failed",
-  "paused_complex",
-  "paused_ambiguous",
-  "killed_budget",
-  "killed_stuck",
-  "skipped",
-]);
-
-/** Valid merge outcome strings (mirrors validate-result.ts). */
-const VALID_MERGE_OUTCOMES: ReadonlySet<string> = new Set<MergeOutcome>([
-  "merged_clean",
-  "merged_after_rework",
-  "conflict_resolved_janus",
-  "conflict_unresolved",
-  "not_attempted",
-]);
 
 export interface FixtureValidationResult {
   valid: boolean;

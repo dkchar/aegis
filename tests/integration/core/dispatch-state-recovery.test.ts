@@ -1,8 +1,7 @@
 /**
  * S04 integration gate — dispatch-state load/save/recover tests.
  *
- * Lane B (aegis-fjm.5.3): full test implementations for loadDispatchState,
- * saveDispatchState, and reconcileDispatchState.
+ * Covers loadDispatchState, saveDispatchState, and reconcileDispatchState.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -378,30 +377,7 @@ describe("stage transitions persist correctly", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 5. Sanity: stubs throw until Lane B lands
-// (These tests become vacuous once Lane B is implemented — they'll still pass
-//  because the functions no longer throw. Kept as documentation.)
-// ---------------------------------------------------------------------------
-
-describe("stub behaviour before Lane B", () => {
-  it("loadDispatchState no longer throws — Lane B is implemented", () => {
-    // loadDispatchState now returns emptyDispatchState() for missing file
-    expect(() => loadDispatchState(tempDir)).not.toThrow();
-  });
-
-  it("saveDispatchState no longer throws — Lane B is implemented", () => {
-    const state = emptyDispatchState();
-    expect(() => saveDispatchState(tempDir, state)).not.toThrow();
-  });
-
-  it("reconcileDispatchState no longer throws — Lane B is implemented", () => {
-    const state = emptyDispatchState();
-    expect(() => reconcileDispatchState(state, "session-x")).not.toThrow();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 6. Cooldown state persists
+// 5. Cooldown state persists
 // ---------------------------------------------------------------------------
 
 describe("cooldown state persists", () => {

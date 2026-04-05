@@ -1,23 +1,16 @@
 /**
- * S03 contract seed — unit tests for the fixture schema.
+ * Unit tests for the fixture schema.
  *
- * These tests drive the design of src/evals/fixture-schema.ts and verify
- * the fixture validation contract before the lane workers create real fixtures.
- *
- * Test coverage:
- *   1. validateFixture accepts a valid fixture with all required + optional fields
- *   2. validateFixture rejects missing required fields
- *   3. validateFixture rejects invalid fixture_type values
- *   4. validateFixture rejects invalid reset_rules values
- *   5. validateFixture rejects invalid issue fields
- *   6. FIXTURE_TYPES and RESET_RULE_TYPES const sets contain all expected members
- *
- * NOTE: These are structural / contract tests only — they do not create files
- * on disk, do not run scenarios, and do not implement lanes.
+ * These tests verify the fixture validation contract and its exported fixture
+ * and reset vocabularies.
  */
 
 import { describe, expect, it } from "vitest";
 
+import {
+  COMPLETION_OUTCOMES,
+  MERGE_OUTCOMES,
+} from "../../../src/evals/result-schema.js";
 import {
   validateFixture,
   FIXTURE_TYPES,
@@ -184,32 +177,14 @@ describe("S03 fixture schema — validateFixture accepts valid input", () => {
   });
 
   it("accepts all valid CompletionOutcome values in issues", () => {
-    const completions = [
-      "completed",
-      "failed",
-      "paused_complex",
-      "paused_ambiguous",
-      "killed_budget",
-      "killed_stuck",
-      "skipped",
-    ] as const;
-
-    for (const expected_completion of completions) {
+    for (const expected_completion of COMPLETION_OUTCOMES) {
       const result = validateFixture(makeFixture({ issues: [makeIssue({ expected_completion })] }));
       expect(result.valid).toBe(true);
     }
   });
 
   it("accepts all valid MergeOutcome values in issues", () => {
-    const merges = [
-      "merged_clean",
-      "merged_after_rework",
-      "conflict_resolved_janus",
-      "conflict_unresolved",
-      "not_attempted",
-    ] as const;
-
-    for (const expected_merge of merges) {
+    for (const expected_merge of MERGE_OUTCOMES) {
       const result = validateFixture(makeFixture({ issues: [makeIssue({ expected_merge })] }));
       expect(result.valid).toBe(true);
     }
@@ -477,16 +452,14 @@ describe("S03 fixture schema — validateFixture rejects invalid issue fields", 
 });
 
 // ---------------------------------------------------------------------------
-// Type compatibility — Fixture interface extends legacy inline types
+// Type compatibility — Fixture interface extends the historical runner shape
 // ---------------------------------------------------------------------------
 
-describe("S03 fixture schema — Fixture type compatibility with S02 run-scenario inline types", () => {
-  it("a valid Fixture object satisfies all fields expected by the S02 runner", () => {
-    // The S02 runner previously relied on inline FixtureIssue and Fixture types.
-    // This test verifies the formalized Fixture is a superset of those fields.
+describe("fixture schema — Fixture type compatibility with run-scenario", () => {
+  it("a valid Fixture object satisfies all fields expected by the scenario runner", () => {
     const fixture: Fixture = makeFixture();
 
-    // Fields required by the S02 runner
+    // Fields required by the scenario runner
     expect(Array.isArray(fixture.issues)).toBe(true);
     expect(Array.isArray(fixture.human_interventions)).toBe(true);
     expect(typeof fixture.config_overrides).toBe("object");

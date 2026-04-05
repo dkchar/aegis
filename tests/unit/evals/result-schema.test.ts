@@ -1,14 +1,9 @@
 /**
- * S02 contract seed — unit tests for the eval harness result schema.
+ * Unit tests for the eval harness result schema.
  *
- * These tests verify that:
- *   1. EvalRunResult has all fields required by SPECv2 §24.5.
- *   2. The scenario manifest can be loaded and parsed.
- *   3. The result schema constant matches the config default.
- *   4. Valid and invalid payloads can be distinguished with runtime guards.
- *
- * NOTE: These are structural / contract tests only.  They do not invoke the
- * scenario runner or write anything to disk — that is lane A's responsibility.
+ * These tests verify EvalRunResult and ScoreSummary shapes, canonical outcome
+ * vocabularies, manifest parsing, and the runtime guards used by the eval
+ * harness modules.
  */
 
 import path from "node:path";
@@ -18,6 +13,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   EVALS_RESULTS_PATH,
+  COMPLETION_OUTCOMES,
+  MERGE_OUTCOMES,
   type EvalRunResult,
   type EvalScenario,
   type ScoreSummary,
@@ -132,6 +129,25 @@ describe("S02 eval result schema — constants", () => {
   it("EVALS_RESULTS_PATH matches the default config evals.results_path", () => {
     expect(EVALS_RESULTS_PATH).toBe(DEFAULT_AEGIS_CONFIG.evals.results_path);
     expect(EVALS_RESULTS_PATH).toBe(".aegis/evals");
+  });
+
+  it("exports canonical completion and merge outcome vocabularies", () => {
+    expect(COMPLETION_OUTCOMES).toEqual([
+      "completed",
+      "failed",
+      "paused_complex",
+      "paused_ambiguous",
+      "killed_budget",
+      "killed_stuck",
+      "skipped",
+    ]);
+    expect(MERGE_OUTCOMES).toEqual([
+      "merged_clean",
+      "merged_after_rework",
+      "conflict_resolved_janus",
+      "conflict_unresolved",
+      "not_attempted",
+    ]);
   });
 });
 
@@ -363,10 +379,10 @@ describe("S02 eval result schema — scenario manifest (evals/scenarios/index.js
 });
 
 // ---------------------------------------------------------------------------
-// computeScoreSummary (lane B)
+// computeScoreSummary
 // ---------------------------------------------------------------------------
 
-describe("S02 lane B — computeScoreSummary", () => {
+describe("computeScoreSummary", () => {
   it("all completed issues → completion_rate 1.0 and gate passes", () => {
     const result = makeMinimalResult(); // 1 issue, "completed"
     const summary = computeScoreSummary(result);
@@ -565,10 +581,10 @@ describe("S02 lane B — computeScoreSummary", () => {
 });
 
 // ---------------------------------------------------------------------------
-// validateEvalRunResult (lane B)
+// validateEvalRunResult
 // ---------------------------------------------------------------------------
 
-describe("S02 lane B — validateEvalRunResult", () => {
+describe("validateEvalRunResult", () => {
   it("valid minimal result passes without errors", () => {
     const result = validateEvalRunResult(makeMinimalResult());
     expect(result.valid).toBe(true);
@@ -708,10 +724,10 @@ describe("S02 lane B — validateEvalRunResult", () => {
 });
 
 // ---------------------------------------------------------------------------
-// compareScoreSummaries (lane B)
+// compareScoreSummaries
 // ---------------------------------------------------------------------------
 
-describe("S02 lane B — compareScoreSummaries", () => {
+describe("compareScoreSummaries", () => {
   it("identical summaries produce no regressions and no improvements", () => {
     const summary = makeMinimalScoreSummary();
     const report = compareScoreSummaries(summary, summary);

@@ -1,41 +1,12 @@
 /**
- * Result schema validation — S02 lane B.
- *
- * Provides runtime guards that verify an unknown object conforms to the
- * EvalRunResult interface shape (SPECv2 §24.5).
+ * Result schema validation for EvalRunResult payloads (SPECv2 §24.5).
  */
 
-import type { CompletionOutcome, MergeOutcome } from "./result-schema.js";
-
-// ---------------------------------------------------------------------------
-// Valid union member sets
-// ---------------------------------------------------------------------------
-
-const VALID_COMPLETION_OUTCOMES: ReadonlySet<string> = new Set<CompletionOutcome>([
-  "completed",
-  "failed",
-  "paused_complex",
-  "paused_ambiguous",
-  "killed_budget",
-  "killed_stuck",
-  "skipped",
-]);
-
-const VALID_MERGE_OUTCOMES: ReadonlySet<string> = new Set<MergeOutcome>([
-  "merged_clean",
-  "merged_after_rework",
-  "conflict_resolved_janus",
-  "conflict_unresolved",
-  "not_attempted",
-]);
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+import {
+  VALID_COMPLETION_OUTCOMES,
+  VALID_MERGE_OUTCOMES,
+  isRecord,
+} from "./schema-helpers.js";
 
 /** Returns true if the string is a valid ISO-8601 timestamp with time component. */
 function isIso8601(value: string): boolean {

@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
 
@@ -198,6 +198,36 @@ describe("S00 project skeleton contract", () => {
     }
   });
 
+  it("buildBootstrapManifest delegates path resolution to src/shared/paths", async () => {
+    vi.resetModules();
+
+    const mockedPaths = {
+      repoRoot: "C:/tmp/repo",
+      srcRoot: "C:/tmp/repo/src",
+      distRoot: "C:/tmp/repo/dist",
+    };
+    const resolveProjectPaths = vi.fn(() => mockedPaths);
+
+    vi.doMock("../../../src/shared/paths.js", async () => {
+      const actual = await vi.importActual<object>(
+        "../../../src/shared/paths.js",
+      );
+
+      return {
+        ...actual,
+        resolveProjectPaths,
+      };
+    });
+
+    const entrypointModule = await import("../../../src/index.js");
+
+    expect(entrypointModule.buildBootstrapManifest("C:/tmp/repo")).toEqual({
+      appName: "aegis",
+      paths: mockedPaths,
+    });
+    expect(resolveProjectPaths).toHaveBeenCalledWith("C:/tmp/repo");
+  });
+
   it("defines a minimal Olympus Vite build shell", async () => {
     const olympusPackageJson = readJson<RootPackageJson>("olympus/package.json");
     const scripts = olympusPackageJson.scripts ?? {};
@@ -252,7 +282,7 @@ describe("S00 project skeleton contract", () => {
     );
   });
 
-  it("creates the workspace skeleton needed by the implementation lanes", () => {
+  it("creates the workspace skeleton required by the workspace contract", () => {
     const fixture = readJson<WorkspaceContractFixture>(
       "tests/fixtures/bootstrap/workspace-contract.json",
     );

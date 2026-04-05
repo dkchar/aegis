@@ -1,21 +1,8 @@
 /**
- * S05 contract seed — stats normalisation types and function signatures.
+ * Stats normalization helpers for runtime budget enforcement.
  *
- * Defines the metering and auth types from SPECv2 §8.2.2, the
- * NormalizedBudgetStatus shape, and the two public function stubs that
- * Lane B (aegis-fjm.6.3) will implement.
- *
- * Lane B contract:
- *   - normalizeStats()   maps raw AgentStats + metering context to a
- *                        NormalizedBudgetStatus suitable for budget gates.
- *   - isWithinBudget()   compares a NormalizedBudgetStatus against the
- *                        operator-configured BudgetLimit hard limits.
- *
- * Canonical rules: SPECv2 §8.2.2.
- *   - Never display fabricated dollar precision when only credits/quota/proxy
- *     usage is available.
- *   - With "unknown" metering the system must default to conservative
- *     (human-confirmation) behaviour.
+ * Defines the metering and auth types from SPECv2 §8.2.2 plus the public
+ * helpers that normalize session stats and evaluate hard limits.
  */
 
 import type { AgentStats } from "./agent-runtime.js";
@@ -162,7 +149,7 @@ export interface NormalizedBudgetStatus {
 }
 
 // ---------------------------------------------------------------------------
-// Function signatures — Lane B implements these stubs
+// Public helpers
 // ---------------------------------------------------------------------------
 
 /**

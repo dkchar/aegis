@@ -1,9 +1,8 @@
 /**
- * Scenario runner — S02 lane A implementation.
+ * Scenario runner backed by fixture-driven simulation.
  *
- * Implements the runScenario function using a fixture-driven simulation model.
- * The actual Aegis orchestration pipeline (S04-S15) does not exist yet, so
- * outcomes are simulated from the fixture file declarations.
+ * The current eval harness derives outcomes from fixture declarations rather
+ * than a live orchestration run.
  */
 
 import path from "node:path";
@@ -31,7 +30,7 @@ export interface RunScenarioOptions {
   scenario: EvalScenario;
   /**
    * Absolute path to the project root (repository) the scenario should run
-   * against. Lane A will clone or set up the fixture repo here.
+   * against.
    */
   projectRoot: string;
   /**
@@ -55,14 +54,6 @@ export interface RunScenarioOptions {
    */
   timeoutMs?: number;
 }
-
-// ---------------------------------------------------------------------------
-// Fixture format
-//
-// The Fixture type is now defined canonically in fixture-schema.ts (S03
-// contract seed). The inline FixtureIssue and Fixture interfaces that
-// previously lived here have been replaced with the formalized imports above.
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -137,9 +128,6 @@ function loadFixture(aegisRoot: string, fixturePath: string): Fixture {
 
 /**
  * Run a single eval scenario and return the canonical result artifact.
- *
- * Phase 0.5 scaffolding: outcomes are simulated from fixture metadata.
- * The real pipeline wiring arrives in S16A.
  */
 export async function runScenario(options: RunScenarioOptions): Promise<EvalRunResult> {
   const { scenario } = options;
