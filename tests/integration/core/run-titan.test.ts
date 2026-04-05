@@ -245,6 +245,17 @@ describe("S09 Titan contract seed", () => {
         laborPath: path.join("C:/dev/aegis", ".aegis", "labors", "labor-aegis-fjm.10.3"),
         branchName: "aegis/aegis-fjm.10.3",
         baseBranch: "main",
+        createWorktreeCommand: {
+          command: "git",
+          args: [
+            "worktree",
+            "add",
+            "-b",
+            "aegis/aegis-fjm.10.3",
+            path.join("C:/dev/aegis", ".aegis", "labors", "labor-aegis-fjm.10.3"),
+            "main",
+          ],
+        },
       },
       runtime,
       tracker,
@@ -289,6 +300,17 @@ describe("S09 Titan contract seed", () => {
         laborPath: path.join("C:/dev/aegis", ".aegis", "labors", "labor-aegis-fjm.10.3"),
         branchName: "aegis/aegis-fjm.10.3",
         baseBranch: "main",
+        createWorktreeCommand: {
+          command: "git",
+          args: [
+            "worktree",
+            "add",
+            "-b",
+            "aegis/aegis-fjm.10.3",
+            path.join("C:/dev/aegis", ".aegis", "labors", "labor-aegis-fjm.10.3"),
+            "main",
+          ],
+        },
       },
       runtime: makeRuntime(JSON.stringify({
         outcome: "clarification",
@@ -337,6 +359,17 @@ describe("S09 Titan contract seed", () => {
         laborPath: path.join("C:/dev/aegis", ".aegis", "labors", "labor-aegis-fjm.10.3"),
         branchName: "aegis/aegis-fjm.10.3",
         baseBranch: "main",
+        createWorktreeCommand: {
+          command: "git",
+          args: [
+            "worktree",
+            "add",
+            "-b",
+            "aegis/aegis-fjm.10.3",
+            path.join("C:/dev/aegis", ".aegis", "labors", "labor-aegis-fjm.10.3"),
+            "main",
+          ],
+        },
       },
       runtime: makeRuntime("{ nope }"),
       tracker: { createIssue: vi.fn() },
