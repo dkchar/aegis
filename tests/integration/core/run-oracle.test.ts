@@ -238,6 +238,10 @@ describe("runOracle", () => {
     expect(result.updatedRecord.stage).toBe(DispatchStage.Scouted);
     expect(result.updatedRecord.runningAgent).toBeNull();
     expect(result.updatedRecord.oracleAssessmentRef).toBe("oracle/aegis-fjm.9.3.json");
+    expect(result.assessment).not.toBeNull();
+    if (!result.assessment) {
+      throw new Error("Expected Oracle assessment to be present");
+    }
     expect(result.assessment.estimated_complexity).toBe("complex");
     expect(result.complexityDisposition).toBe("needs_human_approval");
     expect(result.requiresComplexityGate).toBe(true);
