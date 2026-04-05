@@ -191,6 +191,15 @@ function makeTracker(overrides: TrackerOverrides = {}): OracleIssueCreator {
       parentId,
     }));
   });
+  const unlinkIssue = vi.fn(async (parentId: string, childId: string) => {
+    const parentIssue = getTrackedIssue(parentId);
+    const childIssue = getTrackedIssue(childId);
+    parentIssue.childIds = parentIssue.childIds.filter((existingId) => existingId !== childId);
+    issueStore.set(childId, cloneIssue({
+      ...childIssue,
+      parentId: null,
+    }));
+  });
   const addBlocker = vi.fn(async (blockedId: string, blockerId: string) => {
     const blockedIssue = getTrackedIssue(blockedId);
     if (!blockedIssue.blockers.includes(blockerId)) {
@@ -221,6 +230,7 @@ function makeTracker(overrides: TrackerOverrides = {}): OracleIssueCreator {
     getReadyQueue: methodOverrides.getReadyQueue ?? getReadyQueue,
     createIssue: methodOverrides.createIssue ?? createIssue,
     linkIssue: methodOverrides.linkIssue ?? linkIssue,
+    unlinkIssue: methodOverrides.unlinkIssue ?? unlinkIssue,
     addBlocker: methodOverrides.addBlocker ?? addBlocker,
     removeBlocker: methodOverrides.removeBlocker ?? removeBlocker,
     closeIssue: methodOverrides.closeIssue ?? closeIssue,
@@ -773,6 +783,52 @@ describe("runOracle", () => {
     expect((await tracker.getIssue("aegis-fjm.30.1")).parentId).toBe("aegis-fjm.9.3");
   });
 
+  it("fails closed when a transient child lookup blocks decomposition recovery", async () => {
+    const tracker = makeTracker({
+      issues: [
+        makeIssue({
+          childIds: ["aegis-fjm.30.1"],
+        }),
+        makeIssue({
+          id: "aegis-fjm.30.1",
+          title: "Split prompt",
+          description: "Derived from Oracle assessment for aegis-fjm.9.3.",
+          issueClass: "sub",
+          parentId: "aegis-fjm.9.3",
+          labels: [],
+        }),
+      ],
+    });
+    const baseGetIssue = tracker.getIssue;
+    tracker.getIssue = vi.fn(async (id: string) => {
+      if (id === "aegis-fjm.30.1") {
+        throw new Error("tracker unavailable");
+      }
+      return baseGetIssue(id);
+    });
+
+    const result = await runOracle({
+      issue: makeIssue(),
+      record: makeRecord(),
+      runtime: makeRuntime(JSON.stringify({
+        files_affected: ["src/core/run-oracle.ts"],
+        estimated_complexity: "moderate",
+        decompose: true,
+        sub_issues: ["Split prompt"],
+        ready: false,
+      })),
+      tracker,
+      budget,
+      projectRoot,
+      operatingMode: "conversational",
+      allowComplexAutoDispatch: false,
+    });
+
+    expect(result.updatedRecord.stage).toBe(DispatchStage.Failed);
+    expect(result.failureReason).toMatch(/tracker unavailable/i);
+    expect(tracker.createIssue).not.toHaveBeenCalled();
+  });
+
   it("removes blockers added to reused children when a later retry step fails", async () => {
     const tracker = makeTracker({
       issues: [
@@ -818,6 +874,54 @@ describe("runOracle", () => {
     expect(tracker.removeBlocker).toHaveBeenCalledWith("aegis-fjm.9.3", "aegis-fjm.30.1");
     expect((await tracker.getIssue("aegis-fjm.9.3")).blockers).toEqual([]);
     expect(result.rolledBackIssues.map((issue) => issue.id)).toEqual(["aegis-fjm.30.2"]);
+  });
+
+  it("restores recovered orphans instead of closing them when a later retry step fails", async () => {
+    const tracker = makeTracker({
+      issues: [
+        makeIssue({
+          id: "aegis-fjm.30.1",
+          title: "Split prompt",
+          description: "Derived from Oracle assessment for aegis-fjm.9.3.",
+          issueClass: "sub",
+          parentId: null,
+          labels: [],
+        }),
+      ],
+    });
+    const baseAddBlocker = tracker.addBlocker;
+    tracker.addBlocker = vi.fn(async (blockedId: string, blockerId: string) => {
+      await baseAddBlocker(blockedId, blockerId);
+      if (blockerId === "aegis-fjm.30.1") {
+        throw new Error("dep add failed");
+      }
+    });
+
+    const result = await runOracle({
+      issue: makeIssue(),
+      record: makeRecord(),
+      runtime: makeRuntime(JSON.stringify({
+        files_affected: ["src/core/run-oracle.ts"],
+        estimated_complexity: "moderate",
+        decompose: true,
+        sub_issues: ["Split prompt"],
+        ready: false,
+      })),
+      tracker,
+      budget,
+      projectRoot,
+      operatingMode: "conversational",
+      allowComplexAutoDispatch: false,
+    });
+
+    expect(result.updatedRecord.stage).toBe(DispatchStage.Failed);
+    expect(tracker.unlinkIssue).toHaveBeenCalledWith("aegis-fjm.9.3", "aegis-fjm.30.1");
+    expect(tracker.closeIssue).not.toHaveBeenCalledWith(
+      "aegis-fjm.30.1",
+      expect.anything(),
+    );
+    expect(result.createdIssues.map((issue) => issue.id)).toEqual(["aegis-fjm.30.1"]);
+    expect((await tracker.getIssue("aegis-fjm.30.1")).parentId).toBeNull();
   });
 
   it("tracks orphaned derived issues when createIssue reports a failed rollback", async () => {

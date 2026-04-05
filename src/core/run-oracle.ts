@@ -35,6 +35,7 @@ export interface OracleIssueCreator {
   getReadyQueue(): Promise<ReadyIssue[]>;
   createIssue(input: CreateIssueInput): Promise<CreatedIssue>;
   linkIssue(parentId: string, childId: string): Promise<void>;
+  unlinkIssue(parentId: string, childId: string): Promise<void>;
   addBlocker(blockedId: string, blockerId: string): Promise<void>;
   removeBlocker(blockedId: string, blockerId: string): Promise<void>;
   closeIssue(id: string, reason?: string): Promise<CreatedIssue>;
@@ -235,14 +236,25 @@ function groupReusableDerivedIssues(
   return grouped;
 }
 
+function isIssueNotFound(error: unknown): boolean {
+  return error instanceof Error && /not found/i.test(error.message);
+}
+
 async function loadExistingIssues(
   issueIds: readonly string[],
   tracker: OracleIssueCreator,
 ): Promise<CreatedIssue[]> {
-  const results = await Promise.allSettled(
-    issueIds.map((issueId) => tracker.getIssue(issueId)),
-  );
-  return results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+  const loadedIssues: CreatedIssue[] = [];
+  for (const issueId of issueIds) {
+    try {
+      loadedIssues.push(await tracker.getIssue(issueId));
+    } catch (error) {
+      if (!isIssueNotFound(error)) {
+        throw error;
+      }
+    }
+  }
+  return loadedIssues;
 }
 
 async function loadRecoverableOrphanedIssues(
@@ -287,7 +299,8 @@ async function loadReusableDerivedIssues(
     (childIssue) =>
       childIssue.status !== "closed" &&
       childIssue.parentId === issue.id &&
-      childIssue.issueClass === "sub",
+      childIssue.issueClass === "sub" &&
+      childIssue.description === `Derived from Oracle assessment for ${issue.id}.`,
   );
 
   return {
@@ -309,21 +322,23 @@ async function materializeDerivedIssues(
   liveIssues: CreatedIssue[];
   blockerIds: Set<string>;
 }> {
+  if (derivedIssues.length === 0) {
+    return {
+      liveIssues: [],
+      blockerIds: new Set(issue.blockers),
+    };
+  }
+
   const {
     blockerIds,
     derivedIssuesByTitle,
     orphanedIssuesByTitle,
   } = await loadReusableDerivedIssues(issue, tracker, derivedIssues);
-  if (derivedIssues.length === 0) {
-    return {
-      liveIssues: [],
-      blockerIds,
-    };
-  }
 
   const liveIssues: CreatedIssue[] = [];
   const newlyCreatedIssues: CreatedIssue[] = [];
-  const reusedIssuesWithAddedBlockers: CreatedIssue[] = [];
+  const issuesWithAddedBlockers: CreatedIssue[] = [];
+  const recoveredOrphanedIssues: CreatedIssue[] = [];
 
   try {
     for (const derivedIssue of derivedIssues) {
@@ -336,7 +351,7 @@ async function materializeDerivedIssues(
         if (!blockerIds.has(reusableIssue.id)) {
           await tracker.addBlocker(issue.id, reusableIssue.id);
           blockerIds.add(reusableIssue.id);
-          reusedIssuesWithAddedBlockers.push(reusableIssue);
+          issuesWithAddedBlockers.push(reusableIssue);
         }
         continue;
       }
@@ -346,11 +361,12 @@ async function materializeDerivedIssues(
         orphanedIssues && orphanedIssues.length > 0 ? orphanedIssues.shift() ?? null : null;
 
       if (orphanedIssue) {
-        newlyCreatedIssues.push(orphanedIssue);
         liveIssues.push(orphanedIssue);
+        recoveredOrphanedIssues.push(orphanedIssue);
         await tracker.linkIssue(issue.id, orphanedIssue.id);
         await tracker.addBlocker(issue.id, orphanedIssue.id);
         blockerIds.add(orphanedIssue.id);
+        issuesWithAddedBlockers.push(orphanedIssue);
         continue;
       }
 
@@ -362,12 +378,26 @@ async function materializeDerivedIssues(
     }
   } catch (error) {
     const blockerCleanupErrors: string[] = [];
-    for (const reusedIssue of reusedIssuesWithAddedBlockers) {
+    const removedBlockerIds = new Set<string>();
+    for (const issueWithAddedBlocker of issuesWithAddedBlockers) {
       try {
-        await tracker.removeBlocker(issue.id, reusedIssue.id);
-        blockerIds.delete(reusedIssue.id);
+        await tracker.removeBlocker(issue.id, issueWithAddedBlocker.id);
+        blockerIds.delete(issueWithAddedBlocker.id);
+        removedBlockerIds.add(issueWithAddedBlocker.id);
       } catch (cleanupError) {
         blockerCleanupErrors.push((cleanupError as Error).message);
+      }
+    }
+    const unlinkCleanupErrors: string[] = [];
+    const fullyRestoredRecoveredOrphans = new Set<string>();
+    for (const recoveredOrphanedIssue of recoveredOrphanedIssues) {
+      try {
+        await tracker.unlinkIssue(issue.id, recoveredOrphanedIssue.id);
+        if (removedBlockerIds.has(recoveredOrphanedIssue.id)) {
+          fullyRestoredRecoveredOrphans.add(recoveredOrphanedIssue.id);
+        }
+      } catch (cleanupError) {
+        unlinkCleanupErrors.push((cleanupError as Error).message);
       }
     }
     const createdIssue = getCreatedIssueFromError(error);
@@ -380,7 +410,9 @@ async function materializeDerivedIssues(
     }
     const rollbackOutcome = await rollbackDerivedIssues(issue.id, tracker, newlyCreatedIssues);
     const reusedIssues = liveIssues.filter(
-      (liveIssue) => !newlyCreatedIssues.some((createdIssue) => createdIssue.id === liveIssue.id),
+      (liveIssue) =>
+        !newlyCreatedIssues.some((createdIssue) => createdIssue.id === liveIssue.id) &&
+        !fullyRestoredRecoveredOrphans.has(liveIssue.id),
     );
     const failureParts = [(error as Error).message];
     if (rollbackOutcome.cleanupErrors.length > 0) {
@@ -391,6 +423,11 @@ async function materializeDerivedIssues(
     if (blockerCleanupErrors.length > 0) {
       failureParts.push(
         `blocker cleanup errors: ${blockerCleanupErrors.join("; ")}`,
+      );
+    }
+    if (unlinkCleanupErrors.length > 0) {
+      failureParts.push(
+        `unlink cleanup errors: ${unlinkCleanupErrors.join("; ")}`,
       );
     }
     throw new DerivedIssueMaterializationError(

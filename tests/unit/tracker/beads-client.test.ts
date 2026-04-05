@@ -524,6 +524,15 @@ describe("BeadsCliClient.linkIssue", () => {
     ]);
   });
 
+  it("removes a parent-child link during orphan rollback", async () => {
+    exec.mockResolvedValue("");
+
+    await client.unlinkIssue("parent-1", "child-2");
+    expect(exec).toHaveBeenCalledWith([
+      "dep", "remove", "child-2", "parent-1",
+    ]);
+  });
+
   it("adds a blocker dependency when clarification work must block the origin issue", async () => {
     exec.mockResolvedValue("");
 
