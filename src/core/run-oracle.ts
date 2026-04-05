@@ -349,9 +349,9 @@ async function materializeDerivedIssues(
       if (reusableIssue) {
         liveIssues.push(reusableIssue);
         if (!blockerIds.has(reusableIssue.id)) {
+          issuesWithAddedBlockers.push(reusableIssue);
           await tracker.addBlocker(issue.id, reusableIssue.id);
           blockerIds.add(reusableIssue.id);
-          issuesWithAddedBlockers.push(reusableIssue);
         }
         continue;
       }
@@ -364,9 +364,9 @@ async function materializeDerivedIssues(
         liveIssues.push(orphanedIssue);
         recoveredOrphanedIssues.push(orphanedIssue);
         await tracker.linkIssue(issue.id, orphanedIssue.id);
+        issuesWithAddedBlockers.push(orphanedIssue);
         await tracker.addBlocker(issue.id, orphanedIssue.id);
         blockerIds.add(orphanedIssue.id);
-        issuesWithAddedBlockers.push(orphanedIssue);
         continue;
       }
 
@@ -474,6 +474,9 @@ export async function runOracle(input: RunOracleInput): Promise<RunOracleResult>
       assessment,
     );
     const trackedIssue = await input.tracker.getIssue(input.issue.id);
+    if (trackedIssue.status !== "open") {
+      throw new Error(`Oracle target ${trackedIssue.id} is no longer open`);
+    }
     derivedIssues = createDerivedIssueInputs(trackedIssue, assessment);
     const materialization = await materializeDerivedIssues(
       trackedIssue,

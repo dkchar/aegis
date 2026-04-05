@@ -449,6 +449,47 @@ describe("runOracle", () => {
     expect(parentReadCount).toBe(2);
   });
 
+  it("fails closed if the parent is no longer open after Oracle finishes", async () => {
+    const tracker = makeTracker();
+    const baseGetIssue = tracker.getIssue;
+    let parentReadCount = 0;
+    tracker.getIssue = vi.fn(async (id: string) => {
+      const issue = await baseGetIssue(id);
+      if (id !== "aegis-fjm.9.3") {
+        return issue;
+      }
+      parentReadCount += 1;
+      if (parentReadCount < 2) {
+        return issue;
+      }
+      return {
+        ...issue,
+        status: "closed" as const,
+      };
+    });
+
+    const result = await runOracle({
+      issue: makeIssue(),
+      record: makeRecord(),
+      runtime: makeRuntime(JSON.stringify({
+        files_affected: ["src/core/run-oracle.ts"],
+        estimated_complexity: "moderate",
+        decompose: true,
+        sub_issues: ["Split prompt"],
+        ready: false,
+      })),
+      tracker,
+      budget,
+      projectRoot,
+      operatingMode: "conversational",
+      allowComplexAutoDispatch: false,
+    });
+
+    expect(result.updatedRecord.stage).toBe(DispatchStage.Failed);
+    expect(result.failureReason).toMatch(/no longer open/i);
+    expect(tracker.createIssue).not.toHaveBeenCalled();
+  });
+
   it("fails closed when Oracle reports blockers even if it also marks the issue ready", async () => {
     const result = await runOracle({
       issue: makeIssue(),
@@ -920,8 +961,9 @@ describe("runOracle", () => {
       "aegis-fjm.30.1",
       expect.anything(),
     );
-    expect(result.createdIssues.map((issue) => issue.id)).toEqual(["aegis-fjm.30.1"]);
+    expect(result.createdIssues).toEqual([]);
     expect((await tracker.getIssue("aegis-fjm.30.1")).parentId).toBeNull();
+    expect((await tracker.getIssue("aegis-fjm.9.3")).blockers).toEqual([]);
   });
 
   it("tracks orphaned derived issues when createIssue reports a failed rollback", async () => {
