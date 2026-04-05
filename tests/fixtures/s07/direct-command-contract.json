@@ -1,0 +1,28 @@
+{
+  "supportedCommands": [
+    "scout",
+    "implement",
+    "review",
+    "process",
+    "status",
+    "pause",
+    "resume",
+    "auto on",
+    "auto off",
+    "scale",
+    "kill",
+    "restart",
+    "focus",
+    "tell",
+    "add_learning",
+    "reprioritize",
+    "summarize"
+  ],
+  "issueIdCommands": [
+    "scout",
+    "implement",
+    "review",
+    "process"
+  ],
+  "unsupportedSample": "clear_focus"
+}
