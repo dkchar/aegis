@@ -118,6 +118,7 @@ export class PiAgentHandle implements AgentHandle {
         timestamp: new Date().toISOString(),
         issueId: this._opts.issueId,
         caste: this._opts.caste,
+        sessionId: this._session.sessionId,
         reason: "aborted",
         stats: this.getStats(),
       });
@@ -143,6 +144,7 @@ export class PiAgentHandle implements AgentHandle {
    */
   getStats(): AgentStats {
     const sessionStats = this._session.getSessionStats();
+    const contextUsage = this._session.getContextUsage();
     const wallTimeSec = (Date.now() - this._startTime) / 1000;
 
     return {
@@ -150,6 +152,9 @@ export class PiAgentHandle implements AgentHandle {
       output_tokens: sessionStats.tokens.output,
       session_turns: sessionStats.assistantMessages,
       wall_time_sec: wallTimeSec,
+      ...(contextUsage?.percent !== null && contextUsage?.percent !== undefined
+        ? { active_context_pct: contextUsage.percent }
+        : {}),
     };
   }
 
@@ -229,6 +234,7 @@ export class PiAgentHandle implements AgentHandle {
         this._emit({
           ...base,
           type: "session_ended",
+          sessionId: this._session.sessionId,
           reason: hasError ? "error" : "completed",
           stats: finalStats,
         });

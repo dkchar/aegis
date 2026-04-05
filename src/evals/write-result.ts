@@ -10,6 +10,7 @@ import fs from "node:fs";
 
 import type { EvalRunResult } from "./result-schema.js";
 import { EVALS_RESULTS_PATH } from "./result-schema.js";
+import { validateEvalRunResult } from "./validate-result.js";
 
 export { EVALS_RESULTS_PATH };
 
@@ -79,5 +80,14 @@ export async function writeResult(
  */
 export async function readResult(filePath: string): Promise<EvalRunResult> {
   const raw = fs.readFileSync(filePath, "utf8");
-  return JSON.parse(raw) as EvalRunResult;
+  const parsed = JSON.parse(raw) as unknown;
+  const validation = validateEvalRunResult(parsed);
+
+  if (!validation.valid) {
+    throw new Error(
+      `Invalid eval run result at ${filePath}: ${validation.errors.join("; ")}`,
+    );
+  }
+
+  return parsed as EvalRunResult;
 }

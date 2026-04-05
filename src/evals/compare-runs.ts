@@ -49,6 +49,7 @@ const LOWER_IS_BETTER = new Set<string>([
   "merge_queue_latency_ms",
   "rework_loops_per_issue",
   "janus_invocation_rate_per_10_issues",
+  "messaging_token_overhead",
   "human_interventions_per_10_issues",
   "cost_per_completed_issue_usd",
 ]);
@@ -80,7 +81,6 @@ function extractNumericMetrics(summary: ScoreSummary): Map<string, number> {
   }
 
   // Include nullable numeric metrics when the run has a value.
-  // messaging_token_overhead is omitted from direction sets — not yet classifiable.
   if (typeof summary.janus_success_rate === "number") {
     result.set("janus_success_rate", summary.janus_success_rate);
   }
@@ -144,7 +144,7 @@ export function compareScoreSummaries(
         improvements.push(entry);
       }
     }
-    // metrics with unknown direction (e.g. messaging_token_overhead when we lack context) are skipped
+    // metrics with unknown direction are intentionally skipped
   }
 
   return {

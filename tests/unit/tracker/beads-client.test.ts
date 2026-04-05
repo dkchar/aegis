@@ -206,6 +206,16 @@ describe("BeadsCliClient.getIssue", () => {
     expect(result.title).toBe("[S04] Parallel lane A");
   });
 
+  it("accepts single-object JSON responses from bd show", async () => {
+    const bd = makeBdIssue();
+    exec.mockResolvedValue(JSON.stringify(bd));
+
+    const result = await client.getIssue("aegis-fjm.5.2");
+
+    expect(result.id).toBe("aegis-fjm.5.2");
+    expect(result.title).toBe("[S04] Parallel lane A");
+  });
+
   it("throws on empty array response", async () => {
     exec.mockResolvedValue(JSON.stringify([]));
     await expect(client.getIssue("no-such")).rejects.toThrow(/not found/i);

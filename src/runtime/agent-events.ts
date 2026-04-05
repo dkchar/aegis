@@ -40,6 +40,8 @@ export interface SessionStartedEvent extends BaseEvent {
 /** Emitted once when the session terminates, cleanly or via abort. */
 export interface SessionEndedEvent extends BaseEvent {
   type: "session_ended";
+  /** Adapter-specific session identifier, mirrored from session_started when available. */
+  sessionId?: string;
   reason: "completed" | "aborted" | "error" | "budget_exceeded";
   /** Final stats snapshot at termination. */
   stats: AgentStats;

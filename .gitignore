@@ -23,6 +23,8 @@ olympus/node_modules/
 .codex/
 .agent/
 .worktrees/
+CLAUDE.md
+AGENTS.md
 
 # Planning artifacts
 plandocs/

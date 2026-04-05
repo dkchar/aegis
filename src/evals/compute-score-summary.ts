@@ -48,9 +48,13 @@ export function computeScoreSummary(
   // §24.7: issue_completion_rate
   const completionRate = issueCount === 0 ? 0 : completedCount / issueCount;
 
+  // TODO(S16A): derive this from real orchestration artifacts once scenario
+  // runs are wired to the production pipeline.
   // §24.7: structured_artifact_compliance_rate — MVP: always 1.0
   const structuredArtifactComplianceRate = 1.0;
 
+  // TODO(S16A): replace this stub once ambiguous-scenario outcomes are backed
+  // by real clarification artifacts instead of fixture-declared results.
   // §24.7: clarification_compliance_rate
   // MVP: we have no signal for ambiguous issues that were NOT raised correctly.
   // When the real pipeline wires in (S16A), the denominator becomes the count of
@@ -66,9 +70,13 @@ export function computeScoreSummary(
   ).length;
   const mergeConflictRatePerTitan = issueCount === 0 ? 0 : nonCleanMergeCount / issueCount;
 
+  // TODO(S16A): compute this from persisted merge-queue timings once
+  // scenarios exercise the real merge worker instead of fixture stubs.
   // §24.7: merge_queue_latency_ms — MVP: 0
   const mergeQueueLatencyMs = 0;
 
+  // TODO(S16A): compute this from actual rework artifacts once benchmark runs
+  // are wired to deterministic merge/rework execution.
   // §24.7: rework_loops_per_issue — MVP: 0
   const reworkLoopsPerIssue = 0;
 
@@ -80,6 +88,8 @@ export function computeScoreSummary(
     issueCount === 0 ? 0 : (janusCount * 10) / issueCount;
   const janusSuccessRate = janusCount === 0 ? null : 1.0; // all recorded conflict_resolved_janus are successes
 
+  // TODO(S16A): populate this when message-issue coordination is present in
+  // benchmark scenarios and token attribution is observable.
   // §24.7: messaging_token_overhead — MVP: null
   const messagingTokenOverhead: number | null = null;
 
@@ -94,6 +104,8 @@ export function computeScoreSummary(
       ? null
       : result.cost_totals.total_usd / completedCount;
 
+  // TODO(S16A): derive this from restart benchmark outcomes once those
+  // scenarios run through the real restart reconciliation path.
   // §24.7: restart_recovery_success_rate — MVP: null
   const restartRecoverySuccessRate: number | null = null;
 

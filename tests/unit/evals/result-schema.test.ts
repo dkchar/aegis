@@ -809,4 +809,21 @@ describe("compareScoreSummaries", () => {
     expect(report.has_regressions).toBe(false);
     expect(report.improvements.length).toBeGreaterThan(0);
   });
+
+  it("treats messaging_token_overhead as a lower-is-better metric", () => {
+    const baseline = makeMinimalScoreSummary();
+    baseline.messaging_token_overhead = 120;
+
+    const current = makeMinimalScoreSummary();
+    current.messaging_token_overhead = 80;
+
+    const report = compareScoreSummaries(baseline, current);
+
+    expect(report.has_regressions).toBe(false);
+    expect(
+      report.improvements.some(
+        (entry) => entry.metric === "messaging_token_overhead",
+      ),
+    ).toBe(true);
+  });
 });

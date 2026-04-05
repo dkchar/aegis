@@ -68,6 +68,7 @@ describe("S00 project skeleton contract", () => {
     expect(scripts.lint).toContain("tsconfig.tests.json");
     expect(scripts.lint).toContain("lint --workspace olympus");
     expect(scripts["build:olympus"]).toBe("npm run build --workspace olympus");
+    expect(scripts["build:all"]).toBeUndefined();
     expect(scripts.prepack).toBe("npm run build");
     expect(packageJson.engines?.node).toBe(">=22.12.0");
 

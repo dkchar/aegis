@@ -407,6 +407,21 @@ describe("S02 result persistence — lane A (writeResult / readResult)", () => {
     },
   );
 
+  it("readResult rejects malformed result artifacts", async () => {
+    const tmpDir = makeTempDir();
+    const invalidPath = path.join(tmpDir, "invalid-result.json");
+    fs.writeFileSync(
+      invalidPath,
+      JSON.stringify({
+        aegis_version: "0.1.0",
+        git_sha: "abc1234def5678901234567890123456789012345",
+      }),
+      "utf8",
+    );
+
+    await expect(readResult(invalidPath)).rejects.toThrow(/invalid eval run result/i);
+  });
+
   it(
     "running the same scenario twice produces two distinct result files under the same scenario_id directory",
     async () => {

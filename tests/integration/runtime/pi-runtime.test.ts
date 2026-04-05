@@ -117,6 +117,11 @@ function makeFakeSession() {
       tokens: { input: 500, output: 300, cacheRead: 0, cacheWrite: 0, total: 800 },
       cost: 0,
     })),
+    getContextUsage: vi.fn(() => ({
+      tokens: 4000,
+      contextWindow: 10000,
+      percent: 40,
+    })),
     /** Test helper: emit an event to all registered subscribers. */
     _emit(evt: Record<string, unknown>) {
       for (const sub of subscribers) sub(evt);
@@ -301,7 +306,11 @@ describe("PiRuntime — abort cleanup", () => {
 
     const ended = events.find((e) => e.type === "session_ended");
     expect(ended).toBeDefined();
-    expect(ended).toMatchObject({ type: "session_ended", reason: "aborted" });
+    expect(ended).toMatchObject({
+      type: "session_ended",
+      reason: "aborted",
+      sessionId: "test-session-id",
+    });
   });
 
   it("abort() calls AgentSession.dispose() for cleanup", async () => {
@@ -443,7 +452,11 @@ describe("PiRuntime — event subscription", () => {
 
     const ev = events.find((e) => e.type === "session_ended");
     expect(ev).toBeDefined();
-    expect(ev).toMatchObject({ type: "session_ended", reason: "completed" });
+    expect(ev).toMatchObject({
+      type: "session_ended",
+      reason: "completed",
+      sessionId: "test-session-id",
+    });
   });
 
   it("agent_end Pi event with state.error → error event (fatal=true) then session_ended", () => {
@@ -460,7 +473,11 @@ describe("PiRuntime — event subscription", () => {
 
     const endEv = events.find((e) => e.type === "session_ended");
     expect(endEv).toBeDefined();
-    expect(endEv).toMatchObject({ type: "session_ended", reason: "error" });
+    expect(endEv).toMatchObject({
+      type: "session_ended",
+      reason: "error",
+      sessionId: "test-session-id",
+    });
   });
 
   it("error events with fatal=true are followed by session_ended", () => {
@@ -589,6 +606,11 @@ describe("PiRuntime — stats reporting", () => {
     const stats = handle.getStats();
     // fakeSession default: assistantMessages=2
     expect(stats.session_turns).toBe(2);
+  });
+
+  it("getStats() includes active_context_pct when Pi exposes context usage", () => {
+    const stats = handle.getStats();
+    expect(stats.active_context_pct).toBe(40);
   });
 
   it("getStats() does not throw after abort()", async () => {
