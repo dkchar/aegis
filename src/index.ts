@@ -31,7 +31,7 @@ export function buildBootstrapManifest(root = process.cwd()): BootstrapManifest 
   };
 }
 
-export function runCli(
+export async function runCli(
   root = process.cwd(),
   argv = process.argv.slice(2),
 ): Promise<BootstrapManifest> {
@@ -40,7 +40,7 @@ export function runCli(
 
   if (!command) {
     console.log(`Aegis CLI scaffold ready at ${manifest.paths.repoRoot}`);
-    return Promise.resolve(manifest);
+    return manifest;
   }
 
   if (command === "init") {
@@ -54,34 +54,30 @@ export function runCli(
     console.log(
       `Aegis project initialized at ${manifest.paths.repoRoot} (${createdPathCount} paths created${gitIgnoreNote})`,
     );
-    return Promise.resolve(manifest);
+    return manifest;
   }
 
   if (command === "start") {
     const overrides = parseStartOverrides(argv.slice(1));
-
-    return startAegis(root, overrides).then((result) => {
-      console.log(`Aegis started at ${result.url} (pid ${process.pid})`);
-      return manifest;
-    });
+    const result = await startAegis(root, overrides);
+    console.log(`Aegis started at ${result.url} (pid ${process.pid})`);
+    return manifest;
   }
 
   if (command === "status") {
-    return getAegisStatus(root).then((snapshot) => {
-      console.log(formatStatusSnapshot(snapshot));
-      return manifest;
-    });
+    const snapshot = await getAegisStatus(root);
+    console.log(formatStatusSnapshot(snapshot));
+    return manifest;
   }
 
   if (command === "stop") {
-    return stopAegis(root, "manual").then((result) => {
-      const forcedSuffix = result.forced ? " (forced)" : "";
-      console.log(`Aegis stopped${forcedSuffix}.`);
-      return manifest;
-    });
+    const result = await stopAegis(root, "manual");
+    const forcedSuffix = result.forced ? " (forced)" : "";
+    console.log(`Aegis stopped${forcedSuffix}.`);
+    return manifest;
   }
 
-  return Promise.reject(new Error(`Unknown command: ${command}`));
+  throw new Error(`Unknown command: ${command}`);
 }
 
 export function isDirectExecution(

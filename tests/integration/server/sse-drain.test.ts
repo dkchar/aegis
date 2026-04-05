@@ -17,6 +17,26 @@ afterEach(async () => {
 });
 
 describe("SSE connection drain during shutdown", () => {
+  it("returns 400 for invalid JSON request bodies", async () => {
+    controller = createHttpServerController();
+    const { port } = await controller.start({ port: 0 });
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/learning`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: '{"badJson":',
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: "Invalid JSON request body.",
+    });
+  });
+
   it("completes stop() promptly when an SSE client is connected", async () => {
     controller = createHttpServerController();
     const { port } = await controller.start({ port: 0 });

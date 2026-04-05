@@ -95,7 +95,10 @@ const CLASS_LABELS: readonly WorkIssueClass[] = [
   "sub",
   "message",
 ];
-const STRUCTURAL_ISSUE_TYPES = new Set<WorkIssueClass>(CLASS_LABELS);
+
+function isStructuredIssueClass(value: string): value is WorkIssueClass {
+  return CLASS_LABELS.includes(value as WorkIssueClass);
+}
 
 /**
  * Infer the WorkIssueClass from bd labels and issue_type.
@@ -108,8 +111,8 @@ function inferIssueClass(
   labels: string[],
   issueType: string,
 ): WorkIssueClass {
-  if (STRUCTURAL_ISSUE_TYPES.has(issueType as WorkIssueClass)) {
-    return issueType as WorkIssueClass;
+  if (isStructuredIssueClass(issueType)) {
+    return issueType;
   }
   const labelSet = new Set(labels);
   for (const cls of CLASS_LABELS) {

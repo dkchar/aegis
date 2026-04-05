@@ -149,9 +149,12 @@ function renderBundledAsset(
   return true;
 }
 
-const INVALID_JSON_BODY = Symbol("invalid-json-body");
+type JsonBodyParseResult =
+  | { kind: "empty" }
+  | { kind: "invalid" }
+  | { kind: "value"; body: unknown };
 
-async function readJsonBody(request: IncomingMessage) {
+async function readJsonBody(request: IncomingMessage): Promise<JsonBodyParseResult> {
   const chunks: Buffer[] = [];
 
   for await (const chunk of request) {
@@ -159,18 +162,18 @@ async function readJsonBody(request: IncomingMessage) {
   }
 
   if (chunks.length === 0) {
-    return undefined;
+    return { kind: "empty" };
   }
 
   const rawBody = Buffer.concat(chunks).toString("utf8").trim();
   if (rawBody.length === 0) {
-    return undefined;
+    return { kind: "empty" };
   }
 
   try {
-    return JSON.parse(rawBody) as unknown;
+    return { kind: "value", body: JSON.parse(rawBody) as unknown };
   } catch {
-    return INVALID_JSON_BODY;
+    return { kind: "invalid" };
   }
 }
 
@@ -297,8 +300,8 @@ export function createHttpServerController(
       return;
     }
 
-    const body = method === "GET" ? undefined : await readJsonBody(request);
-    if (body === INVALID_JSON_BODY) {
+    const parsedBody = method === "GET" ? { kind: "empty" as const } : await readJsonBody(request);
+    if (parsedBody.kind === "invalid") {
       writeJsonResponse(response, 400, {
         ok: false,
         error: "Invalid JSON request body.",
@@ -315,7 +318,7 @@ export function createHttpServerController(
           Array.isArray(value) ? value.join(",") : value,
         ]),
       ),
-      body,
+      body: parsedBody.kind === "value" ? parsedBody.body : undefined,
       remoteAddress: request.socket.remoteAddress ?? undefined,
     });
 
