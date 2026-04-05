@@ -80,6 +80,13 @@ describe("S00 project skeleton contract", () => {
     );
   });
 
+  it("ignores repo-local runtime artifacts and scratch directories", () => {
+    const gitIgnoreContents = readFileSync(path.join(repoRoot, ".gitignore"), "utf8");
+
+    expect(gitIgnoreContents).toContain(".aegis/evals/");
+    expect(gitIgnoreContents).toContain(".aegis-cli-*");
+  });
+
   it("scaffolds the node entrypoint and shared path helpers", async () => {
     const sharedPathsModule = (await import(
       pathToFileURL(path.join(repoRoot, "src/shared/paths.ts")).href
@@ -146,7 +153,7 @@ describe("S00 project skeleton contract", () => {
       cwd: repoRoot,
       encoding: "utf8",
     });
-    const linkedRoot = mkdtempSync(path.join(repoRoot, ".aegis-cli-"));
+    const linkedRoot = mkdtempSync(path.join(tmpdir(), "aegis-cli-link-"));
     const repoLinkPath = path.join(linkedRoot, "repo-link");
 
     expect(cleanupRun.status).toBe(0);
@@ -154,6 +161,8 @@ describe("S00 project skeleton contract", () => {
     expect(existsSync(cliPath)).toBe(true);
     expect(cliRun.status).toBe(0);
     expect(cliRun.stdout).toContain("Aegis CLI scaffold ready");
+    expect(linkedRoot.startsWith(tmpdir())).toBe(true);
+    expect(linkedRoot.startsWith(repoRoot)).toBe(false);
     expect(
       entrypointModule.isDirectExecution(
         path.join(repoLinkPath, "src", "index.ts"),

@@ -5,7 +5,11 @@
 
 # Aegis
 .aegis/config.json
+.aegis/dispatch-state.json
+.aegis/merge-queue.json
+.aegis/evals/
 .aegis/labors/
+.aegis-cli-*
 dist/
 node_modules/
 
