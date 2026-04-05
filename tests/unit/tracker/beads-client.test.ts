@@ -460,4 +460,13 @@ describe("BeadsCliClient.linkIssue", () => {
       "link", "child-2", "parent-1", "--type", "parent-child", "--json",
     ]);
   });
+
+  it("adds a blocker dependency when clarification work must block the origin issue", async () => {
+    exec.mockResolvedValue("");
+
+    await client.addBlocker("origin-1", "clarification-2");
+    expect(exec).toHaveBeenCalledWith([
+      "dep", "add", "origin-1", "clarification-2",
+    ]);
+  });
 });

@@ -80,6 +80,12 @@ export interface BeadsClient {
    * @param childId  - The derived issue.
    */
   linkIssue(parentId: string, childId: string): Promise<void>;
+
+  /**
+   * Add a blocker dependency so `blockedId` does not appear in `bd ready`
+   * until `blockerId` is resolved.
+   */
+  addBlocker(blockedId: string, blockerId: string): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -319,6 +325,10 @@ export class BeadsCliClient implements BeadsClient {
     await this._exec([
       "link", childId, parentId, "--type", "parent-child", "--json",
     ]);
+  }
+
+  async addBlocker(blockedId: string, blockerId: string): Promise<void> {
+    await this._exec(["dep", "add", blockedId, blockerId]);
   }
 }
 

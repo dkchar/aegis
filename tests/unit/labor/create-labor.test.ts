@@ -35,6 +35,17 @@ describe("S09 labor contract seed", () => {
       laborPath: path.join(projectRoot, ".aegis", "labors", "labor-aegis-fjm.10.1"),
       branchName: "aegis/aegis-fjm.10.1",
       baseBranch: "main",
+      createWorktreeCommand: {
+        command: "git",
+        args: [
+          "worktree",
+          "add",
+          "-b",
+          "aegis/aegis-fjm.10.1",
+          path.join(projectRoot, ".aegis", "labors", "labor-aegis-fjm.10.1"),
+          "main",
+        ],
+      },
     });
   });
 
@@ -116,6 +127,18 @@ describe("S09 labor contract seed", () => {
         preserveLabor: expected.preserveLabor,
         removeWorktree: expected.removeWorktree,
         deleteBranch: expected.deleteBranch,
+        cleanupCommands: expected.preserveLabor
+          ? []
+          : [
+              {
+                command: "git",
+                args: ["worktree", "remove", laborPath],
+              },
+              {
+                command: "git",
+                args: ["branch", "-d", branchName],
+              },
+            ],
       });
     }
   });
