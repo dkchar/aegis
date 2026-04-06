@@ -28,7 +28,6 @@ CLAUDE.md
 AGENTS.md
 
 # Planning artifacts
-# (plandocs/ now tracked — tracker mirror is the single source of truth for slice status)
 
 temp/
 *.log
