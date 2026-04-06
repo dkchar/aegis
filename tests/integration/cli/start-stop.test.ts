@@ -69,6 +69,7 @@ function makeDispatchRecord(
     sentinelVerdictRef: null,
     failureCount: 0,
     consecutiveFailures: 0,
+    failureWindowStartMs: null,
     cooldownUntil: null,
     cumulativeSpendUsd: null,
     sessionProvenanceId,
