@@ -80,6 +80,20 @@ describe("Sentinel integration scaffold", () => {
       expect(prompt).toContain("Description: (none)");
       expect(prompt).toContain("Base branch: develop");
     });
+
+    it("includes read-only tool constraint", () => {
+      const contract = createSentinelPromptContract({
+        issueId: "aegis-fjm.1",
+        issueTitle: "Test",
+        issueDescription: null,
+        targetBranch: "main",
+        baseBranch: "main",
+      });
+
+      const prompt = buildSentinelPrompt(contract);
+
+      expect(prompt).toMatch(/read.only/i);
+    });
   });
 
   describe("verdict parsing integration", () => {

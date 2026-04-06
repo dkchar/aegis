@@ -13,8 +13,27 @@ import type { SentinelVerdict } from "../castes/sentinel/sentinel-parser.js";
 /**
  * Build the standard description string for a Sentinel fix issue.
  */
-export function sentinelFixDescription(originIssueId: string, verdictRef: string): string {
-  return `Corrective work from Sentinel review of ${originIssueId}. Verdict: ${verdictRef}`;
+export function sentinelFixDescription(
+  originIssueId: string,
+  verdictRef: string,
+  reviewSummary: string,
+  riskAreas: string[],
+): string {
+  const lines = [
+    `Corrective work from Sentinel review of ${originIssueId}. Verdict: ${verdictRef}`,
+    "",
+    `Review summary: ${reviewSummary}`,
+  ];
+
+  if (riskAreas.length > 0) {
+    lines.push("");
+    lines.push("Risk areas flagged for attention:");
+    for (const area of riskAreas) {
+      lines.push(`- ${area}`);
+    }
+  }
+
+  return lines.join("\n");
 }
 
 /**
@@ -39,7 +58,12 @@ export function createFixIssueInputs(
 
   return verdict.issuesFound.map((issueDescription) => ({
     title: `Fix: ${issueDescription}`,
-    description: sentinelFixDescription(originIssue.id, verdictRef),
+    description: sentinelFixDescription(
+      originIssue.id,
+      verdictRef,
+      verdict.reviewSummary,
+      verdict.riskAreas,
+    ),
     issueClass: "fix",
     priority: originIssue.priority as IssuePriority,
     originId: originIssue.id,
