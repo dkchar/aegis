@@ -162,7 +162,7 @@ async function collectOracleResponse(
 
   const messages: string[] = [];
 
-  await new Promise<void>((resolve, reject) => {
+  const sessionPromise = new Promise<void>((resolve, reject) => {
     const unsubscribe = handle.subscribe((event: AgentEvent) => {
       if (event.type === "message") {
         messages.push(event.text);
@@ -188,6 +188,24 @@ async function collectOracleResponse(
       reject(error);
     });
   });
+
+  // Fail closed if the runtime crashes without emitting session_ended.
+  const timeoutMs = 10 * 60 * 1000; // 10 minutes -- generous upper bound
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error(`Oracle session timed out after ${timeoutMs}ms`)), timeoutMs);
+  });
+
+  try {
+    await Promise.race([sessionPromise, timeoutPromise]);
+  } catch (error) {
+    // Attempt to abort the runtime session to free resources, then re-throw.
+    try {
+      await handle.abort();
+    } catch {
+      // Best-effort cleanup; the original error is more important.
+    }
+    throw error;
+  }
 
   return findFinalOraclePayloadMessage(messages);
 }

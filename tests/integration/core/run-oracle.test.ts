@@ -1066,4 +1066,50 @@ describe("runOracle", () => {
       }),
     ).rejects.toThrow(/scouting/i);
   });
+
+  it("allows complex work when auto mode explicitly permits it", async () => {
+    const result = await runOracle({
+      issue: makeIssue(),
+      record: makeRecord(),
+      runtime: makeRuntime(JSON.stringify({
+        files_affected: ["src/core/run-oracle.ts"],
+        estimated_complexity: "complex",
+        decompose: false,
+        ready: true,
+      })),
+      tracker: makeTracker(),
+      budget,
+      projectRoot,
+      operatingMode: "auto",
+      allowComplexAutoDispatch: true,
+    });
+
+    expect(result.complexityDisposition).toBe("allow");
+    expect(result.requiresComplexityGate).toBe(false);
+    expect(result.readyForImplementation).toBe(true);
+  });
+
+  it("reports readyForImplementation false when assessment ready is false with no blockers", async () => {
+    const result = await runOracle({
+      issue: makeIssue(),
+      record: makeRecord(),
+      runtime: makeRuntime(JSON.stringify({
+        files_affected: ["src/core/run-oracle.ts"],
+        estimated_complexity: "moderate",
+        decompose: false,
+        ready: false,
+      })),
+      tracker: makeTracker(),
+      budget,
+      projectRoot,
+      operatingMode: "conversational",
+      allowComplexAutoDispatch: false,
+    });
+
+    expect(result.updatedRecord.stage).toBe(DispatchStage.Scouted);
+    expect(result.complexityDisposition).toBe("allow");
+    expect(result.requiresComplexityGate).toBe(false);
+    expect(result.readyForImplementation).toBe(false);
+    expect(result.failureReason).toBeNull();
+  });
 });

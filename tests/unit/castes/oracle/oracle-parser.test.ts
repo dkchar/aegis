@@ -86,6 +86,51 @@ describe("parseOracleAssessment", () => {
     expect(() => parseOracleAssessment(raw)).toThrow(/estimated_complexity/i);
   });
 
+  it("rejects non-string estimated_complexity: number", () => {
+    const raw = JSON.stringify(makeAssessment({ estimated_complexity: 5 }));
+
+    expect(() => parseOracleAssessment(raw)).toThrow(OracleAssessmentParseError);
+    expect(() => parseOracleAssessment(raw)).toThrow(/estimated_complexity/i);
+  });
+
+  it("rejects non-string estimated_complexity: boolean", () => {
+    const raw = JSON.stringify(makeAssessment({ estimated_complexity: true }));
+
+    expect(() => parseOracleAssessment(raw)).toThrow(OracleAssessmentParseError);
+  });
+
+  it("rejects non-array files_affected", () => {
+    const raw = JSON.stringify(makeAssessment({ files_affected: "just-a-string" }));
+
+    expect(() => parseOracleAssessment(raw)).toThrow(OracleAssessmentParseError);
+    expect(() => parseOracleAssessment(raw)).toThrow(/files_affected/i);
+  });
+
+  it("rejects non-boolean decompose: number", () => {
+    const raw = JSON.stringify(makeAssessment({ decompose: 1 }));
+
+    expect(() => parseOracleAssessment(raw)).toThrow(OracleAssessmentParseError);
+    expect(() => parseOracleAssessment(raw)).toThrow(/decompose/i);
+  });
+
+  it("rejects non-boolean ready: string", () => {
+    const raw = JSON.stringify(makeAssessment({ ready: "yes" }));
+
+    expect(() => parseOracleAssessment(raw)).toThrow(OracleAssessmentParseError);
+    expect(() => parseOracleAssessment(raw)).toThrow(/ready/i);
+  });
+
+  it("accepts decompose=false with optional sub_issues present", () => {
+    const raw = JSON.stringify(makeAssessment({
+      decompose: false,
+      sub_issues: ["optional sub issue"],
+    }));
+
+    const result = parseOracleAssessment(raw);
+    expect(result.decompose).toBe(false);
+    expect(result.sub_issues).toEqual(["optional sub issue"]);
+  });
+
   it("accepts an empty files_affected scope", () => {
     const raw = JSON.stringify(makeAssessment({ files_affected: [] }));
 
@@ -111,6 +156,50 @@ describe("parseOracleAssessment", () => {
   it("rejects malformed JSON", () => {
     expect(() => parseOracleAssessment("{ not json")).toThrow(OracleAssessmentParseError);
     expect(() => parseOracleAssessment("{ not json")).toThrow(/JSON/i);
+  });
+
+  it("rejects non-object JSON roots: null", () => {
+    expect(() => parseOracleAssessment("null")).toThrow(OracleAssessmentParseError);
+    const err = (() => {
+      try { parseOracleAssessment("null"); } catch (e) { return e as OracleAssessmentParseError; }
+    })();
+    expect(err?.reason).toBe("invalid_shape");
+  });
+
+  it("rejects non-object JSON roots: array", () => {
+    expect(() => parseOracleAssessment("[]")).toThrow(OracleAssessmentParseError);
+    const err = (() => {
+      try { parseOracleAssessment("[]"); } catch (e) { return e as OracleAssessmentParseError; }
+    })();
+    expect(err?.reason).toBe("invalid_shape");
+  });
+
+  it("rejects non-object JSON roots: string", () => {
+    expect(() => parseOracleAssessment('"hello"')).toThrow(OracleAssessmentParseError);
+    const err = (() => {
+      try { parseOracleAssessment('"hello"'); } catch (e) { return e as OracleAssessmentParseError; }
+    })();
+    expect(err?.reason).toBe("invalid_shape");
+  });
+
+  it("rejects non-object JSON roots: number", () => {
+    expect(() => parseOracleAssessment("42")).toThrow(OracleAssessmentParseError);
+    const err = (() => {
+      try { parseOracleAssessment("42"); } catch (e) { return e as OracleAssessmentParseError; }
+    })();
+    expect(err?.reason).toBe("invalid_shape");
+  });
+
+  it("distinguishes invalid_json vs invalid_shape error reasons", () => {
+    const jsonErr = (() => {
+      try { parseOracleAssessment("{bad"); } catch (e) { return e as OracleAssessmentParseError; }
+    })();
+    expect(jsonErr?.reason).toBe("invalid_json");
+
+    const shapeErr = (() => {
+      try { parseOracleAssessment("{}"); } catch (e) { return e as OracleAssessmentParseError; }
+    })();
+    expect(shapeErr?.reason).toBe("invalid_shape");
   });
 
   it.each([
