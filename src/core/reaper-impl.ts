@@ -97,12 +97,19 @@ export class ReaperImpl implements Reaper {
     // 3. If artifacts don't pass, override outcome to artifact_failure
     const finalOutcome = artifacts.passed ? outcome : "artifact_failure";
 
-    // 4. Compute next stage
-    const nextStage = computeNextStage(caste, finalOutcome, currentRecord.stage);
+    // 4. Extract sentinel verdict if applicable and compute next stage
+    const sentinelVerdict = caste === "sentinel"
+      ? this.extractSentinelVerdict(events)
+      : undefined;
+    const nextStage = computeNextStage(caste, finalOutcome, currentRecord.stage, sentinelVerdict);
 
     // 5. Determine failure accounting
-    const incrementFailure = finalOutcome !== "success";
-    const resetFail = finalOutcome === "success";
+    // Sentinel "fail" verdict is a valid execution (the sentinel did its job and rejected the PR).
+    // It transitions to Failed but does NOT count as an agent failure for cooldown purposes.
+    // Sentinel crash/error DOES count as an agent failure.
+    const isSentinelFailVerdict = caste === "sentinel" && sentinelVerdict === "fail";
+    const incrementFailure = finalOutcome !== "success" || isSentinelFailVerdict;
+    const resetFail = finalOutcome === "success" && !isSentinelFailVerdict;
 
     // 6. Labor cleanup
     const laborCleanup = determineLaborCleanup(caste, finalOutcome, issueId);
@@ -336,6 +343,27 @@ export class ReaperImpl implements Reaper {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Extract the sentinel verdict ("pass" or "fail") from session events.
+   * Returns undefined if no valid verdict is found.
+   */
+  private extractSentinelVerdict(events: AgentEvent[]): "pass" | "fail" | undefined {
+    for (const event of events) {
+      if (event.type === "message" && this.looksLikeSentinelVerdict(event.text)) {
+        try {
+          const parsed = JSON.parse(event.text) as Record<string, unknown>;
+          const verdict = parsed["verdict"];
+          if (verdict === "pass" || verdict === "fail") {
+            return verdict;
+          }
+        } catch {
+          // Continue scanning
+        }
+      }
+    }
+    return undefined;
   }
 
   private computeMergeCandidate(
