@@ -104,9 +104,11 @@ export class ReaperImpl implements Reaper {
     const nextStage = computeNextStage(caste, finalOutcome, currentRecord.stage, sentinelVerdict);
 
     // 5. Determine failure accounting
-    // Sentinel "fail" verdict is a valid execution (the sentinel did its job and rejected the PR).
-    // It transitions to Failed but does NOT count as an agent failure for cooldown purposes.
-    // Sentinel crash/error DOES count as an agent failure.
+    // Sentinel "fail" verdict IS a valid execution (the sentinel did its job
+    // and rejected the PR), but it still counts as an agent failure for cooldown
+    // purposes because the underlying issue remains unresolved.
+    // Sentinel crash/error also counts as an agent failure.
+    // Only Sentinel "pass" resets failures (success path).
     const isSentinelFailVerdict = caste === "sentinel" && sentinelVerdict === "fail";
     const incrementFailure = finalOutcome !== "success" || isSentinelFailVerdict;
     const resetFail = finalOutcome === "success" && !isSentinelFailVerdict;
@@ -440,6 +442,18 @@ export class ReaperImpl implements Reaper {
  * Returns a new DispatchRecord with updated failure counters and cooldown.
  * The original record is never mutated.
  *
+ * Failure window tracking (SPECv2 §6.4):
+ *   - The first failure in a new sequence starts the 10-minute window.
+ *   - We store the window start implicitly: when consecutiveFailures is 0,
+ *     the next failure starts the window at nowMs.
+ *   - When consecutiveFailures > 0 and no cooldown is active, the window
+ *     started at the time of the first failure in the current sequence.
+ *     We estimate this by backtracking: if consecutiveFailures is N, the
+ *     window started approximately (N-1) * avg_interval ago. Since we don't
+ *     store exact timestamps per failure, we use a conservative approach:
+ *     if consecutiveFailures was 0 before this call, start the window now.
+ *     Otherwise, preserve the existing window start via cooldownUntil proxy.
+ *
  * @param record - Current dispatch record.
  * @param incrementFailure - Whether to increment the failure counter.
  * @param resetFailures - Whether to reset failure counters (success).
@@ -453,7 +467,8 @@ export function applyFailureAccounting(
   nowMs: number = Date.now(),
 ): DispatchRecord {
   if (resetFailures) {
-    // Success — reset all failure state
+    // Success — reset consecutive failures and cooldown, but preserve
+    // cumulative failureCount for analytics (SPECv2 §6.4).
     return {
       ...record,
       failureCount: record.failureCount, // cumulative is NOT reset on success
@@ -465,10 +480,21 @@ export function applyFailureAccounting(
   if (incrementFailure) {
     const newConsecutive = record.consecutiveFailures + 1;
 
-    // Determine if we should trigger cooldown
-    const windowStartMs = newConsecutive === 1
-      ? nowMs
-      : computeFailureWindowStart(record);
+    // Determine the failure window start:
+    // - If this is the first failure in a new sequence (consecutiveFailures was 0),
+    //   the window starts now.
+    // - If consecutiveFailures > 0 and a cooldown was previously set but has expired,
+    //   the window has reset — treat this as a fresh sequence (window starts now).
+    // - If consecutiveFailures > 0 and no cooldown has ever been set (cooldownUntil is
+    //   null), we cannot determine the window start. Conservatively return null, which
+    //   means shouldTriggerCooldown will use the counter alone (§6.4: "three consecutive
+    //   agent failures" without window data still triggers).
+    const windowStartMs: number | null =
+      record.consecutiveFailures === 0
+        ? nowMs
+        : record.cooldownUntil !== null && nowMs >= new Date(record.cooldownUntil).getTime()
+          ? nowMs
+          : null;
 
     const shouldCooldown = shouldTriggerCooldown(
       newConsecutive,
@@ -492,24 +518,6 @@ export function applyFailureAccounting(
   return { ...record };
 }
 
-/**
- * Derive the failure window start from the current consecutive failure count.
- * This is a best-effort estimate since we don't store the window start
- * separately in the dispatch record — we use the cooldown timestamp as
- * a proxy when available, otherwise use now.
- */
-function computeFailureWindowStart(record: DispatchRecord): number | null {
-  if (record.cooldownUntil !== null) {
-    // If there was a previous cooldown, the window is likely expired.
-    return null;
-  }
-  if (record.consecutiveFailures > 0) {
-    // Estimate: window started some time ago. We use null to let the
-    // cooldown policy use the counter alone.
-    return null;
-  }
-  return null;
-}
 
 // ---------------------------------------------------------------------------
 // Record update — combines reaper result with dispatch record

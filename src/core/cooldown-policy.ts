@@ -49,6 +49,27 @@ export function isInCooldown(
   return nowMs < new Date(cooldownUntil).getTime();
 }
 
+/**
+ * Check whether re-dispatch is allowed for an issue.
+ *
+ * Re-dispatch is allowed when:
+ * - the issue is not in cooldown, AND
+ * - the consecutive failure count is below the threshold, OR
+ * - the caller explicitly overrides cooldown (manual restart, SPECv2 §6.4)
+ *
+ * Note: After cooldown expires, re-dispatch is still blocked if
+ * consecutiveFailures >= COOLDOWN_FAILURE_THRESHOLD (3). This is a safety
+ * net — the caller must explicitly reset failures (via a successful run or
+ * manual intervention) before re-dispatch is allowed. SPECv2 §6.4 says
+ * "cooldown suppresses immediate re-dispatch" but does not specify
+ * post-cooldown behavior; this implementation errs on the side of caution.
+ *
+ * @param consecutiveFailures - Current consecutive failure count.
+ * @param cooldownUntil - ISO-8601 timestamp or null.
+ * @param overrideCooldown - If true, bypass cooldown check (manual restart).
+ * @param nowMs - Current epoch milliseconds (injected for testability).
+ * @returns `true` if re-dispatch may proceed.
+ */
 export function canRedispatch(
   consecutiveFailures: number,
   cooldownUntil: string | null,

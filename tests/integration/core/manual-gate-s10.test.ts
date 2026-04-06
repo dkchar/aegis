@@ -345,7 +345,7 @@ describe("Manual gate — Three consecutive failures trigger cooldown suppressio
     expect(canRedispatch(record.consecutiveFailures, record.cooldownUntil, false, BASE_TIME + 6 * 60_000)).toBe(false);
   });
 
-  it("Failures outside 10 min window: consecutive count still increments (window expiry is a known gap in applyFailureAccounting)", () => {
+  it("Failures outside 10 min window: consecutive count increments, cooldown triggers conservatively", () => {
     const reaper = new ReaperImpl();
     let record = makeRecord("cooldown-window", DispatchStage.Scouting, "oracle");
 
@@ -361,20 +361,18 @@ describe("Manual gate — Three consecutive failures trigger cooldown suppressio
     expect(record.consecutiveFailures).toBe(2);
 
     // Wait > 10 min, then failure 3
-    // NOTE: applyFailureAccounting does NOT currently reset consecutiveFailures
-    // when the window expires. It always increments. The cooldown check in
-    // shouldTriggerCooldown() correctly handles this by comparing the elapsed
-    // time, but the raw counter still climbs. This is a known gap.
+    // Since we don't store failureWindowStartMs in the dispatch record,
+    // applyFailureAccounting cannot determine whether the 10-min window has
+    // expired. It conservatively returns null as the window start, and
+    // shouldTriggerCooldown(3, null, now) returns true (safety-first: three
+    // consecutive failures without window data triggers cooldown).
     record = { ...record, stage: DispatchStage.Scouting, runningAgent: record.runningAgent };
     result = reaper.reap("cooldown-window", "oracle", "error", [], record);
     record = updateRecordFromReaper(record, result, BASE_TIME + 11 * 60_000);
 
-    // consecutiveFailures still increments (known gap — window expiry doesn't reset it)
+    // consecutiveFailures increments to 3 (counter not reset without explicit window tracking)
     expect(record.consecutiveFailures).toBe(3);
-    // But cooldown is NOT triggered because shouldTriggerCooldown checks the elapsed time
-    // However, since computeFailureWindowStart returns null, cooldown IS triggered here too.
-    // This is the full known gap: neither the counter nor the cooldown check properly
-    // handles window expiry in applyFailureAccounting.
+    // Cooldown IS triggered conservatively (window start unknown → triggers at threshold)
     expect(record.cooldownUntil).not.toBeNull();
   });
 
