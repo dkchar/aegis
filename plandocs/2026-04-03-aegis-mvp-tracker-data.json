@@ -1,5 +1,5 @@
 {
-    "generated_at":  "2026-04-05T21:27:31+01:00",
+    "generated_at":  "2026-04-06T19:08:28+01:00",
     "source_spec":  "SPECv2.md",
     "design_doc":  "docs/superpowers/specs/2026-04-03-aegis-mvp-slicing-design.md",
     "plan_doc":  "docs/superpowers/plans/2026-04-03-aegis-mvp-slice-plan.md",
@@ -259,10 +259,10 @@
                        "outcome":  "Sentinel verdicts, corrective work, and review failure handling exist before merge-queue integration.",
                        "automated_gate":  "npm run test -- tests/unit/castes/sentinel/sentinel-parser.test.ts tests/integration/core/run-sentinel.test.ts",
                        "manual_gate":  "A direct review run can pass or fail, generate corrective work, and provide the Sentinel failure path required by Phase 1.",
-                       "evidence_automated":  "pending",
-                       "evidence_manual":  "pending",
-                       "evidence_notes":  "",
-                       "evidence_updated_at":  "",
+                       "evidence_automated":  "npm run test -- tests/unit/castes/sentinel/sentinel-parser.test.ts tests/integration/core/run-sentinel.test.ts: 42 tests pass (26 parser + 16 integration), 0 failed",
+                       "evidence_manual":  "Verified: Sentinel parser strictly validates all 5 required verdict fields; rejects extra keys, wrong types, malformed JSON, non-object roots. runSentinel dispatch correctly transitions reviewing to complete on pass, reviewing to failed on fail verdict, and fail-closed on runtime crash or malformed input. Fix issue creation produces corrective work with originId linkage. Prompt enforces read-only tool constraints. Artifact persistence uses atomic tmp to rename pattern.",
+                       "evidence_notes":  "S09A gate closed after 3-reviewer consensus with 8 findings addressed: dead cleanup code fixed, dead conditional removed, JSON validation added to message extraction, verdict ref path aligned, followUpIssueIds prompt clarified, blocker tracking order corrected, 3 new integration tests added.",
+                       "evidence_updated_at":  "2026-04-06T19:04:20+01:00",
                        "children":  {
                                         "contract":  "aegis-fjm.18.1",
                                         "lane_a":  "aegis-fjm.18.2",
