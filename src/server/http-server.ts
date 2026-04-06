@@ -33,7 +33,12 @@ import {
   type EventsRouteBody,
   type OrchestrationMode,
   type ServerLifecycleState,
+  type ScopeStatusResponse,
 } from "./routes.js";
+import {
+  buildScopeVisibilitySummary,
+} from "../core/overlap-visibility.js";
+import type { ScopeAllocation } from "../core/scope-allocator.js";
 
 export const HTTP_SERVER_INITIAL_STATE: ServerLifecycleState = "stopped";
 
@@ -226,6 +231,7 @@ export function createHttpServerController(
     retry: SSE_RETRY_MS,
   });
   const shellHtml = resolveOlympusShell();
+  let currentScopeAllocation: ScopeAllocation = { dispatchable: [], suppressed: [] };
 
   function publishEvent(event: AegisLiveEvent) {
     replayBus.publish(event);
@@ -234,6 +240,24 @@ export function createHttpServerController(
 
   function getCurrentMode(): OrchestrationMode {
     return operatingModeState.mode;
+  }
+
+  function publishScopeSuppressionEvent(allocation: ScopeAllocation) {
+    const summary = buildScopeVisibilitySummary(allocation);
+    publishEvent(
+      createLiveEvent({
+        id: `evt-${nextEventSequence}`,
+        type: "scope.suppression",
+        timestamp: new Date().toISOString(),
+        sequence: nextEventSequence++,
+        payload: {
+          dispatchable: summary.dispatchable,
+          suppressed: summary.suppressions,
+          hasOverlap: summary.hasOverlap,
+          evaluatedAt: new Date().toISOString(),
+        },
+      }),
+    );
   }
 
   function publishOrchestratorStateEvent() {
@@ -332,7 +356,23 @@ export function createHttpServerController(
       autoLoop: { ...autoLoopState },
       issueId: null,
     }),
+    getScopeStatus: () => {
+      const summary = buildScopeVisibilitySummary(currentScopeAllocation);
+      return {
+        dispatchableCount: summary.dispatchableCount,
+        suppressedCount: summary.suppressedCount,
+        hasOverlap: summary.hasOverlap,
+        dispatchable: summary.dispatchable,
+        suppressed: summary.suppressions.map((s) => ({ ...s })),
+        evaluatedAt: new Date().toISOString(),
+      } satisfies ScopeStatusResponse;
+    },
   });
+
+  function recordScopeAllocation(allocation: ScopeAllocation) {
+    currentScopeAllocation = { ...allocation, dispatchable: [...allocation.dispatchable], suppressed: allocation.suppressed.map((s) => ({ ...s })) };
+    publishScopeSuppressionEvent(allocation);
+  }
 
   async function handleRequest(request: IncomingMessage, response: ServerResponse) {
     const url = new URL(request.url ?? HTTP_ROUTE_PATHS.root, "http://127.0.0.1");

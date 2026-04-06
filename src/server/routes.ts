@@ -9,6 +9,7 @@ export const HTTP_ROUTE_PATHS = {
   learning: "/api/learning",
   events: "/api/events",
   beadsHook: "/api/hooks/beads",
+  scopeStatus: "/api/scope/status",
 } as const;
 
 export const CONTROL_API_ACTIONS = [
@@ -108,6 +109,11 @@ export const HTTP_ROUTE_CONTRACT: readonly HttpRouteDefinition[] = [
     path: HTTP_ROUTE_PATHS.beadsHook,
     contract: "Ingest trusted local Beads hook events.",
   },
+  {
+    method: "GET",
+    path: HTTP_ROUTE_PATHS.scopeStatus,
+    contract: "Return scope allocation status with suppression visibility.",
+  },
 ] as const;
 
 export interface CommandActionRequest {
@@ -146,6 +152,7 @@ export interface RestApiRouterBindings {
   pause?: () => MaybePromise<void>;
   resume?: () => MaybePromise<void>;
   getOperatingMode?: () => OrchestrationMode;
+  getScopeStatus?: () => MaybePromise<ScopeStatusResponse>;
 }
 
 export interface SseReplayTransport {
@@ -170,6 +177,22 @@ export interface RestApiResponse<TBody = unknown> {
 export interface EventsRouteBody {
   replay: string[];
   subscribe: (writeFrame: (frame: string) => void) => () => void;
+}
+
+export interface ScopeSuppressionDetail {
+  issueId: string;
+  blockedBy: string[];
+  overlappingFiles: string[];
+  reason: string;
+}
+
+export interface ScopeStatusResponse {
+  dispatchableCount: number;
+  suppressedCount: number;
+  hasOverlap: boolean;
+  dispatchable: string[];
+  suppressed: ScopeSuppressionDetail[];
+  evaluatedAt: string;
 }
 
 export interface RestApiRouter {
@@ -274,6 +297,17 @@ export function createRestApiRouter(bindings: RestApiRouterBindings): RestApiRou
 
       if (method === "GET" && request.path === HTTP_ROUTE_PATHS.state) {
         return toJsonResponse(200, await bindings.getStateSnapshot());
+      }
+
+      if (method === "GET" && request.path === HTTP_ROUTE_PATHS.scopeStatus) {
+        if (!bindings.getScopeStatus) {
+          return toJsonResponse(503, {
+            ok: false,
+            error: "Scope status is not configured.",
+          });
+        }
+
+        return toJsonResponse(200, await bindings.getScopeStatus());
       }
 
       if (method === "POST" && request.path === HTTP_ROUTE_PATHS.steer) {

@@ -5,7 +5,8 @@
     "steer": "/api/steer",
     "learning": "/api/learning",
     "events": "/api/events",
-    "beadsHook": "/api/hooks/beads"
+    "beadsHook": "/api/hooks/beads",
+    "scopeStatus": "/api/scope/status"
   },
   "steerActions": [
     "start",

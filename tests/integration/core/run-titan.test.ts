@@ -50,6 +50,7 @@ function makeRecord(stage: DispatchStage = DispatchStage.Implementing): Dispatch
     },
     oracleAssessmentRef: "oracle/aegis-fjm.10.3.json",
     sentinelVerdictRef: null,
+    fileScope: null,
     failureCount: 0,
     consecutiveFailures: 0,
     failureWindowStartMs: null,
@@ -236,6 +237,7 @@ describe("S09 Titan contract seed", () => {
       knownRisks: [],
       followUpWork: [],
       learningsWrittenToMnemosyne: [],
+      fileScope: null,
     });
     expect(contract.clarificationArtifact).toEqual({
       originalIssueId: "aegis-fjm.10.1",
