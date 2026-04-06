@@ -14,6 +14,7 @@
 import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { DispatchStage } from "./stage-transition.js";
+import type { FileScope, ActiveTitanScope } from "./scope-allocator.js";
 
 // ---------------------------------------------------------------------------
 // Agent assignment
@@ -66,6 +67,13 @@ export interface DispatchRecord {
    * Null until Sentinel completes.
    */
   sentinelVerdictRef: string | null;
+
+  /**
+   * File scope assigned to the currently running Titan (from Oracle
+   * files_affected).  Present only while stage === implementing.
+   * Used by the scope allocator to detect overlap with other candidates.
+   */
+  fileScope: FileScope | null;
 
   /**
    * Total agent failure count for this issue across all attempts.
@@ -268,6 +276,7 @@ export function reconcileDispatchState(
       reconciledRecords[issueId] = {
         ...record,
         runningAgent: null,
+        fileScope: null,
         sessionProvenanceId: liveSessionId,
         updatedAt: new Date().toISOString(),
       };
@@ -290,4 +299,25 @@ export function emptyDispatchState(): DispatchState {
     schemaVersion: 1,
     records: {},
   };
+}
+
+/**
+ * Extract active Titan scopes from the dispatch state.
+ *
+ * Returns one ActiveTitanScope per record that is currently in the
+ * `implementing` stage and has a non-null fileScope.  This is the
+ * canonical source of truth for "which files are claimed by in-flight
+ * Titans" used by the triage scope-allocation check.
+ */
+export function activeTitanScopes(state: DispatchState): ActiveTitanScope[] {
+  const result: ActiveTitanScope[] = [];
+  for (const record of Object.values(state.records)) {
+    if (record.stage === DispatchStage.Implementing && record.fileScope !== null) {
+      result.push({
+        issueId: record.issueId,
+        files: [...record.fileScope.files],
+      });
+    }
+  }
+  return result;
 }

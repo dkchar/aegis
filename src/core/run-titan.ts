@@ -5,6 +5,7 @@ import {
 } from "../castes/titan/titan-prompt.js";
 import type { BudgetLimit } from "../config/schema.js";
 import type { DispatchRecord } from "./dispatch-state.js";
+import type { FileScope } from "./scope-allocator.js";
 import { DispatchStage, transitionStage } from "./stage-transition.js";
 import type { LaborCreationPlan } from "../labor/create-labor.js";
 import type { AgentRuntime, AgentEvent } from "../runtime/agent-runtime.js";
@@ -22,6 +23,8 @@ export interface TitanHandoffArtifact {
   knownRisks: string[];
   followUpWork: string[];
   learningsWrittenToMnemosyne: string[];
+  /** The file scope that was claimed during this Titan's implementation. */
+  fileScope: FileScope | null;
 }
 
 export interface TitanClarificationArtifact {
@@ -123,6 +126,7 @@ export function createTitanRunContract(
       knownRisks: [],
       followUpWork: [],
       learningsWrittenToMnemosyne: [],
+      fileScope: null,
     },
     clarificationArtifact: {
       originalIssueId: prompt.issueId,
@@ -343,6 +347,7 @@ export async function runTitan(input: RunTitanInput): Promise<RunTitanResult> {
       knownRisks: payload.known_risks,
       followUpWork: payload.follow_up_work,
       learningsWrittenToMnemosyne: payload.learnings_written_to_mnemosyne,
+      fileScope: input.record.fileScope,
     };
 
     if (payload.outcome === "success") {
@@ -352,6 +357,7 @@ export async function runTitan(input: RunTitanInput): Promise<RunTitanResult> {
         updatedRecord: {
           ...transitionStage(input.record, DispatchStage.Implemented),
           runningAgent: null,
+          fileScope: null,
         },
         handoffArtifact,
         clarificationArtifact: null,
@@ -397,6 +403,7 @@ export async function runTitan(input: RunTitanInput): Promise<RunTitanResult> {
       updatedRecord: {
         ...transitionStage(input.record, DispatchStage.Failed),
         runningAgent: null,
+        fileScope: null,
       },
       handoffArtifact,
       clarificationArtifact,
@@ -410,6 +417,7 @@ export async function runTitan(input: RunTitanInput): Promise<RunTitanResult> {
       updatedRecord: {
         ...transitionStage(input.record, DispatchStage.Failed),
         runningAgent: null,
+        fileScope: null,
       },
       handoffArtifact: contract.handoffArtifact,
       clarificationArtifact: null,

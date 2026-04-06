@@ -63,6 +63,7 @@ function makeRecord(stage: DispatchStage = DispatchStage.Reviewing): DispatchRec
     },
     oracleAssessmentRef: null,
     sentinelVerdictRef: null,
+    fileScope: null,
     failureCount: 0,
     consecutiveFailures: 0,
     failureWindowStartMs: null,

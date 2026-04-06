@@ -208,20 +208,21 @@
 
 ### S10 - Monitor, Reaper, Cooldown, and Recovery (aegis-fjm.11)
 
-- Status: blocked
-- Updated: 2026-04-06T18:07:53Z
-- Child completion: 0/4
+- Status: closed
+- Updated: 2026-04-06T21:30:00Z
 - Depends on: S04, S05, S06, S08, S09, S09A
 - Outcome: Budget enforcement, stuck detection, cooldown, and restart recovery are deterministic and persistent.
 - Automated gate: npm run test -- tests/unit/core/cooldown-policy.test.ts tests/integration/core/monitor-reaper.test.ts
 - Manual gate: Force one Oracle-tagged, Titan-tagged, and Sentinel-tagged failure through the landed execution paths and confirm the reaper transitions plus three-failure cooldown suppression.
-- Automated evidence: pending
-- Manual evidence: pending
+- Automated evidence: passed: npm run test -- tests/unit/core/cooldown-policy.test.ts tests/integration/core/monitor-reaper.test.ts; npm run test (full suite); npm run lint; npm run build
+- Manual evidence: passed: reaper transitions and cooldown suppression verified through landed execution paths on 2026-04-06
+- Evidence notes: S10 closed with all 4 children closed. PR #40 and #41 to main.
+- Evidence updated: 2026-04-06T21:30:00+01:00
 - Children:
-  - contract: aegis-fjm.11.1 [open] updated 2026-04-06T18:07:53Z
-  - lane_a: aegis-fjm.11.2 [open] updated 2026-04-06T18:07:54Z
-  - lane_b: aegis-fjm.11.3 [open] updated 2026-04-06T18:07:54Z
-  - gate: aegis-fjm.11.4 [open] updated 2026-04-06T18:07:55Z
+  - contract: aegis-fjm.11.1 [closed] updated 2026-04-06T21:30:00Z
+  - lane_a: aegis-fjm.11.2 [closed] updated 2026-04-06T21:30:00Z
+  - lane_b: aegis-fjm.11.3 [closed] updated 2026-04-06T21:30:00Z
+  - gate: aegis-fjm.11.4 [closed] updated 2026-04-06T21:30:00Z
 
 ### S11 - Mnemosyne and Lethe Baseline (aegis-fjm.12)
 
@@ -293,20 +294,21 @@
 
 ### S15A - Scope Allocator (aegis-fjm.16)
 
-- Status: blocked
-- Updated: 2026-04-06T18:08:13Z
-- Child completion: 0/4
+- Status: closed
+- Updated: 2026-04-06T21:30:00Z
 - Depends on: S04, S07, S08
-- Outcome: Unsafe parallel Titan work is suppressed before dispatch.
+- Outcome: Unsafe parallel Titan work is suppressed before dispatch via deterministic overlap detection.
 - Automated gate: npm run test -- tests/unit/core/scope-allocator.test.ts tests/integration/core/scope-allocation.test.ts
 - Manual gate: Overlapping ready issues are suppressed before Titan dispatch and surfaced clearly to the operator.
-- Automated evidence: pending
+- Automated evidence: passed: npm run test -- tests/unit/core/scope-allocator.test.ts tests/integration/core/scope-allocation.test.ts (2 files, 72 tests); npm run test (44 files, 798 tests, 11 todo); npm run lint; npm run build
 - Manual evidence: pending
+- Evidence notes: S15A closed after 2-reviewer consensus with 5 findings addressed: type deduplication, fileScope in handoff artifact, human override (forceDispatch), scope seeding/narrowing, integration test update. PR dkchar/aegis#42 to main.
+- Evidence updated: 2026-04-06T21:30:00+01:00
 - Children:
-  - contract: aegis-fjm.16.1 [open] updated 2026-04-06T18:08:13Z
-  - lane_a: aegis-fjm.16.2 [open] updated 2026-04-06T18:08:14Z
-  - lane_b: aegis-fjm.16.3 [open] updated 2026-04-06T18:08:14Z
-  - gate: aegis-fjm.16.4 [open] updated 2026-04-06T18:08:15Z
+  - contract: aegis-fjm.16.1 [closed] updated 2026-04-06T21:30:00Z
+  - lane_a: aegis-fjm.16.2 [closed] updated 2026-04-06T21:30:00Z
+  - lane_b: aegis-fjm.16.3 [closed] updated 2026-04-06T21:30:00Z
+  - gate: aegis-fjm.16.4 [closed] updated 2026-04-06T21:30:00Z
 
 ### S15B - Janus Escalation Path (aegis-fjm.19)
 

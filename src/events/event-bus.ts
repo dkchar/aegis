@@ -3,6 +3,7 @@ import type {
   OrchestrationMode,
   ServerLifecycleState,
 } from "../server/routes.js";
+import type { SuppressionEntry } from "../core/scope-allocator.js";
 
 export const LIVE_EVENT_ENVELOPE_FIELDS = [
   "id",
@@ -16,6 +17,7 @@ export const LIVE_EVENT_TYPES = [
   "orchestrator.state",
   "launch.sequence",
   "control.command",
+  "scope.suppression",
 ] as const;
 
 export type LiveEventType = (typeof LIVE_EVENT_TYPES)[number];
@@ -41,10 +43,18 @@ export interface ControlCommandEventPayload {
   detail: string;
 }
 
+export interface ScopeSuppressionEventPayload {
+  dispatchable: string[];
+  suppressed: SuppressionEntry[];
+  hasOverlap: boolean;
+  evaluatedAt: string;
+}
+
 export interface LiveEventPayloadMap {
   "orchestrator.state": OrchestratorStateEventPayload;
   "launch.sequence": LaunchSequenceEventPayload;
   "control.command": ControlCommandEventPayload;
+  "scope.suppression": ScopeSuppressionEventPayload;
 }
 
 export type LiveEventPayload<TType extends LiveEventType> = LiveEventPayloadMap[TType];
@@ -67,6 +77,7 @@ const LIVE_EVENT_PAYLOAD_FIELDS: {
   "orchestrator.state": ["server_state", "mode", "uptime_ms", "queue_depth"],
   "launch.sequence": ["phase", "step", "status", "detail"],
   "control.command": ["action", "request_id", "status", "detail"],
+  "scope.suppression": ["dispatchable", "suppressed", "hasOverlap", "evaluatedAt"],
 };
 
 export function isLiveEventType(value: string): value is LiveEventType {

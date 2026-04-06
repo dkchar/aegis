@@ -21,17 +21,17 @@
 | S08 | Oracle Scouting Pipeline | blocked; contract seed landed, lanes open |
 | S09 | Titan Pipeline and Labors | blocked; contract seed landed, lanes open |
 | S09A | Sentinel Review Pipeline | blocked; not started |
-| S10 | Monitor, Reaper, Cooldown, and Recovery | blocked; not started |
+| S10 | Monitor, Reaper, Cooldown, and Recovery | closed |
 | S11 | Mnemosyne and Lethe Baseline | blocked; not started |
 | S12 | Olympus MVP Shell | blocked; not started |
 | S13 | Merge Queue Admission and Persistence | blocked; not started |
 | S14 | Mechanical Merge Execution and Outcome Artifacts | blocked; not started |
-| S15A | Scope Allocator | blocked; not started |
+| S15A | Scope Allocator | closed; PR #42 pending merge |
 | S15B | Janus Escalation Path | blocked; not started |
 | S16A | Benchmark Scenario Wiring | blocked; not started |
 | S16B | Release Metrics and Evidence Gate | blocked; not started |
 
-**Current execution posture:** S07, S08, and S09 each have their `contract` child closed. The ready queue has moved to their `lane_a` and `lane_b` children, plus lower-priority S11 contract work.
+**Current execution posture:** S15A complete. Next ready: S11 contract (aegis-fjm.12.1) or S15B contract after S14 dependency clears.
 
 ---
 
@@ -308,6 +308,13 @@ Oracle (S08 contract)
 
 Titan (S09 contract)
   create-labor.ts -> titan-prompt.ts -> run-titan.ts -> cleanup-labor.ts
+
+Scope Allocator (S15A)
+  triage.ts -> allocateScope() -> scope-allocator.ts
+               |-- computeOverlap()
+               |-- seedFileScope() / narrowFileScope()
+               `-- forceDispatch override
+  overlap-visibility.ts -> SSE events + HTTP /api/scope/status
 ```
 
 ---
@@ -320,10 +327,10 @@ The following areas are still incomplete even though some contract files now exi
 - S08 lane logic: no runtime-backed Oracle dispatch or tracker mutation wiring yet beyond pure contracts.
 - S09 lane logic: no real labor creation/cleanup shelling or Titan runtime integration yet beyond planning artifacts.
 - S09A: no Sentinel prompt/parser/review pipeline files yet.
-- S10: no monitor, reaper, cooldown, or recovery modules yet.
 - S11: no Mnemosyne/Lethe source files yet.
 - S12: Olympus is still the minimal shell, not the MVP dashboard.
 - S13-S16B: merge queue, Janus, scenario wiring, and release gate modules are still absent.
+- S15A scope allocator: implemented (PR #42 pending merge) — `src/core/scope-allocator.ts`, `src/core/overlap-visibility.ts`, `src/core/triage.ts` wired with forceDispatch, seedFileScope, narrowFileScope.
 
 Keep the distinction clear:
 

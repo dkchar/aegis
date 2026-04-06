@@ -33,6 +33,15 @@
         "status",
         "detail"
       ]
+    },
+    {
+      "type": "scope.suppression",
+      "requiredPayloadFields": [
+        "dispatchable",
+        "suppressed",
+        "hasOverlap",
+        "evaluatedAt"
+      ]
     }
   ]
 }

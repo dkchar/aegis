@@ -27,18 +27,17 @@ describe("GitHub workflow contracts", () => {
     expect(scripts.build).toBeDefined();
   });
 
-  it("automerge workflow performs a preflight check before invoking the merge action", () => {
+  it("automerge workflow triggers on CI completion and uses label-gated merge", () => {
     const workflow = readText(".github/workflows/automerge.yml");
 
     expect(workflow).toContain("workflow_run:");
-    expect(workflow).toContain("workflows: [\"CI\"]");
-    expect(workflow).toContain("check_run:");
-    expect(workflow).toContain("workflowRun?.conclusion !== \"success\"");
-    expect(workflow).toContain("actions/github-script@v7");
-    expect(workflow).toContain("name: Guard automerge on passing checks");
-    expect(workflow).toContain("ignoring the automerge workflow's own check run");
-    expect(workflow).toContain("status !== \"completed\"");
-    expect(workflow).toContain("Auto-merge if checks pass");
-    expect(workflow).toContain("MERGE_LABELS: \"automerge\"");
+    expect(workflow).toContain("types: [completed]");
+    expect(workflow).toContain("pull_request_review:");
+    expect(workflow).toContain("pascalgn/automerge-action");
+    expect(workflow).toContain("MERGE_METHOD: squash");
+    expect(workflow).toContain('MERGE_LABELS: "automerge"');
+    expect(workflow).toContain("MERGE_DELETE_BRANCH: true");
+    expect(workflow).toContain("MERGE_RETRIES:");
+    expect(workflow).toContain("UPDATE_METHOD: rebase");
   });
 });
