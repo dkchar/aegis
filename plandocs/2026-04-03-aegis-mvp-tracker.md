@@ -1,6 +1,6 @@
 # Aegis MVP Tracker
 
-- Refreshed: 2026-04-06T01:40:00+00:00
+- Refreshed: 2026-04-06T14:56:38+00:00
 - Source spec: SPECv2.md
 - Design doc: docs/superpowers/specs/2026-04-03-aegis-mvp-slicing-design.md
 - Plan doc: docs/superpowers/plans/2026-04-03-aegis-mvp-slice-plan.md
@@ -140,20 +140,21 @@
 
 ### S07 - Direct Commands and Operating Modes (aegis-fjm.8)
 
-- Status: blocked
-- Updated: 2026-04-05T20:26:42Z
-- Child completion: 1/4
+- Status: closed
+- Updated: 2026-04-06T14:56:38Z
 - Depends on: S04, S05, S06
 - Outcome: The full deterministic MVP command family works in conversational and auto modes.
 - Automated gate: npm run test -- tests/unit/cli/parse-command.test.ts tests/integration/core/operating-mode.test.ts
 - Manual gate: Validate parser and routing coverage for `scout`, `implement`, `review`, `process`, `status`, `pause`, `resume`, `auto on/off`, `scale`, `kill`, `restart`, `focus`, `tell`, `add_learning`, `reprioritize`, and `summarize`, and confirm unsupported downstream behaviors fail clearly until their owning slice lands.
-- Automated evidence: pending
-- Manual evidence: pending
+- Automated evidence: passed: npm run test -- tests/unit/cli/parse-command.test.ts tests/integration/core/operating-mode.test.ts (2 files, 30 tests); npm run test (26 files, 459 tests); npm run lint; npm run build on 2026-04-06
+- Manual evidence: passed: parseCommand correctly routes all 17 commands; issue-scoped commands require valid issue IDs; unsupported commands return clear rejection; operating mode transitions are immutable; auto-loop freshness enforces new-ready-only dispatch with exact timestamp boundary checking
+- Evidence notes: S07 gate passed after independent triple-review consensus. All 17 direct commands (scout, implement, review, process, status, pause, resume, auto on/off, scale, kill, restart, focus, tell, add_learning, reprioritize, summarize) parse deterministically. Command execution routing contract established. Conversational vs auto mode semantics complete with new-ready-only auto dispatch gating.
+- Evidence updated: 2026-04-06T14:56:38Z
 - Children:
   - contract: aegis-fjm.8.1 [closed] updated 2026-04-05T20:26:43Z
-  - lane_a: aegis-fjm.8.2 [open] updated 2026-04-05T20:26:43Z
-  - lane_b: aegis-fjm.8.3 [open] updated 2026-04-05T20:26:44Z
-  - gate: aegis-fjm.8.4 [open] updated 2026-04-05T20:26:44Z
+  - lane_a: aegis-fjm.8.2 [closed] updated 2026-04-06T14:56:07Z
+  - lane_b: aegis-fjm.8.3 [closed] updated 2026-04-06T14:56:11Z
+  - gate: aegis-fjm.8.4 [closed] updated 2026-04-06T14:56:20Z
 
 ### S08 - Oracle Scouting Pipeline (aegis-fjm.9)
 
