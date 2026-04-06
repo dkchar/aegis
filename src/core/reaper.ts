@@ -66,6 +66,13 @@ export interface ReaperResult {
   laborCleanup: LaborCleanupInstruction | null;
   mergeCandidate: MergeCandidateInstruction | null;
   monitorEvents: MonitorEvent[];
+  /**
+   * SPECv2 §9.7: "reclaim concurrency capacity".
+   * True when the Reaper has freed a concurrency slot by finishing a session
+   * (the runningAgent is cleared via updateRecordFromReaper).  The caller
+   * should use this signal to update its own concurrency tracking.
+   */
+  reclaimConcurrency: boolean;
 }
 
 export interface Reaper {

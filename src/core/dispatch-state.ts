@@ -80,6 +80,14 @@ export interface DispatchRecord {
   consecutiveFailures: number;
 
   /**
+   * Epoch milliseconds of the first failure in the current consecutive-failure
+   * sequence.  Used to enforce the ten-minute window required by SPECv2 §6.4
+   * ("three consecutive agent failures inside a ten-minute window").
+   * Null when no failure sequence is active.
+   */
+  failureWindowStartMs: number | null;
+
+  /**
    * ISO-8601 timestamp until which re-dispatch is suppressed by cooldown.
    * Null when no active cooldown.
    */

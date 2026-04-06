@@ -35,6 +35,7 @@ function makeRecord(
     sentinelVerdictRef: null,
     failureCount: 0,
     consecutiveFailures: 0,
+    failureWindowStartMs: null,
     cooldownUntil: null,
     cumulativeSpendUsd: null,
     sessionProvenanceId: "test-session",
@@ -370,6 +371,7 @@ describe("updateRecordFromReaper", () => {
       laborCleanup: null,
       mergeCandidate: null,
       monitorEvents: [],
+      reclaimConcurrency: true,
     };
 
     const updated = updateRecordFromReaper(record, result, NOW);
@@ -392,6 +394,7 @@ describe("updateRecordFromReaper", () => {
       laborCleanup: null,
       mergeCandidate: null,
       monitorEvents: [],
+      reclaimConcurrency: true,
     };
 
     const updated = updateRecordFromReaper(record, result, NOW);
@@ -417,6 +420,7 @@ describe("updateRecordFromReaper", () => {
       laborCleanup: null,
       mergeCandidate: null,
       monitorEvents: [],
+      reclaimConcurrency: true,
     };
 
     updateRecordFromReaper(record, result, NOW);

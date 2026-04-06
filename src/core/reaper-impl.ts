@@ -145,6 +145,7 @@ export class ReaperImpl implements Reaper {
       laborCleanup,
       mergeCandidate,
       monitorEvents,
+      reclaimConcurrency: true, // SPECv2 §9.7: session always frees a concurrency slot
     };
   }
 
@@ -467,12 +468,13 @@ export function applyFailureAccounting(
   nowMs: number = Date.now(),
 ): DispatchRecord {
   if (resetFailures) {
-    // Success — reset consecutive failures and cooldown, but preserve
+    // Success — reset consecutive failures, window, and cooldown, but preserve
     // cumulative failureCount for analytics (SPECv2 §6.4).
     return {
       ...record,
       failureCount: record.failureCount, // cumulative is NOT reset on success
       consecutiveFailures: 0,
+      failureWindowStartMs: null,
       cooldownUntil: null,
     };
   }
@@ -480,21 +482,18 @@ export function applyFailureAccounting(
   if (incrementFailure) {
     const newConsecutive = record.consecutiveFailures + 1;
 
-    // Determine the failure window start:
-    // - If this is the first failure in a new sequence (consecutiveFailures was 0),
-    //   the window starts now.
-    // - If consecutiveFailures > 0 and a cooldown was previously set but has expired,
-    //   the window has reset — treat this as a fresh sequence (window starts now).
-    // - If consecutiveFailures > 0 and no cooldown has ever been set (cooldownUntil is
-    //   null), we cannot determine the window start. Conservatively return null, which
-    //   means shouldTriggerCooldown will use the counter alone (§6.4: "three consecutive
-    //   agent failures" without window data still triggers).
+    // Determine the failure window start using the persisted field
+    // in DispatchRecord (SPECv2 §6.4).
+    // - If this is the first failure in a new sequence, the window starts now.
+    // - If the existing window has expired, reset it to now.
+    const windowExpired =
+      record.failureWindowStartMs !== null &&
+      (nowMs - record.failureWindowStartMs) > 10 * 60 * 1000;
+
     const windowStartMs: number | null =
-      record.consecutiveFailures === 0
+      record.consecutiveFailures === 0 || windowExpired
         ? nowMs
-        : record.cooldownUntil !== null && nowMs >= new Date(record.cooldownUntil).getTime()
-          ? nowMs
-          : null;
+        : record.failureWindowStartMs;
 
     const shouldCooldown = shouldTriggerCooldown(
       newConsecutive,
@@ -510,6 +509,7 @@ export function applyFailureAccounting(
       ...record,
       failureCount: record.failureCount + 1,
       consecutiveFailures: newConsecutive,
+      failureWindowStartMs: windowStartMs,
       cooldownUntil: newCooldownUntil,
     };
   }
