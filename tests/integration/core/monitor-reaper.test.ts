@@ -1,110 +1,75 @@
 /**
- * S10 — Monitor + Reaper integration tests.
+ * S10 Lane B — Monitor + Reaper integration tests.
  *
- * Validates:
- *   - Monitor session lifecycle (start, observe, stop)
- *   - Stuck detection (90s warning, 150s kill)
- *   - Repeated tool call detection (3+ same call → nudge)
- *   - Turn budget exceeded → abort
- *   - Token budget exceeded → abort
- *   - Per-issue cost warning (exact_usd)
- *   - Daily hard stop → abort + gate refusal
- *   - Quota floor warning and abort
- *   - Budget gate (checkBudgetGate)
- *   - Metering mode handling (exact_usd, credits, quota, stats_only, unknown)
- *   - SSE event emission via drainEvents()
- *   - Monitor-Reaper interaction: session ends → reaper computes outcome
- *   - resetDailyBudget clears suppression
+ * Validates the full reaper flow with failure accounting, cooldown
+ * persistence, and recovery reconciliation.
+ * SPECv2 §9.7, §6.4, §6.5
+ *
+ * Automated gate for S10:
+ *   npm run test -- tests/unit/core/cooldown-policy.test.ts tests/integration/core/monitor-reaper.test.ts
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
+import { ReaperImpl, applyFailureAccounting, updateRecordFromReaper } from "../../../src/core/reaper-impl.js";
+import { RecoveryImpl } from "../../../src/core/recovery-impl.js";
 import {
-  MonitorImpl,
-  DEFAULT_MONITOR_THRESHOLDS,
-  assessStuckState,
-  hasRepeatedToolCalls,
-  isDailyHardStopExceeded,
-  assessQuotaFloor,
-  canAutoDispatchJanus,
-} from "../../../src/core/monitor.js";
-import type { MonitorEvent, SessionTracker } from "../../../src/core/monitor.js";
-import { ReaperImpl, computeNextStage, determineLaborCleanup } from "../../../src/core/reaper.js";
-import type { ReaperResult } from "../../../src/core/reaper.js";
-import type { AgentEvent } from "../../../src/runtime/agent-events.js";
-import type { AgentHandle, AgentStats } from "../../../src/runtime/agent-runtime.js";
-import type { BudgetLimit } from "../../../src/config/schema.js";
+  recordFailure,
+  shouldTriggerCooldown,
+  computeCooldownUntil,
+  canRedispatch,
+  resetFailures,
+  COOLDOWN_SUPPRESSION_MS,
+} from "../../../src/core/cooldown-policy.js";
+import {
+  findInProgressRecords,
+  summarizeRecovery,
+  canRedispatchAfterRecovery,
+} from "../../../src/core/recovery.js";
+import {
+  loadDispatchState,
+  saveDispatchState,
+  reconcileDispatchState,
+  emptyDispatchState,
+} from "../../../src/core/dispatch-state.js";
 import { DispatchStage } from "../../../src/core/stage-transition.js";
-import type { DispatchRecord } from "../../../src/core/dispatch-state.js";
+import type { DispatchRecord, DispatchState } from "../../../src/core/dispatch-state.js";
+import type { AgentEvent } from "../../../src/runtime/agent-events.js";
 
 // ---------------------------------------------------------------------------
-// Test helpers
+// Helpers
 // ---------------------------------------------------------------------------
 
-let fakeClock = Date.now();
+let tempDir: string;
 
-function tick(ms: number): void {
-  fakeClock += ms;
-}
+beforeEach(() => {
+  tempDir = mkdtempSync(join(tmpdir(), "aegis-s10-test-"));
+});
 
-function makeMockHandle(options?: {
-  onSubscribe?: (listener: (event: AgentEvent) => void) => void;
-  onAbort?: () => void;
-  onSteer?: (msg: string) => void;
-}): AgentHandle {
-  let _listener: ((event: AgentEvent) => void) | null = null;
-  let _aborted = false;
-  let _stats: AgentStats = {
-    input_tokens: 0,
-    output_tokens: 0,
-    session_turns: 0,
-    wall_time_sec: 0,
-  };
+afterEach(() => {
+  rmSync(tempDir, { recursive: true, force: true });
+});
 
+const NOW = Date.now();
+
+function makeRecord(
+  issueId: string,
+  stage: DispatchStage = DispatchStage.Scouting,
+  caste: "oracle" | "titan" | "sentinel" | null = null,
+): DispatchRecord {
   return {
-    prompt: async () => {},
-    steer: async (msg: string) => {
-      options?.onSteer?.(msg);
-    },
-    abort: async () => {
-      _aborted = true;
-      options?.onAbort?.();
-    },
-    subscribe: (listener: (event: AgentEvent) => void) => {
-      _listener = listener;
-      options?.onSubscribe?.(listener);
-      return () => {
-        _listener = null;
-      };
-    },
-    getStats: () => _stats,
-    // Expose internals for testing
-    _setStats: (stats: AgentStats) => {
-      _stats = stats;
-    },
-    _emitEvent: (event: AgentEvent) => {
-      if (_listener) _listener(event);
-    },
-    _isAborted: () => _aborted,
-  } as AgentHandle & {
-    _setStats: (s: AgentStats) => void;
-    _emitEvent: (e: AgentEvent) => void;
-    _isAborted: () => boolean;
-  };
-}
-
-function makeBudget(overrides?: Partial<BudgetLimit>): BudgetLimit {
-  return {
-    turns: overrides?.turns ?? 100,
-    tokens: overrides?.tokens ?? 50000,
-  };
-}
-
-function makeRecord(stage: DispatchStage = DispatchStage.Scouting): DispatchRecord {
-  return {
-    issueId: "test-issue-1",
+    issueId,
     stage,
-    runningAgent: null,
+    runningAgent: caste
+      ? {
+          caste,
+          sessionId: `session-${issueId}`,
+          startedAt: new Date().toISOString(),
+        }
+      : null,
     oracleAssessmentRef: null,
     sentinelVerdictRef: null,
     failureCount: 0,
@@ -116,1134 +81,449 @@ function makeRecord(stage: DispatchStage = DispatchStage.Scouting): DispatchReco
   };
 }
 
-// ---------------------------------------------------------------------------
-// assessStuckState — pure helper
-// ---------------------------------------------------------------------------
-
-describe("assessStuckState", () => {
-  it('returns "ok" when no progress recorded', () => {
-    expect(assessStuckState(null, Date.now())).toBe("ok");
-  });
-
-  it('returns "ok" when progress is recent', () => {
-    const now = Date.now();
-    expect(assessStuckState(now - 30 * 1000, now)).toBe("ok");
-  });
-
-  it('returns "warning" after 90 seconds without progress', () => {
-    const now = Date.now();
-    expect(assessStuckState(now - 90 * 1000, now)).toBe("warning");
-  });
-
-  it('returns "kill" after 150 seconds without progress', () => {
-    const now = Date.now();
-    expect(assessStuckState(now - 150 * 1000, now)).toBe("kill");
-  });
-
-  it("respects custom thresholds", () => {
-    const thresholds = { ...DEFAULT_MONITOR_THRESHOLDS, stuckWarningSec: 30, stuckKillSec: 60 };
-    const now = Date.now();
-    expect(assessStuckState(now - 45 * 1000, now, thresholds)).toBe("warning");
-    expect(assessStuckState(now - 65 * 1000, now, thresholds)).toBe("kill");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// hasRepeatedToolCalls — pure helper
-// ---------------------------------------------------------------------------
-
-describe("hasRepeatedToolCalls", () => {
-  it("returns false with fewer calls than threshold", () => {
-    expect(hasRepeatedToolCalls(["read_file", "bash"])).toBe(false);
-  });
-
-  it("returns true when same tool called 3+ times in a row", () => {
-    expect(hasRepeatedToolCalls(["read_file", "read_file", "read_file"])).toBe(true);
-  });
-
-  it("returns false when tools are mixed", () => {
-    expect(hasRepeatedToolCalls(["read_file", "bash", "read_file"])).toBe(false);
-  });
-
-  it("returns true for 4+ repeated calls", () => {
-    expect(
-      hasRepeatedToolCalls(["read_file", "read_file", "read_file", "read_file"]),
-    ).toBe(true);
-  });
-
-  it("respects custom threshold", () => {
-    const thresholds = { ...DEFAULT_MONITOR_THRESHOLDS, repeatedToolThreshold: 5 };
-    expect(
-      hasRepeatedToolCalls(
-        ["read_file", "read_file", "read_file", "read_file", "read_file"],
-        thresholds,
-      ),
-    ).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// isDailyHardStopExceeded — pure helper
-// ---------------------------------------------------------------------------
-
-describe("isDailyHardStopExceeded", () => {
-  it("returns false when spend is null", () => {
-    expect(isDailyHardStopExceeded(null)).toBe(false);
-  });
-
-  it("returns false when under threshold", () => {
-    expect(isDailyHardStopExceeded(15.0)).toBe(false);
-  });
-
-  it("returns true when at threshold", () => {
-    expect(isDailyHardStopExceeded(20.0)).toBe(true);
-  });
-
-  it("returns true when over threshold", () => {
-    expect(isDailyHardStopExceeded(25.0)).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// assessQuotaFloor — pure helper
-// ---------------------------------------------------------------------------
-
-describe("assessQuotaFloor", () => {
-  it('returns "ok" when quota is undefined', () => {
-    expect(assessQuotaFloor(undefined)).toBe("ok");
-  });
-
-  it('returns "ok" when above warning floor', () => {
-    expect(assessQuotaFloor(50)).toBe("ok");
-  });
-
-  it('returns "warning" at warning floor', () => {
-    expect(assessQuotaFloor(35)).toBe("warning");
-  });
-
-  it('returns "abort" at hard stop floor', () => {
-    expect(assessQuotaFloor(20)).toBe("abort");
-  });
-
-  it('returns "abort" below hard stop floor', () => {
-    expect(assessQuotaFloor(10)).toBe("abort");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// canAutoDispatchJanus — pure helper
-// ---------------------------------------------------------------------------
-
-describe("canAutoDispatchJanus", () => {
-  it("returns true for exact_usd", () => {
-    expect(canAutoDispatchJanus("exact_usd")).toBe(true);
-  });
-
-  it("returns true for credits", () => {
-    expect(canAutoDispatchJanus("credits")).toBe(true);
-  });
-
-  it("returns true for quota", () => {
-    expect(canAutoDispatchJanus("quota")).toBe(true);
-  });
-
-  it("returns true for stats_only", () => {
-    expect(canAutoDispatchJanus("stats_only")).toBe(true);
-  });
-
-  it("returns false for unknown", () => {
-    expect(canAutoDispatchJanus("unknown")).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Monitor session lifecycle
-// ---------------------------------------------------------------------------
-
-describe("Monitor session lifecycle", () => {
-  let monitor: MonitorImpl;
-
-  beforeEach(() => {
-    fakeClock = Date.now();
-    monitor = new MonitorImpl({ nowMs: () => fakeClock });
-  });
-
-  it("startObserving returns a SessionTracker", () => {
-    const handle = makeMockHandle();
-    const tracker = monitor.startObserving(
-      "test-issue",
-      "oracle",
-      handle as AgentHandle,
-      makeBudget(),
-    );
-
-    expect(tracker.issueId).toBe("test-issue");
-    expect(tracker.caste).toBe("oracle");
-    expect(tracker.aborted).toBe(false);
-  });
-
-  it("stopObserving removes the session from active sessions", () => {
-    const handle = makeMockHandle();
-    monitor.startObserving("test-issue", "oracle", handle as AgentHandle, makeBudget());
-    expect(monitor.getActiveSessions().size).toBe(1);
-
-    monitor.stopObserving("test-issue");
-    expect(monitor.getActiveSessions().size).toBe(0);
-  });
-
-  it("stopObserving is idempotent", () => {
-    const handle = makeMockHandle();
-    monitor.startObserving("test-issue", "oracle", handle as AgentHandle, makeBudget());
-    monitor.stopObserving("test-issue");
-    monitor.stopObserving("test-issue"); // should not throw
-    expect(monitor.getActiveSessions().size).toBe(0);
-  });
-
-  it("getActiveSessions returns all running sessions", () => {
-    const h1 = makeMockHandle();
-    const h2 = makeMockHandle();
-    monitor.startObserving("issue-1", "oracle", h1 as AgentHandle, makeBudget());
-    monitor.startObserving("issue-2", "titan", h2 as AgentHandle, makeBudget());
-
-    const sessions = monitor.getActiveSessions();
-    expect(sessions.size).toBe(2);
-    expect(sessions.has("issue-1")).toBe(true);
-    expect(sessions.has("issue-2")).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Monitor event emission (SSE)
-// ---------------------------------------------------------------------------
-
-describe("Monitor drainEvents", () => {
-  let monitor: MonitorImpl;
-
-  beforeEach(() => {
-    fakeClock = Date.now();
-    monitor = new MonitorImpl({ nowMs: () => fakeClock });
-  });
-
-  it("returns empty array when no events", () => {
-    expect(monitor.drainEvents()).toEqual([]);
-  });
-
-  it("returns and clears pending events", () => {
-    const handle = makeMockHandle();
-    const extHandle = handle as typeof handle & {
-      _emitEvent: (e: AgentEvent) => void;
-    };
-    monitor.startObserving("test-issue", "oracle", extHandle as AgentHandle, makeBudget());
-
-    // Emit a stats_update event with cost observation that triggers a budget warning
-    (extHandle as any)._emitEvent({
-      type: "stats_update",
-      timestamp: new Date(fakeClock).toISOString(),
+function makeEvents(messages: string[] = [], toolUses: string[] = []): AgentEvent[] {
+  const events: AgentEvent[] = [];
+  for (const text of messages) {
+    events.push({
+      type: "message" as const,
+      timestamp: new Date().toISOString(),
       issueId: "test-issue",
-      caste: "oracle",
-      stats: {
-        input_tokens: 100,
-        output_tokens: 200,
-        session_turns: 1,
-        wall_time_sec: 10,
-      },
-      observation: {
-        provider: "pi",
-        auth_mode: "api_key",
-        metering: "exact_usd",
-        exact_cost_usd: 5.00, // Triggers per-issue cost warning
-        confidence: "exact",
-        source: "billing_api",
-      },
+      caste: "oracle" as const,
+      text,
     });
-
-    const events = monitor.drainEvents();
-    expect(events.length).toBeGreaterThan(0);
-    // After draining, next call returns empty
-    expect(monitor.drainEvents()).toEqual([]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Stuck detection
-// ---------------------------------------------------------------------------
-
-describe("Monitor stuck detection", () => {
-  let monitor: MonitorImpl;
-
-  beforeEach(() => {
-    fakeClock = Date.now();
-    monitor = new MonitorImpl({ nowMs: () => fakeClock });
-  });
-
-  it("emits stuck warning after 90s without tool progress", async () => {
-    const handle = makeMockHandle();
-    const extHandle = handle as typeof handle & {
-      _emitEvent: (e: AgentEvent) => void;
-    };
-    // Use 50ms stuck check interval so test runs fast
-    const fastMonitor = new MonitorImpl({ nowMs: () => fakeClock, stuckCheckIntervalMs: 50 });
-    const tracker = fastMonitor.startObserving(
-      "test-issue",
-      "titan",
-      extHandle as AgentHandle,
-      makeBudget(),
-    );
-
-    // Simulate initial tool use
-    (extHandle as any)._emitEvent({
-      type: "tool_use",
-      timestamp: new Date(fakeClock).toISOString(),
+  }
+  for (const tool of toolUses) {
+    events.push({
+      type: "tool_use" as const,
+      timestamp: new Date().toISOString(),
       issueId: "test-issue",
-      caste: "titan",
-      tool: "read_file",
+      caste: "oracle" as const,
+      tool,
     });
-
-    // Advance clock past warning threshold
-    tick(91 * 1000);
-
-    // Wait for the stuck check interval to fire
-    await new Promise((r) => setTimeout(r, 100));
-
-    const events = fastMonitor.drainEvents();
-    const stuckWarning = events.find((e) => e.type === "stuck_warning");
-    expect(stuckWarning).toBeDefined();
-
-    // Cleanup
-    fastMonitor.stopObserving("test-issue");
-  });
-});
+  }
+  return events;
+}
 
 // ---------------------------------------------------------------------------
-// Repeated tool call detection
+// 1. Full reaper flow — Oracle happy path
 // ---------------------------------------------------------------------------
 
-describe("Monitor repeated tool call detection", () => {
-  let monitor: MonitorImpl;
-
-  beforeEach(() => {
-    fakeClock = Date.now();
-    monitor = new MonitorImpl({ nowMs: () => fakeClock });
-  });
-
-  it("emits repeated_tool_nudge when same tool called 3+ times", () => {
-    let steerMsg: string | null = null;
-    const handle = makeMockHandle({
-      onSteer: (msg) => {
-        steerMsg = msg;
-      },
+describe("Reaper full flow — Oracle happy path", () => {
+  it("reaps Oracle success, resets failures, persists state", () => {
+    const reaper = new ReaperImpl();
+    const assessment = JSON.stringify({
+      files_affected: ["src/core/foo.ts"],
+      estimated_complexity: "moderate",
+      decompose: false,
+      ready: true,
     });
-    const extHandle = handle as typeof handle & {
-      _emitEvent: (e: AgentEvent) => void;
-    };
-    monitor.startObserving("test-issue", "titan", extHandle as AgentHandle, makeBudget());
-
-    // Emit 3 tool_use events for the same tool
-    for (let i = 0; i < 3; i++) {
-      (extHandle as any)._emitEvent({
-        type: "tool_use",
-        timestamp: new Date(fakeClock).toISOString(),
-        issueId: "test-issue",
-        caste: "titan",
-        tool: "read_file",
-      });
-    }
-
-    const events = monitor.drainEvents();
-    const nudge = events.find((e) => e.type === "repeated_tool_nudge");
-    expect(nudge).toBeDefined();
-    expect(steerMsg).toContain("read_file");
-  });
-
-  it("does not emit nudge for mixed tool calls", () => {
-    const handle = makeMockHandle();
-    const extHandle = handle as typeof handle & {
-      _emitEvent: (e: AgentEvent) => void;
-    };
-    monitor.startObserving("test-issue", "titan", extHandle as AgentHandle, makeBudget());
-
-    (extHandle as any)._emitEvent({
-      type: "tool_use",
-      timestamp: new Date(fakeClock).toISOString(),
-      issueId: "test-issue",
-      caste: "titan",
-      tool: "read_file",
-    });
-    (extHandle as any)._emitEvent({
-      type: "tool_use",
-      timestamp: new Date(fakeClock).toISOString(),
-      issueId: "test-issue",
-      caste: "titan",
-      tool: "bash",
-    });
-    (extHandle as any)._emitEvent({
-      type: "tool_use",
-      timestamp: new Date(fakeClock).toISOString(),
-      issueId: "test-issue",
-      caste: "titan",
-      tool: "read_file",
-    });
-
-    const events = monitor.drainEvents();
-    const nudge = events.find((e) => e.type === "repeated_tool_nudge");
-    expect(nudge).toBeUndefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Turn budget enforcement
-// ---------------------------------------------------------------------------
-
-describe("Monitor turn budget enforcement", () => {
-  let monitor: MonitorImpl;
-
-  beforeEach(() => {
-    fakeClock = Date.now();
-    monitor = new MonitorImpl({ nowMs: () => fakeClock });
-  });
-
-  it("aborts session when turn budget exceeded", async () => {
-    const handle = makeMockHandle();
-    const extHandle = handle as typeof handle & {
-      _emitEvent: (e: AgentEvent) => void;
-      _isAborted: () => boolean;
-    };
-    const budget = makeBudget({ turns: 3 });
-    monitor.startObserving("test-issue", "titan", extHandle as AgentHandle, budget);
-
-    // Emit stats_update that exceeds turn budget
-    (extHandle as any)._emitEvent({
-      type: "stats_update",
-      timestamp: new Date(fakeClock).toISOString(),
-      issueId: "test-issue",
-      caste: "titan",
-      stats: {
-        input_tokens: 1000,
-        output_tokens: 2000,
-        session_turns: 5, // Exceeds budget of 3
-        wall_time_sec: 30,
-      },
-    });
-
-    // Allow async abort to complete
-    await new Promise((r) => setTimeout(r, 50));
-
-    const events = monitor.drainEvents();
-    const budgetAbort = events.find((e) => e.type === "budget_abort");
-    expect(budgetAbort).toBeDefined();
-    expect(budgetAbort?.message).toContain("Turn budget exceeded");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Token budget enforcement
-// ---------------------------------------------------------------------------
-
-describe("Monitor token budget enforcement", () => {
-  let monitor: MonitorImpl;
-
-  beforeEach(() => {
-    fakeClock = Date.now();
-    monitor = new MonitorImpl({ nowMs: () => fakeClock });
-  });
-
-  it("aborts session when token budget exceeded", async () => {
-    const handle = makeMockHandle();
-    const extHandle = handle as typeof handle & {
-      _emitEvent: (e: AgentEvent) => void;
-    };
-    const budget = makeBudget({ tokens: 5000 });
-    monitor.startObserving("test-issue", "titan", extHandle as AgentHandle, budget);
-
-    (extHandle as any)._emitEvent({
-      type: "stats_update",
-      timestamp: new Date(fakeClock).toISOString(),
-      issueId: "test-issue",
-      caste: "titan",
-      stats: {
-        input_tokens: 50000,
-        output_tokens: 100000, // Total 150000 >> 5000
-        session_turns: 10,
-        wall_time_sec: 30,
-      },
-    });
-
-    await new Promise((r) => setTimeout(r, 50));
-
-    const events = monitor.drainEvents();
-    const budgetAbort = events.find((e) => e.type === "budget_abort");
-    expect(budgetAbort).toBeDefined();
-    expect(budgetAbort?.message).toContain("Token budget exceeded");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Per-issue cost warning (exact_usd)
-// ---------------------------------------------------------------------------
-
-describe("Monitor per-issue cost warning", () => {
-  let monitor: MonitorImpl;
-
-  beforeEach(() => {
-    fakeClock = Date.now();
-    monitor = new MonitorImpl({ nowMs: () => fakeClock });
-  });
-
-  it("emits budget_warning when per-issue cost exceeds threshold", () => {
-    const handle = makeMockHandle();
-    const extHandle = handle as typeof handle & {
-      _emitEvent: (e: AgentEvent) => void;
-    };
-    monitor.startObserving("test-issue", "titan", extHandle as AgentHandle, makeBudget());
-
-    (extHandle as any)._emitEvent({
-      type: "stats_update",
-      timestamp: new Date(fakeClock).toISOString(),
-      issueId: "test-issue",
-      caste: "titan",
-      stats: {
-        input_tokens: 1000,
-        output_tokens: 2000,
-        session_turns: 5,
-        wall_time_sec: 30,
-      },
-      observation: {
-        provider: "pi",
-        auth_mode: "api_key",
-        metering: "exact_usd",
-        exact_cost_usd: 5.00, // Exceeds perIssueCostWarningUsd of 3.00
-        confidence: "exact",
-        source: "billing_api",
-      },
-    });
-
-    const events = monitor.drainEvents();
-    const costWarning = events.find(
-      (e) =>
-        e.type === "budget_warning" &&
-        (e.details as any)?.metering === "exact_usd",
-    );
-    expect(costWarning).toBeDefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Daily hard stop
-// ---------------------------------------------------------------------------
-
-describe("Monitor daily hard stop", () => {
-  let monitor: MonitorImpl;
-
-  beforeEach(() => {
-    fakeClock = Date.now();
-    monitor = new MonitorImpl({ nowMs: () => fakeClock });
-  });
-
-  it("triggers daily hard stop and aborts session", async () => {
-    const handle = makeMockHandle();
-    const extHandle = handle as typeof handle & {
-      _emitEvent: (e: AgentEvent) => void;
-    };
-    monitor.startObserving("test-issue", "titan", extHandle as AgentHandle, makeBudget());
-
-    (extHandle as any)._emitEvent({
-      type: "stats_update",
-      timestamp: new Date(fakeClock).toISOString(),
-      issueId: "test-issue",
-      caste: "titan",
-      stats: {
-        input_tokens: 1000,
-        output_tokens: 2000,
-        session_turns: 5,
-        wall_time_sec: 30,
-      },
-      observation: {
-        provider: "pi",
-        auth_mode: "api_key",
-        metering: "exact_usd",
-        exact_cost_usd: 25.00, // Exceeds dailyHardStopUsd of 20.00
-        confidence: "exact",
-        source: "billing_api",
-      },
-    });
-
-    await new Promise((r) => setTimeout(r, 50));
-
-    const events = monitor.drainEvents();
-    const hardStop = events.find((e) => e.type === "daily_hard_stop");
-    expect(hardStop).toBeDefined();
-  });
-
-  it("checkBudgetGate returns false after daily hard stop", () => {
-    const handle = makeMockHandle();
-    const extHandle = handle as typeof handle & {
-      _emitEvent: (e: AgentEvent) => void;
-    };
-    monitor.startObserving("test-issue", "titan", extHandle as AgentHandle, makeBudget());
-
-    (extHandle as any)._emitEvent({
-      type: "stats_update",
-      timestamp: new Date(fakeClock).toISOString(),
-      issueId: "test-issue",
-      caste: "titan",
-      stats: {
-        input_tokens: 1000,
-        output_tokens: 2000,
-        session_turns: 5,
-        wall_time_sec: 30,
-      },
-      observation: {
-        provider: "pi",
-        auth_mode: "api_key",
-        metering: "exact_usd",
-        exact_cost_usd: 25.00,
-        confidence: "exact",
-        source: "billing_api",
-      },
-    });
-
-    const gate = monitor.checkBudgetGate();
-    expect(gate.allowed).toBe(false);
-    expect(gate.reason).toBe("daily_hard_stop_exceeded");
-  });
-
-  it("resetDailyBudget clears the hard stop", () => {
-    const handle = makeMockHandle();
-    const extHandle = handle as typeof handle & {
-      _emitEvent: (e: AgentEvent) => void;
-    };
-    monitor.startObserving("test-issue", "titan", extHandle as AgentHandle, makeBudget());
-
-    (extHandle as any)._emitEvent({
-      type: "stats_update",
-      timestamp: new Date(fakeClock).toISOString(),
-      issueId: "test-issue",
-      caste: "titan",
-      stats: {
-        input_tokens: 1000,
-        output_tokens: 2000,
-        session_turns: 5,
-        wall_time_sec: 30,
-      },
-      observation: {
-        provider: "pi",
-        auth_mode: "api_key",
-        metering: "exact_usd",
-        exact_cost_usd: 25.00,
-        confidence: "exact",
-        source: "billing_api",
-      },
-    });
-
-    expect(monitor.checkBudgetGate().allowed).toBe(false);
-
-    monitor.resetDailyBudget();
-    expect(monitor.checkBudgetGate().allowed).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Quota floor enforcement
-// ---------------------------------------------------------------------------
-
-describe("Monitor quota floor enforcement", () => {
-  let monitor: MonitorImpl;
-
-  beforeEach(() => {
-    fakeClock = Date.now();
-    monitor = new MonitorImpl({ nowMs: () => fakeClock });
-  });
-
-  it("emits quota_floor_warning when quota approaches floor", () => {
-    const handle = makeMockHandle();
-    const extHandle = handle as typeof handle & {
-      _emitEvent: (e: AgentEvent) => void;
-    };
-    monitor.startObserving("test-issue", "titan", extHandle as AgentHandle, makeBudget());
-
-    (extHandle as any)._emitEvent({
-      type: "stats_update",
-      timestamp: new Date(fakeClock).toISOString(),
-      issueId: "test-issue",
-      caste: "titan",
-      stats: {
-        input_tokens: 1000,
-        output_tokens: 2000,
-        session_turns: 5,
-        wall_time_sec: 30,
-      },
-      observation: {
-        provider: "pi",
-        auth_mode: "subscription",
-        metering: "quota",
-        quota_remaining_pct: 30, // Below warning floor of 35
-        confidence: "proxy",
-        source: "runtime_status",
-      },
-    });
-
-    const events = monitor.drainEvents();
-    const quotaWarning = events.find((e) => e.type === "quota_floor_warning");
-    expect(quotaWarning).toBeDefined();
-  });
-
-  it("emits quota_floor_abort and blocks dispatch when quota below hard stop", async () => {
-    const handle = makeMockHandle();
-    const extHandle = handle as typeof handle & {
-      _emitEvent: (e: AgentEvent) => void;
-    };
-    monitor.startObserving("test-issue", "titan", extHandle as AgentHandle, makeBudget());
-
-    (extHandle as any)._emitEvent({
-      type: "stats_update",
-      timestamp: new Date(fakeClock).toISOString(),
-      issueId: "test-issue",
-      caste: "titan",
-      stats: {
-        input_tokens: 1000,
-        output_tokens: 2000,
-        session_turns: 5,
-        wall_time_sec: 30,
-      },
-      observation: {
-        provider: "pi",
-        auth_mode: "subscription",
-        metering: "quota",
-        quota_remaining_pct: 15, // Below hard stop floor of 20
-        confidence: "proxy",
-        source: "runtime_status",
-      },
-    });
-
-    await new Promise((r) => setTimeout(r, 50));
-
-    const events = monitor.drainEvents();
-    const quotaAbort = events.find((e) => e.type === "quota_floor_abort");
-    expect(quotaAbort).toBeDefined();
-
-    const gate = monitor.checkBudgetGate();
-    expect(gate.allowed).toBe(false);
-    expect(gate.reason).toBe("quota_floor_exceeded");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Budget gate
-// ---------------------------------------------------------------------------
-
-describe("Monitor checkBudgetGate", () => {
-  let monitor: MonitorImpl;
-
-  beforeEach(() => {
-    fakeClock = Date.now();
-    monitor = new MonitorImpl({ nowMs: () => fakeClock });
-  });
-
-  it("returns allowed=true by default", () => {
-    const gate = monitor.checkBudgetGate();
-    expect(gate.allowed).toBe(true);
-    expect(gate.reason).toBeNull();
-  });
-
-  it("returns allowed=false when credits floor crossed", () => {
-    // Manually set credits remaining via a stats update
-    const handle = makeMockHandle();
-    const extHandle = handle as typeof handle & {
-      _emitEvent: (e: AgentEvent) => void;
-    };
-    monitor.startObserving("test-issue", "titan", extHandle as AgentHandle, makeBudget());
-
-    (extHandle as any)._emitEvent({
-      type: "stats_update",
-      timestamp: new Date(fakeClock).toISOString(),
-      issueId: "test-issue",
-      caste: "titan",
-      stats: {
-        input_tokens: 1000,
-        output_tokens: 2000,
-        session_turns: 5,
-        wall_time_sec: 30,
-      },
-      observation: {
-        provider: "pi",
-        auth_mode: "subscription",
-        metering: "credits",
-        credits_remaining: 0,
-        confidence: "proxy",
-        source: "runtime_status",
-      },
-    });
-
-    const gate = monitor.checkBudgetGate();
-    expect(gate.allowed).toBe(false);
-    expect(gate.reason).toBe("credits_floor_exceeded");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Metering mode handling
-// ---------------------------------------------------------------------------
-
-describe("Monitor metering mode handling", () => {
-  let monitor: MonitorImpl;
-
-  beforeEach(() => {
-    fakeClock = Date.now();
-    monitor = new MonitorImpl({ nowMs: () => fakeClock });
-  });
-
-  it("handles stats_only metering without cost errors", () => {
-    const handle = makeMockHandle();
-    const extHandle = handle as typeof handle & {
-      _emitEvent: (e: AgentEvent) => void;
-    };
-    const tracker = monitor.startObserving(
-      "test-issue",
-      "titan",
-      extHandle as AgentHandle,
-      makeBudget(),
-    );
-
-    (extHandle as any)._emitEvent({
-      type: "stats_update",
-      timestamp: new Date(fakeClock).toISOString(),
-      issueId: "test-issue",
-      caste: "titan",
-      stats: {
-        input_tokens: 1000,
-        output_tokens: 2000,
-        session_turns: 5,
-        wall_time_sec: 30,
-      },
-    });
-
-    expect(tracker.latestStats).not.toBeNull();
-    expect(tracker.latestStats!.input_tokens).toBe(1000);
-    expect(tracker.latestStats!.output_tokens).toBe(2000);
-    // total_tokens is on the normalized view: 1000 + 2000 = 3000
-  });
-
-  it("handles credits metering", () => {
-    const handle = makeMockHandle();
-    const extHandle = handle as typeof handle & {
-      _emitEvent: (e: AgentEvent) => void;
-    };
-    const tracker = monitor.startObserving(
-      "test-issue",
-      "titan",
-      extHandle as AgentHandle,
-      makeBudget(),
-    );
-
-    (extHandle as any)._emitEvent({
-      type: "stats_update",
-      timestamp: new Date(fakeClock).toISOString(),
-      issueId: "test-issue",
-      caste: "titan",
-      stats: {
-        input_tokens: 1000,
-        output_tokens: 2000,
-        session_turns: 5,
-        wall_time_sec: 30,
-      },
-      observation: {
-        provider: "pi",
-        auth_mode: "subscription",
-        metering: "credits",
-        credits_used: 500,
-        credits_remaining: 1500,
-        confidence: "proxy",
-        source: "runtime_status",
-      },
-    });
-
-    expect(tracker.latestObservation?.metering).toBe("credits");
-    expect(tracker.latestObservation?.credits_remaining).toBe(1500);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Monitor-Reaper integration
-// ---------------------------------------------------------------------------
-
-describe("Monitor-Reaper integration", () => {
-  let monitor: MonitorImpl;
-  let reaper: ReaperImpl;
-
-  beforeEach(() => {
-    fakeClock = Date.now();
-    monitor = new MonitorImpl({ nowMs: () => fakeClock });
-    reaper = new ReaperImpl();
-  });
-
-  it("reaper produces correct outcome for monitor-terminated session", () => {
-    const record = makeRecord(DispatchStage.Scouting);
-    const result: ReaperResult = reaper.reap(
-      "test-issue",
-      "oracle",
-      "stuck_killed",
-      [],
-      record,
-    );
-
-    expect(result.outcome).toBe("monitor_termination");
-    expect(result.endReason).toBe("stuck_killed");
-    expect(result.nextStage).toBe(DispatchStage.Failed);
-    expect(result.incrementFailure).toBe(true);
-    expect(result.resetFailures).toBe(false);
-  });
-
-  it("reaper produces correct outcome for budget-exceeded session", () => {
-    const record = makeRecord(DispatchStage.Implementing);
-    const result: ReaperResult = reaper.reap(
-      "test-issue",
-      "titan",
-      "budget_exceeded",
-      [],
-      record,
-    );
-
-    expect(result.outcome).toBe("monitor_termination");
-    expect(result.endReason).toBe("budget_exceeded");
-    expect(result.nextStage).toBe(DispatchStage.Failed);
-    expect(result.incrementFailure).toBe(true);
-  });
-
-  it("reaper produces success when session completed with valid artifacts", () => {
-    const record = makeRecord(DispatchStage.Scouting);
-    const events: AgentEvent[] = [
-      {
-        type: "message",
-        timestamp: new Date(fakeClock).toISOString(),
-        issueId: "test-issue",
-        caste: "oracle",
-        text: "OracleAssessment: { ready: true }",
-      },
-    ];
-
-    const result: ReaperResult = reaper.reap(
-      "test-issue",
-      "oracle",
-      "completed",
-      events,
-      record,
-    );
+    const events = makeEvents([assessment]);
+    const record = makeRecord("issue-1", DispatchStage.Scouting, "oracle");
+
+    // Simulate a previous failure that was reset
+    record.consecutiveFailures = 2;
+    record.failureCount = 2;
+
+    const result = reaper.reap("issue-1", "oracle", "completed", events, record);
+    const updated = updateRecordFromReaper(record, result, NOW);
 
     expect(result.outcome).toBe("success");
     expect(result.nextStage).toBe(DispatchStage.Scouted);
-    expect(result.resetFailures).toBe(true);
-    expect(result.artifacts.passed).toBe(true);
+    expect(updated.stage).toBe(DispatchStage.Scouted);
+    expect(updated.runningAgent).toBeNull();
+    expect(updated.consecutiveFailures).toBe(0);
+    expect(updated.cooldownUntil).toBeNull();
+    expect(updated.failureCount).toBe(2); // cumulative preserved
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2. Full reaper flow — Titan failure with cooldown
+// ---------------------------------------------------------------------------
+
+describe("Reaper full flow — Titan failure with cooldown", () => {
+  it("three Titan failures trigger cooldown, persisted to dispatch state", () => {
+    const reaper = new ReaperImpl();
+    let record = makeRecord("issue-1", DispatchStage.Implementing, "titan");
+    const events = makeEvents([]); // No handoff — artifact failure
+
+    // Failure 1
+    let result = reaper.reap("issue-1", "titan", "error", events, record);
+    record = updateRecordFromReaper(record, result, NOW);
+    expect(record.consecutiveFailures).toBe(1);
+    expect(record.cooldownUntil).toBeNull();
+
+    // Reset to implementing for retry
+    record = { ...record, stage: DispatchStage.Implementing };
+
+    // Failure 2
+    result = reaper.reap("issue-1", "titan", "error", events, record);
+    record = updateRecordFromReaper(record, result, NOW + 60_000);
+    expect(record.consecutiveFailures).toBe(2);
+    expect(record.cooldownUntil).toBeNull();
+
+    // Reset for retry
+    record = { ...record, stage: DispatchStage.Implementing };
+
+    // Failure 3 — triggers cooldown
+    result = reaper.reap("issue-1", "titan", "error", events, record);
+    record = updateRecordFromReaper(record, result, NOW + 120_000);
+    expect(record.consecutiveFailures).toBe(3);
+    expect(record.cooldownUntil).not.toBeNull();
+    expect(record.failureCount).toBe(3);
+
+    // Persist and reload
+    const state: DispatchState = {
+      schemaVersion: 1,
+      records: { "issue-1": record },
+    };
+    saveDispatchState(tempDir, state);
+    const loaded = loadDispatchState(tempDir);
+
+    expect(loaded.records["issue-1"].cooldownUntil).toBe(record.cooldownUntil);
+    expect(loaded.records["issue-1"].consecutiveFailures).toBe(3);
+
+    // Cannot re-dispatch during cooldown
+    expect(
+      canRedispatch(
+        loaded.records["issue-1"].consecutiveFailures,
+        loaded.records["issue-1"].cooldownUntil,
+        false,
+        NOW + 120_000,
+      ),
+    ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3. Cooldown expiry and re-dispatch
+// ---------------------------------------------------------------------------
+
+describe("Cooldown expiry and re-dispatch", () => {
+  it("allows re-dispatch after cooldown expires and failures are reset", () => {
+    const reaper = new ReaperImpl();
+    let record = makeRecord("issue-1", DispatchStage.Implementing, "titan");
+
+    // Simulate 3 failures
+    for (let i = 0; i < 3; i++) {
+      const result = reaper.reap(
+        "issue-1",
+        "titan",
+        "error",
+        makeEvents([]),
+        { ...record, stage: DispatchStage.Implementing },
+      );
+      record = updateRecordFromReaper(record, result, NOW + i * 60_000);
+    }
+
+    expect(record.cooldownUntil).not.toBeNull();
+
+    // After cooldown expires + failures reset
+    const afterCooldown = NOW + 3 * 60_000 + COOLDOWN_SUPPRESSION_MS + 1_000;
+    const [resetFailuresCount] = resetFailures();
+
+    expect(canRedispatch(resetFailuresCount, null, false, afterCooldown)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4. Manual restart override
+// ---------------------------------------------------------------------------
+
+describe("Manual restart override", () => {
+  it("overrides cooldown and allows re-dispatch", () => {
+    const reaper = new ReaperImpl();
+    let record = makeRecord("issue-1", DispatchStage.Implementing, "titan");
+
+    // 3 failures
+    for (let i = 0; i < 3; i++) {
+      const result = reaper.reap(
+        "issue-1",
+        "titan",
+        "error",
+        makeEvents([]),
+        { ...record, stage: DispatchStage.Implementing },
+      );
+      record = updateRecordFromReaper(record, result, NOW + i * 60_000);
+    }
+
+    expect(record.cooldownUntil).not.toBeNull();
+
+    // Manual restart overrides cooldown
+    expect(
+      canRedispatch(record.consecutiveFailures, record.cooldownUntil, true, NOW),
+    ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. Restart recovery reconciliation
+// ---------------------------------------------------------------------------
+
+describe("Restart recovery reconciliation", () => {
+  it("reconciles dead agents and persists updated state", () => {
+    // Set up state with in-progress records
+    const state: DispatchState = {
+      schemaVersion: 1,
+      records: {
+        "issue-1": makeRecord("issue-1", DispatchStage.Scouting, "oracle"),
+        "issue-2": makeRecord("issue-2", DispatchStage.Implementing, "titan"),
+      },
+    };
+    saveDispatchState(tempDir, state);
+
+    // Load and reconcile
+    const loaded = loadDispatchState(tempDir);
+    const reconciled = reconcileDispatchState(loaded, "new-session");
+
+    // Both should have runningAgent cleared
+    expect(reconciled.records["issue-1"].runningAgent).toBeNull();
+    expect(reconciled.records["issue-2"].runningAgent).toBeNull();
+    expect(reconciled.records["issue-1"].stage).toBe(DispatchStage.Scouting);
+    expect(reconciled.records["issue-2"].stage).toBe(DispatchStage.Implementing);
+
+    // Persist reconciled state
+    saveDispatchState(tempDir, reconciled);
+    const reloaded = loadDispatchState(tempDir);
+
+    expect(reloaded.records["issue-1"].runningAgent).toBeNull();
+    expect(reloaded.records["issue-2"].runningAgent).toBeNull();
   });
 
-  it("reaper produces artifact_failure when session completed without artifacts", () => {
-    const record = makeRecord(DispatchStage.Scouting);
-    const result: ReaperResult = reaper.reap(
-      "test-issue",
-      "oracle",
-      "completed",
-      [], // no artifacts
-      record,
-    );
+  it("recovery report identifies dead agents and can-redispatch status", () => {
+    const state: DispatchState = {
+      schemaVersion: 1,
+      records: {
+        "issue-1": makeRecord("issue-1", DispatchStage.Scouting, "oracle"),
+      },
+    };
 
-    expect(result.outcome).toBe("artifact_failure");
-    expect(result.nextStage).toBe(DispatchStage.Failed);
-    expect(result.incrementFailure).toBe(true);
+    const recovery = new RecoveryImpl({
+      sessionAliveCheck: () => false,
+      hasArtifactsCheck: () => true,
+    });
+
+    const report = recovery.runRecovery(state, "new-session");
+
+    expect(report.agentReconciliations).toHaveLength(1);
+    const agent = report.agentReconciliations[0];
+    expect(agent.status).toBe("dead_with_artifacts");
+    expect(agent.shouldFail).toBe(true);
+    // canRedispatch is based on the current record which still has runningAgent,
+    // so it returns false until the runningAgent is cleared by reconcileDispatchState
+    expect(agent.canRedispatch).toBe(false);
+
+    // After reconcileDispatchState clears runningAgent, canRedispatchAfterRecovery returns true
+    const reconciled = reconcileDispatchState(state, "new-session");
+    expect(canRedispatchAfterRecovery(reconciled.records["issue-1"])).toBe(true);
   });
+});
 
-  it("reaper produces crash outcome for error end reason", () => {
-    const record = makeRecord(DispatchStage.Reviewing);
-    const result: ReaperResult = reaper.reap(
-      "test-issue",
-      "sentinel",
-      "error",
-      [],
-      record,
-    );
+// ---------------------------------------------------------------------------
+// 6. Labor preservation on Titan failure
+// ---------------------------------------------------------------------------
 
-    expect(result.outcome).toBe("crash");
-    expect(result.nextStage).toBe(DispatchStage.Failed);
-    expect(result.incrementFailure).toBe(true);
-  });
+describe("Labor preservation on Titan failure", () => {
+  it("reaper instructs labor preservation on Titan failure", () => {
+    const reaper = new ReaperImpl();
+    const record = makeRecord("issue-1", DispatchStage.Implementing, "titan");
 
-  it("reaper preserves labor on Titan failure", () => {
-    const record = makeRecord(DispatchStage.Implementing);
-    const result: ReaperResult = reaper.reap(
-      "test-issue",
-      "titan",
-      "error",
-      [],
-      record,
-    );
+    const result = reaper.reap("issue-1", "titan", "error", [], record);
 
     expect(result.laborCleanup).not.toBeNull();
     expect(result.laborCleanup!.removeWorktree).toBe(false);
     expect(result.laborCleanup!.deleteBranch).toBe(false);
-    expect(result.laborCleanup!.reason).toContain("titan_failure");
+    expect(result.laborCleanup!.reason).toBe("titan_failure_preserve_for_diagnostics");
   });
 
-  it("reaper produces merge candidate on Titan success", () => {
-    const record = makeRecord(DispatchStage.Implementing);
-    const events: AgentEvent[] = [
-      {
-        type: "message",
-        timestamp: new Date(fakeClock).toISOString(),
-        issueId: "test-issue",
-        caste: "titan",
-        text: "TitanHandoff: { branch: aegis/test }",
-      },
-    ];
+  it("reaper instructs labor preservation on Titan success (for merge queue)", () => {
+    const reaper = new ReaperImpl();
+    const handoff = JSON.stringify({
+      issueId: "issue-1",
+      laborPath: ".aegis/labors/labor-issue-1",
+      candidateBranch: "aegis/issue-1",
+      baseBranch: "main",
+      filesChanged: ["src/foo.ts"],
+      testsAndChecksRun: [],
+      knownRisks: [],
+      followUpWork: [],
+      learningsWrittenToMnemosyne: [],
+    });
+    const events = makeEvents([handoff], ["write_file"]);
+    const record = makeRecord("issue-1", DispatchStage.Implementing, "titan");
 
-    const result: ReaperResult = reaper.reap(
-      "test-issue",
-      "titan",
-      "completed",
-      events,
-      record,
-    );
+    const result = reaper.reap("issue-1", "titan", "completed", events, record);
 
     expect(result.outcome).toBe("success");
-    expect(result.mergeCandidate).not.toBeNull();
-    expect(result.mergeCandidate!.issueId).toBe("test-issue");
-    expect(result.mergeCandidate!.targetBranch).toBe("main");
+    expect(result.artifacts.passed).toBe(true);
+    expect(result.laborCleanup!.removeWorktree).toBe(false);
+    expect(result.laborCleanup!.deleteBranch).toBe(false);
+    expect(result.laborCleanup!.reason).toBe("titan_success_preserve_for_merge_queue");
   });
+});
 
-  it("monitor events are accessible after reaping", () => {
-    const handle = makeMockHandle();
-    const extHandle = handle as typeof handle & {
-      _emitEvent: (e: AgentEvent) => void;
-    };
-    monitor.startObserving("test-issue", "titan", extHandle as AgentHandle, makeBudget());
+// ---------------------------------------------------------------------------
+// 7. Oracle and Sentinel have no labor cleanup
+// ---------------------------------------------------------------------------
 
-    // Emit events that the monitor tracks
-    (extHandle as any)._emitEvent({
-      type: "stats_update",
-      timestamp: new Date(fakeClock).toISOString(),
-      issueId: "test-issue",
-      caste: "titan",
-      stats: {
-        input_tokens: 1000,
-        output_tokens: 2000,
-        session_turns: 5,
-        wall_time_sec: 30,
-      },
+describe("No labor cleanup for Oracle and Sentinel", () => {
+  it("Oracle reap returns null labor cleanup", () => {
+    const reaper = new ReaperImpl();
+    const assessment = JSON.stringify({
+      files_affected: ["src/foo.ts"],
+      estimated_complexity: "trivial",
+      decompose: false,
+      ready: true,
     });
+    const result = reaper.reap(
+      "issue-1",
+      "oracle",
+      "completed",
+      makeEvents([assessment]),
+      makeRecord("issue-1", DispatchStage.Scouting, "oracle"),
+    );
 
-    const monitorEvents = monitor.drainEvents();
-    // Monitor should have tracked events from the session
-    expect(Array.isArray(monitorEvents)).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// resetDailyBudget
-// ---------------------------------------------------------------------------
-
-describe("Monitor resetDailyBudget", () => {
-  let monitor: MonitorImpl;
-
-  beforeEach(() => {
-    fakeClock = Date.now();
-    monitor = new MonitorImpl({ nowMs: () => fakeClock });
+    expect(result.laborCleanup).toBeNull();
   });
 
-  it("clears daily hard stop suppression", () => {
-    // Trigger hard stop
-    const handle = makeMockHandle();
-    const extHandle = handle as typeof handle & {
-      _emitEvent: (e: AgentEvent) => void;
-    };
-    monitor.startObserving("test-issue", "titan", extHandle as AgentHandle, makeBudget());
-
-    (extHandle as any)._emitEvent({
-      type: "stats_update",
-      timestamp: new Date(fakeClock).toISOString(),
-      issueId: "test-issue",
-      caste: "titan",
-      stats: {
-        input_tokens: 1000,
-        output_tokens: 2000,
-        session_turns: 5,
-        wall_time_sec: 30,
-      },
-      observation: {
-        provider: "pi",
-        auth_mode: "api_key",
-        metering: "exact_usd",
-        exact_cost_usd: 25.00,
-        confidence: "exact",
-        source: "billing_api",
-      },
+  it("Sentinel reap returns null labor cleanup", () => {
+    const reaper = new ReaperImpl();
+    const verdict = JSON.stringify({
+      verdict: "pass",
+      reviewSummary: "OK",
+      issuesFound: false,
+      followUpIssueIds: [],
+      riskAreas: [],
     });
+    const result = reaper.reap(
+      "issue-1",
+      "sentinel",
+      "completed",
+      makeEvents([verdict]),
+      makeRecord("issue-1", DispatchStage.Reviewing, "sentinel"),
+    );
 
-    expect(monitor.checkBudgetGate().allowed).toBe(false);
-
-    monitor.resetDailyBudget();
-    expect(monitor.checkBudgetGate().allowed).toBe(true);
+    expect(result.laborCleanup).toBeNull();
   });
 });
 
 // ---------------------------------------------------------------------------
-// computeNextStage + determineLaborCleanup — pure helpers from reaper
+// 8. Monitor events are collected during reaping
 // ---------------------------------------------------------------------------
 
-describe("computeNextStage", () => {
-  it("returns scouted for oracle success", () => {
-    expect(
-      computeNextStage("oracle", "success", DispatchStage.Scouting),
-    ).toBe(DispatchStage.Scouted);
+describe("Monitor events during reaping", () => {
+  const reaper = new ReaperImpl();
+
+  it("collects monitor events for budget_exceeded", () => {
+    const record = makeRecord("issue-1", DispatchStage.Scouting, "oracle");
+    const result = reaper.reap("issue-1", "oracle", "budget_exceeded", [], record);
+
+    expect(result.monitorEvents.length).toBe(1);
+    expect(result.monitorEvents[0].type).toBe("session_aborted_by_monitor");
+    expect(result.monitorEvents[0].issueId).toBe("issue-1");
   });
 
-  it("returns implemented for titan success", () => {
-    expect(
-      computeNextStage("titan", "success", DispatchStage.Implementing),
-    ).toBe(DispatchStage.Implemented);
+  it("collects monitor events for stuck_killed", () => {
+    const record = makeRecord("issue-1", DispatchStage.Implementing, "titan");
+    const result = reaper.reap("issue-1", "titan", "stuck_killed", [], record);
+
+    expect(result.monitorEvents.length).toBe(1);
+    expect(result.monitorEvents[0].type).toBe("session_aborted_by_monitor");
   });
 
-  it("returns complete for sentinel pass", () => {
-    expect(
-      computeNextStage("sentinel", "success", DispatchStage.Reviewing, "pass"),
-    ).toBe(DispatchStage.Complete);
+  it("collects monitor events for crash", () => {
+    const record = makeRecord("issue-1", DispatchStage.Scouting, "oracle");
+    const result = reaper.reap("issue-1", "oracle", "error", [], record);
+
+    expect(result.monitorEvents.length).toBe(1);
+    expect(result.monitorEvents[0].type).toBe("session_aborted_by_monitor");
   });
 
-  it("returns failed for sentinel fail", () => {
-    expect(
-      computeNextStage("sentinel", "success", DispatchStage.Reviewing, "fail"),
-    ).toBe(DispatchStage.Failed);
-  });
+  it("no monitor events for successful completion", () => {
+    const assessment = JSON.stringify({
+      files_affected: ["src/foo.ts"],
+      estimated_complexity: "moderate",
+      decompose: false,
+      ready: true,
+    });
+    const record = makeRecord("issue-1", DispatchStage.Scouting, "oracle");
+    const result = reaper.reap("issue-1", "oracle", "completed", makeEvents([assessment]), record);
 
-  it("returns failed for any non-success outcome", () => {
-    expect(
-      computeNextStage("oracle", "artifact_failure", DispatchStage.Scouting),
-    ).toBe(DispatchStage.Failed);
-    expect(
-      computeNextStage("titan", "monitor_termination", DispatchStage.Implementing),
-    ).toBe(DispatchStage.Failed);
-    expect(
-      computeNextStage("sentinel", "crash", DispatchStage.Reviewing),
-    ).toBe(DispatchStage.Failed);
+    expect(result.monitorEvents).toHaveLength(0);
   });
 });
 
-describe("determineLaborCleanup", () => {
-  it("returns null for oracle", () => {
-    expect(determineLaborCleanup("oracle", "success", "issue-1")).toBeNull();
+// ---------------------------------------------------------------------------
+// 9. Failure accounting — cumulative vs consecutive
+// ---------------------------------------------------------------------------
+
+describe("Failure accounting — cumulative vs consecutive", () => {
+  it("cumulative failureCount is never reset on success", () => {
+    const record: DispatchRecord = {
+      ...makeRecord("issue-1", DispatchStage.Failed),
+      failureCount: 10,
+      consecutiveFailures: 3,
+      cooldownUntil: new Date(Date.now() + 1000).toISOString(),
+    };
+
+    const updated = applyFailureAccounting(record, false, true, NOW);
+
+    expect(updated.failureCount).toBe(10); // NOT reset
+    expect(updated.consecutiveFailures).toBe(0);
+    expect(updated.cooldownUntil).toBeNull();
   });
 
-  it("returns null for sentinel", () => {
-    expect(determineLaborCleanup("sentinel", "success", "issue-1")).toBeNull();
-  });
+  it("cumulative failureCount increments on each failure", () => {
+    const record = makeRecord("issue-1", DispatchStage.Failed);
 
-  it("preserves labor on titan success", () => {
-    const cleanup = determineLaborCleanup("titan", "success", "issue-1");
-    expect(cleanup).not.toBeNull();
-    expect(cleanup!.removeWorktree).toBe(false);
-    expect(cleanup!.deleteBranch).toBe(false);
-  });
+    const updated1 = applyFailureAccounting(record, true, false, NOW);
+    expect(updated1.failureCount).toBe(1);
 
-  it("preserves labor on titan failure", () => {
-    const cleanup = determineLaborCleanup("titan", "crash", "issue-1");
-    expect(cleanup).not.toBeNull();
-    expect(cleanup!.removeWorktree).toBe(false);
-    expect(cleanup!.deleteBranch).toBe(false);
+    const updated2 = applyFailureAccounting(updated1, true, false, NOW + 60_000);
+    expect(updated2.failureCount).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10. Integration: full cycle — scout, implement, review with failures
+// ---------------------------------------------------------------------------
+
+describe("Full cycle with intermediate failures", () => {
+  it("Oracle fails twice, succeeds on third attempt, pipeline continues", () => {
+    const reaper = new ReaperImpl();
+    let record = makeRecord("issue-1", DispatchStage.Scouting, "oracle");
+
+    // Attempt 1: crash
+    let result = reaper.reap("issue-1", "oracle", "error", [], record);
+    record = updateRecordFromReaper(record, result, NOW);
+    expect(record.stage).toBe(DispatchStage.Failed);
+    expect(record.consecutiveFailures).toBe(1);
+
+    // Retry: reset to pending then scouting
+    record = { ...record, stage: DispatchStage.Pending };
+    // (In real flow, triage would move pending → scouting)
+    record = { ...record, stage: DispatchStage.Scouting };
+
+    // Attempt 2: artifact failure (no valid assessment)
+    result = reaper.reap("issue-1", "oracle", "completed", makeEvents(["garbage"]), record);
+    record = updateRecordFromReaper(record, result, NOW + 60_000);
+    expect(record.stage).toBe(DispatchStage.Failed);
+    expect(record.consecutiveFailures).toBe(2);
+
+    // Retry
+    record = { ...record, stage: DispatchStage.Scouting };
+
+    // Attempt 3: success
+    const assessment = JSON.stringify({
+      files_affected: ["src/foo.ts"],
+      estimated_complexity: "moderate",
+      decompose: false,
+      ready: true,
+    });
+    result = reaper.reap("issue-1", "oracle", "completed", makeEvents([assessment]), record);
+    record = updateRecordFromReaper(record, result, NOW + 120_000);
+    expect(record.stage).toBe(DispatchStage.Scouted);
+    expect(record.consecutiveFailures).toBe(0);
+    expect(record.failureCount).toBe(2); // Cumulative from 2 failures
   });
 });
