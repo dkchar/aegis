@@ -21,6 +21,17 @@ export interface OracleAssessment {
   ready: boolean;
 }
 
+/**
+ * Build the standard description string for a derived sub-issue.
+ *
+ * Both `create-derived-issues.ts` and `run-oracle.ts` use this to identify
+ * reusable and orphaned derived issues. Keeping it in one place prevents
+ * silent mismatches when the template changes.
+ */
+export function oracleDerivedDescription(issueId: string): string {
+  return `Derived from Oracle assessment for ${issueId}.`;
+}
+
 export type OracleAssessmentParseReason = "invalid_json" | "invalid_shape";
 
 export class OracleAssessmentParseError extends Error {

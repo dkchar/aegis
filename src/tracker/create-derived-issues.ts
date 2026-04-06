@@ -8,6 +8,7 @@
 
 import type { CreateIssueInput, IssuePriority, AegisIssue } from "./issue-model.js";
 import type { OracleAssessment } from "../castes/oracle/oracle-parser.js";
+import { oracleDerivedDescription } from "../castes/oracle/oracle-parser.js";
 
 /**
  * Build Beads issue creation inputs from an Oracle assessment.
@@ -31,7 +32,7 @@ export function createDerivedIssueInputs(
 
   return assessment.sub_issues.map((title) => ({
     title,
-    description: `Derived from Oracle assessment for ${originIssue.id}.`,
+    description: oracleDerivedDescription(originIssue.id),
     issueClass: "sub",
     priority: originIssue.priority as IssuePriority,
     originId: originIssue.id,

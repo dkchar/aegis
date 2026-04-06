@@ -11,6 +11,7 @@ import {
 import {
   type OracleAssessment,
   parseOracleAssessment,
+  oracleDerivedDescription,
 } from "../castes/oracle/oracle-parser.js";
 import type {
   AgentEvent,
@@ -191,8 +192,9 @@ async function collectOracleResponse(
 
   // Fail closed if the runtime crashes without emitting session_ended.
   const timeoutMs = 10 * 60 * 1000; // 10 minutes -- generous upper bound
+  let timeoutId: ReturnType<typeof setTimeout>;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error(`Oracle session timed out after ${timeoutMs}ms`)), timeoutMs);
+    timeoutId = setTimeout(() => reject(new Error(`Oracle session timed out after ${timeoutMs}ms`)), timeoutMs);
   });
 
   try {
@@ -205,6 +207,8 @@ async function collectOracleResponse(
       // Best-effort cleanup; the original error is more important.
     }
     throw error;
+  } finally {
+    clearTimeout(timeoutId!);
   }
 
   return findFinalOraclePayloadMessage(messages);
@@ -300,7 +304,7 @@ async function loadRecoverableOrphanedIssues(
     (loadedIssue) =>
       loadedIssue.status !== "closed" &&
       loadedIssue.parentId === null &&
-      loadedIssue.description === `Derived from Oracle assessment for ${issueId}.`,
+      loadedIssue.description === oracleDerivedDescription(issueId),
   ));
 }
 
@@ -318,7 +322,7 @@ async function loadReusableDerivedIssues(
       childIssue.status !== "closed" &&
       childIssue.parentId === issue.id &&
       childIssue.issueClass === "sub" &&
-      childIssue.description === `Derived from Oracle assessment for ${issue.id}.`,
+      childIssue.description === oracleDerivedDescription(issue.id),
   );
 
   return {

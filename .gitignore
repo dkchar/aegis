@@ -9,6 +9,7 @@
 .aegis/merge-queue.json
 .aegis/evals/
 .aegis/labors/
+.aegis/oracle/
 .aegis-cli-*
 dist/
 node_modules/
