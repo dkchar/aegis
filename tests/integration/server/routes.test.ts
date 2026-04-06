@@ -378,4 +378,105 @@ describe("S06 HTTP and SSE contract seed", () => {
       sequence: 3,
     });
   });
+
+  it("routes direct commands through the steer endpoint", async () => {
+    const routesModule = (await import(
+      pathToFileURL(path.join(repoRoot, "src", "server", "routes.ts")).href
+    )) as {
+      HTTP_ROUTE_PATHS: Record<string, string>;
+      createRestApiRouter: (bindings: {
+        getStateSnapshot: () => Record<string, unknown>;
+        executeControlAction: (request: Record<string, unknown>) => Promise<Record<string, unknown>>;
+        appendLearningRecord: (entry: Record<string, unknown>) => Promise<Record<string, unknown>>;
+        ingestBeadsHookEvent: (payload: unknown) => Promise<void>;
+      }) => {
+        handleRequest: (request: {
+          method: string;
+          path: string;
+          body?: unknown;
+          headers?: Record<string, string | undefined>;
+          remoteAddress?: string;
+        }) => Promise<{
+          status: number;
+          headers: Record<string, string>;
+          body?: unknown;
+        } | null>;
+      };
+    };
+
+    const router = routesModule.createRestApiRouter({
+      getStateSnapshot: () => ({}),
+      executeControlAction: async (request) => ({
+        ok: true,
+        action: request.action,
+        request_id: request.request_id,
+        acknowledged_at: "2026-04-04T00:00:01.000Z",
+        server_state: "running",
+        mode: "conversational",
+        message: "Action accepted",
+      }),
+      appendLearningRecord: async (entry) => ({ ok: true, id: "learn-1" }),
+      ingestBeadsHookEvent: async () => {},
+    });
+
+    // Test a declined command (scout)
+    const scoutResponse = await router.handleRequest({
+      method: "POST",
+      path: routesModule.HTTP_ROUTE_PATHS.steer,
+      body: {
+        action: "command",
+        request_id: "req-scout",
+        issued_at: "2026-04-04T00:00:00.000Z",
+        source: "cli",
+        args: { command: "scout aegis-fjm.8.2" },
+      },
+    });
+
+    expect(scoutResponse?.status).toBe(200);
+    expect(scoutResponse?.body).toMatchObject({
+      ok: true,
+      status: "declined",
+      command: "scout",
+      message: "scout dispatch requires S08 (Oracle)",
+    });
+
+    // Test a handled command (status)
+    const statusResponse = await router.handleRequest({
+      method: "POST",
+      path: routesModule.HTTP_ROUTE_PATHS.steer,
+      body: {
+        action: "command",
+        request_id: "req-status",
+        issued_at: "2026-04-04T00:00:00.000Z",
+        source: "olympus",
+        args: { command: "status" },
+      },
+    });
+
+    expect(statusResponse?.status).toBe(200);
+    expect(statusResponse?.body).toMatchObject({
+      ok: true,
+      status: "handled",
+      command: "status",
+    });
+
+    // Test an unsupported command
+    const unsupportedResponse = await router.handleRequest({
+      method: "POST",
+      path: routesModule.HTTP_ROUTE_PATHS.steer,
+      body: {
+        action: "command",
+        request_id: "req-unsupported",
+        issued_at: "2026-04-04T00:00:00.000Z",
+        source: "cli",
+        args: { command: "foobar" },
+      },
+    });
+
+    expect(unsupportedResponse?.status).toBe(200);
+    expect(unsupportedResponse?.body).toMatchObject({
+      ok: false,
+      status: "unsupported",
+    });
+  });
 });

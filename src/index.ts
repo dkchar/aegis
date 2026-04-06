@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import { formatStatusSnapshot, getAegisStatus } from "./cli/status.js";
 import { parseStartOverrides, startAegis } from "./cli/start.js";
 import { stopAegis } from "./cli/stop.js";
+import { parseCommand } from "./cli/parse-command.js";
+import { createCommandExecutor, type CommandExecutionContext } from "./core/command-executor.js";
 import { initProject } from "./config/init-project.js";
 import { resolveProjectPaths, type ProjectPaths } from "./shared/paths.js";
 
@@ -77,7 +79,28 @@ export async function runCli(
     return manifest;
   }
 
-  throw new Error(`Unknown command: ${command}`);
+  // Try parsing as a direct command
+  const parsed = parseCommand(command + " " + argv.slice(1).join(" "));
+  const context: CommandExecutionContext = {
+    operatingMode: { mode: "conversational", paused: false },
+    autoLoop: { enabledAt: null },
+    issueId: parsed.kind !== "unsupported" && "issueId" in parsed
+      ? parsed.issueId
+      : null,
+  };
+  const executor = createCommandExecutor(context);
+  const result = await executor(parsed, context);
+
+  if (result.status === "handled") {
+    console.log(`Command "${parsed.kind}" acknowledged.`);
+  } else if (result.status === "declined") {
+    console.log(`Command "${parsed.kind}" declined: ${result.message}`);
+  } else {
+    console.error(result.message);
+    process.exitCode = 1;
+  }
+
+  return manifest;
 }
 
 export function isDirectExecution(

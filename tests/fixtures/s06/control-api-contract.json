@@ -10,7 +10,8 @@
   "steerActions": [
     "start",
     "status",
-    "stop"
+    "stop",
+    "command"
   ],
   "requestFields": [
     "action",

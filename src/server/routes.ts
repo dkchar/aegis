@@ -1,3 +1,7 @@
+import { createCommandExecutor } from "../core/command-executor.js";
+import type { CommandExecutionContext, CommandExecutionResult, CommandExecutor } from "../core/command-executor.js";
+import { parseCommand } from "../cli/parse-command.js";
+
 export const HTTP_ROUTE_PATHS = {
   root: "/",
   state: "/api/state",
@@ -7,7 +11,12 @@ export const HTTP_ROUTE_PATHS = {
   beadsHook: "/api/hooks/beads",
 } as const;
 
-export const CONTROL_API_ACTIONS = ["start", "status", "stop"] as const;
+export const CONTROL_API_ACTIONS = [
+  "start",
+  "status",
+  "stop",
+  "command",
+] as const;
 export const CONTROL_API_REQUEST_FIELDS = [
   "action",
   "request_id",
@@ -97,7 +106,38 @@ export const HTTP_ROUTE_CONTRACT: readonly HttpRouteDefinition[] = [
   },
 ] as const;
 
+export interface CommandActionRequest {
+  action: "command";
+  request_id: string;
+  issued_at: string;
+  source: "cli" | "olympus";
+  args?: {
+    command?: string;
+    [key: string]: unknown;
+  };
+}
+
+export type SteerRequestBody = ControlApiRequest | CommandActionRequest;
+
 type MaybePromise<T> = T | Promise<T>;
+
+export interface RestApiRouterBindings {
+  getStateSnapshot: () => MaybePromise<unknown>;
+  executeControlAction: (
+    request: ControlApiRequest,
+  ) => MaybePromise<ControlApiResponse>;
+  executeCommand?: (
+    commandText: string,
+    context: CommandExecutionContext,
+    executor: CommandExecutor,
+  ) => MaybePromise<CommandExecutionResult>;
+  appendLearningRecord: (
+    entry: Record<string, unknown>,
+  ) => MaybePromise<Record<string, unknown>>;
+  ingestBeadsHookEvent: (payload: unknown) => MaybePromise<void>;
+  eventsTransport?: SseReplayTransport;
+  now?: () => Date;
+}
 
 export interface SseReplayTransport {
   replay(lastEventId?: string | null): string[];
@@ -241,6 +281,40 @@ export function createRestApiRouter(bindings: RestApiRouterBindings): RestApiRou
       }
 
       if (method === "POST" && request.path === HTTP_ROUTE_PATHS.steer) {
+        if (!isRecord(request.body)) {
+          return toJsonResponse(400, {
+            ok: false,
+            error: "Invalid steer request payload.",
+          });
+        }
+
+        const body = request.body as Record<string, unknown>;
+        const bodyArgs = body.args as Record<string, unknown> | undefined;
+
+        // Check if this is a command action
+        if (body.action === "command" && typeof bodyArgs?.command === "string") {
+          const commandText = bodyArgs.command as string;
+          const parsed = parseCommand(commandText);
+          const context: CommandExecutionContext = {
+            operatingMode: { mode: "conversational", paused: false },
+            autoLoop: { enabledAt: null },
+            issueId: null,
+          };
+          const executor = createCommandExecutor(context);
+          const result = await bindings.executeCommand?.(commandText, context, executor)
+            ?? await executor(parsed, context);
+
+          return toJsonResponse(200, {
+            ok: result.status !== "unsupported",
+            command: parsed.kind,
+            status: result.status,
+            message: result.message,
+            request_id: body.request_id as string | undefined,
+            acknowledged_at: now().toISOString(),
+          });
+        }
+
+        // Fall through to standard control action handling
         if (!isControlApiRequest(request.body)) {
           return toJsonResponse(400, {
             ok: false,
