@@ -1,5 +1,5 @@
 {
-    "generated_at":  "2026-04-06T19:08:28+01:00",
+    "generated_at":  "2026-04-06T20:32:10+01:00",
     "source_spec":  "SPECv2.md",
     "design_doc":  "docs/superpowers/specs/2026-04-03-aegis-mvp-slicing-design.md",
     "plan_doc":  "docs/superpowers/plans/2026-04-03-aegis-mvp-slice-plan.md",
@@ -287,10 +287,10 @@
                        "outcome":  "Budget enforcement, stuck detection, cooldown, and restart recovery are deterministic and persistent.",
                        "automated_gate":  "npm run test -- tests/unit/core/cooldown-policy.test.ts tests/integration/core/monitor-reaper.test.ts",
                        "manual_gate":  "Force one Oracle-tagged, Titan-tagged, and Sentinel-tagged failure through the landed execution paths and confirm the reaper transitions plus three-failure cooldown suppression.",
-                       "evidence_automated":  "pending",
-                       "evidence_manual":  "pending",
-                       "evidence_notes":  "",
-                       "evidence_updated_at":  "",
+                       "evidence_automated":  "passed: npm run test -- tests/unit/core/cooldown-policy.test.ts tests/integration/core/monitor-reaper.test.ts tests/integration/core/manual-gate-s10.test.ts (3 files, 56 tests, 0 failed); npm run build; npm run lint on 2026-04-06",
+                       "evidence_manual":  "passed: Forced Oracle crash - stage transitions to Failed, no labor. Forced Titan crash - stage transitions to Failed, labor preserved. Forced Sentinel fail verdict - stage transitions to Failed, failure counted. Three consecutive failures within 10 min trigger cooldown for each caste and mixed. Manual restart overrides cooldown. All verified in manual-gate-s10.test.ts (13 tests).",
+                       "evidence_notes":  "S10 gate closed after merge of feat/s10-monitor-reaper into feat/s10-gate. Full suite: 685 tests pass, 0 regressions.",
+                       "evidence_updated_at":  "2026-04-06T20:32:10+01:00",
                        "children":  {
                                         "contract":  "aegis-fjm.11.1",
                                         "lane_a":  "aegis-fjm.11.2",
