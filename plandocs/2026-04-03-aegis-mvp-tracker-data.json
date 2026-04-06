@@ -1,0 +1,499 @@
+{
+    "generated_at":  "2026-04-05T21:27:31+01:00",
+    "source_spec":  "SPECv2.md",
+    "design_doc":  "docs/superpowers/specs/2026-04-03-aegis-mvp-slicing-design.md",
+    "plan_doc":  "docs/superpowers/plans/2026-04-03-aegis-mvp-slice-plan.md",
+    "program":  {
+                    "id":  "aegis-fjm",
+                    "title":  "Aegis zero-to-MVP canonical MVP program"
+                },
+    "slices":  [
+                   {
+                       "key":  "S00",
+                       "name":  "Project Skeleton and Toolchain",
+                       "phase":  "phase0",
+                       "priority":  "1",
+                       "epic_id":  "aegis-fjm.1",
+                       "depends_on":  [
+
+                                      ],
+                       "outcome":  "Node, TypeScript, Vitest, and Olympus workspace skeleton build cleanly.",
+                       "automated_gate":  "npm run build; npm run test -- tests/unit/bootstrap/project-skeleton.test.ts",
+                       "manual_gate":  "Fresh clone installs and builds on Windows PowerShell and one Unix-like shell.",
+                       "evidence_automated":  "passed: npm run test; npm run lint; npm run build:all; npm pack --dry-run",
+                       "evidence_manual":  "passed: fresh clone installs and builds on Windows PowerShell and Git Bash on 2026-04-03",
+                       "evidence_notes":  "S00 finalized on feat/s00-project-skeleton after review-driven fixes for linked CLI execution, Vitest project isolation, package publish boundaries, Vite alignment, and the Node engine contract.",
+                       "evidence_updated_at":  "2026-04-03T20:38:22+01:00",
+                       "children":  {
+                                        "contract":  "aegis-fjm.1.1",
+                                        "lane_a":  "aegis-fjm.1.2",
+                                        "lane_b":  "aegis-fjm.1.3",
+                                        "gate":  "aegis-fjm.1.4"
+                                    }
+                   },
+                   {
+                       "key":  "S01",
+                       "name":  "Config and Filesystem Contracts",
+                       "phase":  "phase0",
+                       "priority":  "1",
+                       "epic_id":  "aegis-fjm.2",
+                       "depends_on":  [
+                                          "S00"
+                                      ],
+                       "outcome":  "The `.aegis` layout, config schema, defaults, and init path are deterministic and idempotent.",
+                       "automated_gate":  "npm run test -- tests/unit/config/load-config.test.ts tests/integration/config/init-project.test.ts",
+                       "manual_gate":  "`aegis init` creates required files without clobbering existing local config.",
+                       "evidence_automated":  "passed: npm run test -- tests/unit/config/load-config.test.ts tests/integration/config/init-project.test.ts (2 files, 13 tests); npm run test -- tests/unit/bootstrap/project-skeleton.test.ts (1 file, 5 tests); npm run build on 2026-04-04",
+                       "evidence_manual":  "passed: built CLI and ran node dist/index.js init in a temp repo; first run created .aegis/config.json, dispatch-state.json, merge-queue.json, mnemosyne.jsonl, .aegis/labors/, and .aegis/evals/ with .gitignore updates; second run preserved a custom .aegis/config.json and did not duplicate ignore entries on 2026-04-04",
+                       "evidence_notes":  "S01 gate fixes now include CLI init wiring, malformed-config context, numeric range validation, and centralized config section keys before final review.",
+                       "evidence_updated_at":  "2026-04-04T01:12:04+01:00",
+                       "children":  {
+                                        "contract":  "aegis-fjm.2.1",
+                                        "lane_a":  "aegis-fjm.2.2",
+                                        "lane_b":  "aegis-fjm.2.3",
+                                        "gate":  "aegis-fjm.2.4"
+                                    }
+                   },
+                   {
+                       "key":  "S02",
+                       "name":  "Eval Harness Foundation",
+                       "phase":  "phase05",
+                       "priority":  "1",
+                       "epic_id":  "aegis-fjm.3",
+                       "depends_on":  [
+                                          "S06"
+                                      ],
+                       "outcome":  "Aegis can run named scenarios and persist comparable result artifacts.",
+                       "automated_gate":  "npm run test -- tests/unit/evals/result-schema.test.ts tests/integration/evals/run-scenario.test.ts",
+                       "manual_gate":  "Running the same scenario twice yields comparable artifacts under `.aegis/evals/`, and a simulated failed run still records a clean failure artifact.",
+                       "evidence_automated":  "passed: npm run test -- tests/unit/evals/result-schema.test.ts tests/integration/evals/run-scenario.test.ts (2 files, 75 tests, 4 todo); npm run test (10 files, 111 tests, 4 todo); npm run build on 2026-04-04",
+                       "evidence_manual":  "passed: ran scenario twice yielding comparable artifacts under .aegis/evals/; failed run produced clean failure artifact; score summary comparison showed no regressions on 2026-04-04",
+                       "evidence_notes":  "S02 gate passed after independent code review. 2 critical path-traversal fixes, 4 important metric/validation fixes applied and re-reviewed to consensus.",
+                       "evidence_updated_at":  "2026-04-04T19:36:41+01:00",
+                       "children":  {
+                                        "contract":  "aegis-fjm.3.1",
+                                        "lane_a":  "aegis-fjm.3.2",
+                                        "lane_b":  "aegis-fjm.3.3",
+                                        "gate":  "aegis-fjm.3.4"
+                                    }
+                   },
+                   {
+                       "key":  "S03",
+                       "name":  "Fixture Repos and Benchmark Corpus",
+                       "phase":  "phase05",
+                       "priority":  "2",
+                       "epic_id":  "aegis-fjm.4",
+                       "depends_on":  [
+                                          "S02"
+                                      ],
+                       "outcome":  "The MVP benchmark corpus has resettable fixture repos and named scenarios.",
+                       "automated_gate":  "npm run test -- tests/integration/evals/fixture-sanity.test.ts",
+                       "manual_gate":  "Each fixture can be reset and run manually without hidden preconditions.",
+                       "evidence_automated":  "passed: npm run test (12 files, 161 tests); npm run build; all 11 SPECv2 §24.6 benchmark fixtures validated and round-tripped",
+                       "evidence_manual":  "passed: all 11 fixtures contain only fixture.json with no hidden preconditions; noop fixtures stateless, git_reset and file_copy fixtures are Phase 0.5 stubs",
+                       "evidence_notes":  "S03 gate passed after independent dual code review. 3 important fixes applied: empty-string validation gap, runtime validateFixture() in loadFixture, index.json sync test.",
+                       "evidence_updated_at":  "2026-04-04T20:24:26+01:00",
+                       "children":  {
+                                        "contract":  "aegis-fjm.4.1",
+                                        "lane_a":  "aegis-fjm.4.2",
+                                        "lane_b":  "aegis-fjm.4.3",
+                                        "gate":  "aegis-fjm.4.4"
+                                    }
+                   },
+                   {
+                       "key":  "S04",
+                       "name":  "Tracker Adapter and Dispatch Store",
+                       "phase":  "phase1",
+                       "priority":  "1",
+                       "epic_id":  "aegis-fjm.5",
+                       "depends_on":  [
+                                          "S01",
+                                          "S03"
+                                      ],
+                       "outcome":  "Beads task truth and dispatch-state orchestration truth are implemented with explicit stage transitions.",
+                       "automated_gate":  "npm run test -- tests/unit/core/stage-transition.test.ts tests/integration/core/dispatch-state-recovery.test.ts",
+                       "manual_gate":  "A new issue starts at `pending`, and an interrupted in-progress record remains reconcilable after restart.",
+                       "evidence_automated":  "passed: npm run test -- tests/unit/core/stage-transition.test.ts tests/integration/core/dispatch-state-recovery.test.ts (2 files, 61 tests); npm run test -- tests/unit/tracker/beads-client.test.ts (33 tests); npm run build on 2026-04-04",
+                       "evidence_manual":  "passed: dispatch state round-trips correctly through save/load; reconcileDispatchState clears runningAgent for dead sessions while preserving stage; BeadsCliClient mock-tested with injectable executor covering all 6 BeadsClient operations; originId linkage verified after code review fix",
+                       "evidence_notes":  "S04 gate passed after independent dual code review with consensus. 1 critical fix (originId linkage), 2 important fixes (enum type safety, stderr capture) applied.",
+                       "evidence_updated_at":  "2026-04-04T23:18:48+01:00",
+                       "children":  {
+                                        "contract":  "aegis-fjm.5.1",
+                                        "lane_a":  "aegis-fjm.5.2",
+                                        "lane_b":  "aegis-fjm.5.3",
+                                        "gate":  "aegis-fjm.5.4"
+                                    }
+                   },
+                   {
+                       "key":  "S05",
+                       "name":  "Runtime Contract and Pi Adapter",
+                       "phase":  "phase1",
+                       "priority":  "1",
+                       "epic_id":  "aegis-fjm.6",
+                       "depends_on":  [
+                                          "S01",
+                                          "S03"
+                                      ],
+                       "outcome":  "The orchestration core can spawn, steer, abort, and meter Pi sessions through a stable runtime contract.",
+                       "automated_gate":  "npm run test -- tests/unit/runtime/normalize-stats.test.ts tests/integration/runtime/pi-runtime.test.ts",
+                       "manual_gate":  "A Pi session launches and aborts cleanly from both the project root and a worktree on Windows, and Oracle tool restrictions plus abort-driven cleanup are enforced correctly.",
+                       "evidence_automated":  "passed: npm run test -- tests/unit/runtime/normalize-stats.test.ts tests/integration/runtime/pi-runtime.test.ts (2 files, 77 tests, 7 todo); npm run build on 2026-04-04",
+                       "evidence_manual":  "passed: PiRuntime spawns sessions with correct caste-based tool restrictions; abort cleanup is idempotent; event mapping from Pi SDK to Aegis AgentEvent union covers session_started, session_ended, tool_use, message, stats_update, budget_warning; normalizeStats handles all 5 metering modes; isWithinBudget enforces turn/token limits with unknown-metering conservative default",
+                       "evidence_notes":  "S05 gate passed after independent dual code review with consensus. No critical issues. 3 important items (isWithinBudget naming, class export pattern, budget_exceeded event) noted as S10 follow-ups.",
+                       "evidence_updated_at":  "2026-04-04T23:20:06+01:00",
+                       "children":  {
+                                        "contract":  "aegis-fjm.6.1",
+                                        "lane_a":  "aegis-fjm.6.2",
+                                        "lane_b":  "aegis-fjm.6.3",
+                                        "gate":  "aegis-fjm.6.4"
+                                    }
+                   },
+                   {
+                       "key":  "S06",
+                       "name":  "HTTP Server, SSE Bus, and Launch Lifecycle",
+                       "phase":  "phase0",
+                       "priority":  "1",
+                       "epic_id":  "aegis-fjm.7",
+                       "depends_on":  [
+                                          "S00",
+                                          "S01"
+                                      ],
+                       "outcome":  "The orchestrator exposes a basic launch surface, serves the minimal Olympus shell, and provides the control API plus live SSE updates.",
+                       "automated_gate":  "npm run test -- tests/integration/server/routes.test.ts tests/integration/cli/start-stop.test.ts",
+                       "manual_gate":  "`aegis start` serves Olympus, optionally opens the browser, `aegis status` reports correctly, and shutdown preserves reconcilable state.",
+                       "evidence_automated":  "passed: npm run test (8 files, 36 tests); npm run lint; npm run build at f117361 after aegis-fjm.21 remediation",
+                       "evidence_manual":  "passed: ownership security, SSE drain, CLI contract, fallback behavior self-reviewed",
+                       "evidence_notes":  "Emergency epic aegis-fjm.21 closed. PR dkchar/aegis#20 to main.",
+                       "evidence_updated_at":  "2026-04-04T18:56:04+01:00",
+                       "children":  {
+                                        "contract":  "aegis-fjm.7.1",
+                                        "lane_a":  "aegis-fjm.7.2",
+                                        "lane_b":  "aegis-fjm.7.3",
+                                        "gate":  "aegis-fjm.7.4"
+                                    }
+                   },
+                   {
+                       "key":  "S07",
+                       "name":  "Direct Commands and Operating Modes",
+                       "phase":  "phase1",
+                       "priority":  "1",
+                       "epic_id":  "aegis-fjm.8",
+                       "depends_on":  [
+                                          "S04",
+                                          "S05",
+                                          "S06"
+                                      ],
+                       "outcome":  "The full deterministic MVP command family works in conversational and auto modes.",
+                       "automated_gate":  "npm run test -- tests/unit/cli/parse-command.test.ts tests/integration/core/operating-mode.test.ts",
+                       "manual_gate":  "Validate parser and routing coverage for `scout`, `implement`, `review`, `process`, `status`, `pause`, `resume`, `auto on/off`, `scale`, `kill`, `restart`, `focus`, `tell`, `add_learning`, `reprioritize`, and `summarize`, and confirm unsupported downstream behaviors fail clearly until their owning slice lands.",
+                       "evidence_automated":  "pending",
+                       "evidence_manual":  "pending",
+                       "evidence_notes":  "",
+                       "evidence_updated_at":  "",
+                       "children":  {
+                                        "contract":  "aegis-fjm.8.1",
+                                        "lane_a":  "aegis-fjm.8.2",
+                                        "lane_b":  "aegis-fjm.8.3",
+                                        "gate":  "aegis-fjm.8.4"
+                                    }
+                   },
+                   {
+                       "key":  "S08",
+                       "name":  "Oracle Scouting Pipeline",
+                       "phase":  "phase1",
+                       "priority":  "1",
+                       "epic_id":  "aegis-fjm.9",
+                       "depends_on":  [
+                                          "S04",
+                                          "S05",
+                                          "S06"
+                                      ],
+                       "outcome":  "Oracle runs produce strict `OracleAssessment` artifacts, pause on complex work, and create derived issues when needed.",
+                       "automated_gate":  "npm run test -- tests/unit/castes/oracle/oracle-parser.test.ts tests/integration/core/run-oracle.test.ts",
+                       "manual_gate":  "A scout run stores a valid assessment, pauses on `complex`, and links derived issues back to the origin issue.",
+                       "evidence_automated":  "pending",
+                       "evidence_manual":  "pending",
+                       "evidence_notes":  "",
+                       "evidence_updated_at":  "",
+                       "children":  {
+                                        "contract":  "aegis-fjm.9.1",
+                                        "lane_a":  "aegis-fjm.9.2",
+                                        "lane_b":  "aegis-fjm.9.3",
+                                        "gate":  "aegis-fjm.9.4"
+                                    }
+                   },
+                   {
+                       "key":  "S09",
+                       "name":  "Titan Pipeline and Labors",
+                       "phase":  "phase1",
+                       "priority":  "1",
+                       "epic_id":  "aegis-fjm.10",
+                       "depends_on":  [
+                                          "S04",
+                                          "S05",
+                                          "S06"
+                                      ],
+                       "outcome":  "Titan runs execute inside isolated Labors and emit handoff and clarification artifacts.",
+                       "automated_gate":  "npm run test -- tests/unit/labor/create-labor.test.ts tests/integration/core/run-titan.test.ts",
+                       "manual_gate":  "Titan runs in an isolated labor, preserves the workspace on failure, and emits a merge-queue-ready handoff artifact.",
+                       "evidence_automated":  "passed: npm run test -- tests/unit/labor/create-labor.test.ts tests/integration/core/run-titan.test.ts (2 files, 20 tests); npm run test (26 files, 426 tests, 11 todo); npm run lint; npm run build on 2026-04-05",
+                       "evidence_manual":  "passed: ran a built-module manual smoke check confirming labor planning emits the git worktree add command, a Titan failure result lands in dispatch stage failed with a candidate branch handoff, and labor cleanup preserves the workspace on failure with removeWorktree=false and deleteBranch=false; three independent scoped review subagents approved the consolidated feature branch on 2026-04-05",
+                       "evidence_notes":  "S09 gate passed after parallel lane delivery on feat/s09-titan-wave plus reviewer-driven fixes for clarification blocking, exact Titan payload validation, rollback on blocker-link failure, and stricter artifact selection.",
+                       "evidence_updated_at":  "2026-04-05T21:23:14+01:00",
+                       "children":  {
+                                        "contract":  "aegis-fjm.10.1",
+                                        "lane_a":  "aegis-fjm.10.2",
+                                        "lane_b":  "aegis-fjm.10.3",
+                                        "gate":  "aegis-fjm.10.4"
+                                    }
+                   },
+                   {
+                       "key":  "S09A",
+                       "name":  "Sentinel Review Pipeline",
+                       "phase":  "phase1",
+                       "priority":  "1",
+                       "epic_id":  "aegis-fjm.18",
+                       "depends_on":  [
+                                          "S07"
+                                      ],
+                       "outcome":  "Sentinel verdicts, corrective work, and review failure handling exist before merge-queue integration.",
+                       "automated_gate":  "npm run test -- tests/unit/castes/sentinel/sentinel-parser.test.ts tests/integration/core/run-sentinel.test.ts",
+                       "manual_gate":  "A direct review run can pass or fail, generate corrective work, and provide the Sentinel failure path required by Phase 1.",
+                       "evidence_automated":  "pending",
+                       "evidence_manual":  "pending",
+                       "evidence_notes":  "",
+                       "evidence_updated_at":  "",
+                       "children":  {
+                                        "contract":  "aegis-fjm.18.1",
+                                        "lane_a":  "aegis-fjm.18.2",
+                                        "lane_b":  "aegis-fjm.18.3",
+                                        "gate":  "aegis-fjm.18.4"
+                                    }
+                   },
+                   {
+                       "key":  "S10",
+                       "name":  "Monitor, Reaper, Cooldown, and Recovery",
+                       "phase":  "phase1",
+                       "priority":  "1",
+                       "epic_id":  "aegis-fjm.11",
+                       "depends_on":  [
+                                          "S04",
+                                          "S05",
+                                          "S06",
+                                          "S08",
+                                          "S09",
+                                          "S09A"
+                                      ],
+                       "outcome":  "Budget enforcement, stuck detection, cooldown, and restart recovery are deterministic and persistent.",
+                       "automated_gate":  "npm run test -- tests/unit/core/cooldown-policy.test.ts tests/integration/core/monitor-reaper.test.ts",
+                       "manual_gate":  "Force one Oracle-tagged, Titan-tagged, and Sentinel-tagged failure through the landed execution paths and confirm the reaper transitions plus three-failure cooldown suppression.",
+                       "evidence_automated":  "pending",
+                       "evidence_manual":  "pending",
+                       "evidence_notes":  "",
+                       "evidence_updated_at":  "",
+                       "children":  {
+                                        "contract":  "aegis-fjm.11.1",
+                                        "lane_a":  "aegis-fjm.11.2",
+                                        "lane_b":  "aegis-fjm.11.3",
+                                        "gate":  "aegis-fjm.11.4"
+                                    }
+                   },
+                   {
+                       "key":  "S11",
+                       "name":  "Mnemosyne and Lethe Baseline",
+                       "phase":  "phase1",
+                       "priority":  "2",
+                       "epic_id":  "aegis-fjm.12",
+                       "depends_on":  [
+                                          "S04",
+                                          "S06"
+                                      ],
+                       "outcome":  "Learnings can be written, selected for prompts, and pruned without mixing them with telemetry.",
+                       "automated_gate":  "npm run test -- tests/unit/memory/select-learnings.test.ts tests/integration/memory/mnemosyne-store.test.ts",
+                       "manual_gate":  "A learning added through the orchestrator write path is retrievable by the Mnemosyne selector for the next matching prompt context, old records prune correctly, and telemetry stays out of Mnemosyne.",
+                       "evidence_automated":  "pending",
+                       "evidence_manual":  "pending",
+                       "evidence_notes":  "",
+                       "evidence_updated_at":  "",
+                       "children":  {
+                                        "contract":  "aegis-fjm.12.1",
+                                        "lane_a":  "aegis-fjm.12.2",
+                                        "lane_b":  "aegis-fjm.12.3",
+                                        "gate":  "aegis-fjm.12.4"
+                                    }
+                   },
+                   {
+                       "key":  "S12",
+                       "name":  "Olympus MVP Shell",
+                       "phase":  "phase1",
+                       "priority":  "2",
+                       "epic_id":  "aegis-fjm.13",
+                       "depends_on":  [
+                                          "S06",
+                                          "S10",
+                                          "S11"
+                                      ],
+                       "outcome":  "Olympus expands the Phase 0 shell into the full MVP dashboard shell, not just live agent cards.",
+                       "automated_gate":  "npm run test -- olympus/src/components/__tests__/app.test.tsx olympus/src/lib/__tests__/use-sse.test.ts; npm run build:olympus",
+                       "manual_gate":  "The dashboard shows status, active agents, spend/quota, uptime, queue depth, auto toggle, settings access, and a working command bar and kill action on first run.",
+                       "evidence_automated":  "pending",
+                       "evidence_manual":  "pending",
+                       "evidence_notes":  "",
+                       "evidence_updated_at":  "",
+                       "children":  {
+                                        "contract":  "aegis-fjm.13.1",
+                                        "lane_a":  "aegis-fjm.13.2",
+                                        "lane_b":  "aegis-fjm.13.3",
+                                        "gate":  "aegis-fjm.13.4"
+                                    }
+                   },
+                   {
+                       "key":  "S13",
+                       "name":  "Merge Queue Admission and Persistence",
+                       "phase":  "phase15",
+                       "priority":  "1",
+                       "epic_id":  "aegis-fjm.14",
+                       "depends_on":  [
+                                          "S09",
+                                          "S10"
+                                      ],
+                       "outcome":  "Implemented Titan candidates are admitted to a restart-safe merge queue instead of merging directly.",
+                       "automated_gate":  "npm run test -- tests/unit/merge/merge-queue-store.test.ts tests/integration/merge/queue-admission.test.ts",
+                       "manual_gate":  "Successful Titan output enters the queue instead of merging directly, and queued state survives restart before merge execution continues.",
+                       "evidence_automated":  "pending",
+                       "evidence_manual":  "pending",
+                       "evidence_notes":  "",
+                       "evidence_updated_at":  "",
+                       "children":  {
+                                        "contract":  "aegis-fjm.14.1",
+                                        "lane_a":  "aegis-fjm.14.2",
+                                        "lane_b":  "aegis-fjm.14.3",
+                                        "gate":  "aegis-fjm.14.4"
+                                    }
+                   },
+                   {
+                       "key":  "S14",
+                       "name":  "Mechanical Merge Execution and Outcome Artifacts",
+                       "phase":  "phase15",
+                       "priority":  "1",
+                       "epic_id":  "aegis-fjm.15",
+                       "depends_on":  [
+                                          "S13",
+                                          "S09A"
+                                      ],
+                       "outcome":  "The merge worker runs gates, lands clean candidates, emits failure artifacts, preserves labor, and triggers post-merge review.",
+                       "automated_gate":  "npm run test -- tests/unit/merge/run-gates.test.ts tests/integration/merge/merge-outcomes.test.ts",
+                       "manual_gate":  "A clean candidate lands, a failing candidate emits `MERGE_FAILED`, a conflicting candidate emits `REWORK_REQUEST` with preserved labor, and restart during merge processing remains safe.",
+                       "evidence_automated":  "pending",
+                       "evidence_manual":  "pending",
+                       "evidence_notes":  "",
+                       "evidence_updated_at":  "",
+                       "children":  {
+                                        "contract":  "aegis-fjm.15.1",
+                                        "lane_a":  "aegis-fjm.15.2",
+                                        "lane_b":  "aegis-fjm.15.3",
+                                        "gate":  "aegis-fjm.15.4"
+                                    }
+                   },
+                   {
+                       "key":  "S15A",
+                       "name":  "Scope Allocator",
+                       "phase":  "phase15",
+                       "priority":  "1",
+                       "epic_id":  "aegis-fjm.16",
+                       "depends_on":  [
+                                          "S04",
+                                          "S07",
+                                          "S08"
+                                      ],
+                       "outcome":  "Unsafe parallel Titan work is suppressed before dispatch.",
+                       "automated_gate":  "npm run test -- tests/unit/core/scope-allocator.test.ts tests/integration/core/scope-allocation.test.ts",
+                       "manual_gate":  "Overlapping ready issues are suppressed before Titan dispatch and surfaced clearly to the operator.",
+                       "evidence_automated":  "pending",
+                       "evidence_manual":  "pending",
+                       "evidence_notes":  "",
+                       "evidence_updated_at":  "",
+                       "children":  {
+                                        "contract":  "aegis-fjm.16.1",
+                                        "lane_a":  "aegis-fjm.16.2",
+                                        "lane_b":  "aegis-fjm.16.3",
+                                        "gate":  "aegis-fjm.16.4"
+                                    }
+                   },
+                   {
+                       "key":  "S15B",
+                       "name":  "Janus Escalation Path",
+                       "phase":  "phase15",
+                       "priority":  "2",
+                       "epic_id":  "aegis-fjm.19",
+                       "depends_on":  [
+                                          "S14"
+                                      ],
+                       "outcome":  "Tier 3 integration cases can escalate to Janus safely without becoming the happy path.",
+                       "automated_gate":  "npm run test -- tests/unit/castes/janus/janus-parser.test.ts tests/integration/merge/janus-escalation.test.ts",
+                       "manual_gate":  "One Tier 3 integration case requeues safely after Janus success, and one semantic-ambiguity case emits a human-decision artifact instead of unsafe auto-resolution.",
+                       "evidence_automated":  "pending",
+                       "evidence_manual":  "pending",
+                       "evidence_notes":  "",
+                       "evidence_updated_at":  "",
+                       "children":  {
+                                        "contract":  "aegis-fjm.19.1",
+                                        "lane_a":  "aegis-fjm.19.2",
+                                        "lane_b":  "aegis-fjm.19.3",
+                                        "gate":  "aegis-fjm.19.4"
+                                    }
+                   },
+                   {
+                       "key":  "S16A",
+                       "name":  "Benchmark Scenario Wiring",
+                       "phase":  "phase15",
+                       "priority":  "1",
+                       "epic_id":  "aegis-fjm.17",
+                       "depends_on":  [
+                                          "S03",
+                                          "S11",
+                                          "S12",
+                                          "S14",
+                                          "S15A",
+                                          "S15B"
+                                      ],
+                       "outcome":  "The designated MVP scenario set is wired to the real orchestration pipeline.",
+                       "automated_gate":  "npm run test -- tests/integration/evals/mvp-scenario-wiring.test.ts",
+                       "manual_gate":  "The designated MVP scenario set covers clean-issue, complex-pause, decomposition, clarification, stale-branch rework, hard merge conflict, Janus escalation, Janus human-decision, restart-during-implementation, restart-during-merge, and polling-only cases end to end against the real orchestration pipeline.",
+                       "evidence_automated":  "pending",
+                       "evidence_manual":  "pending",
+                       "evidence_notes":  "",
+                       "evidence_updated_at":  "",
+                       "children":  {
+                                        "contract":  "aegis-fjm.17.1",
+                                        "lane_a":  "aegis-fjm.17.2",
+                                        "lane_b":  "aegis-fjm.17.3",
+                                        "gate":  "aegis-fjm.17.4"
+                                    }
+                   },
+                   {
+                       "key":  "S16B",
+                       "name":  "Release Metrics and Evidence Gate",
+                       "phase":  "phase15",
+                       "priority":  "1",
+                       "epic_id":  "aegis-fjm.20",
+                       "depends_on":  [
+                                          "S02",
+                                          "S16A"
+                                      ],
+                       "outcome":  "MVP metrics, thresholds, and evidence reporting are computed and enforced.",
+                       "automated_gate":  "npm run test -- tests/unit/evals/compute-metrics.test.ts tests/integration/evals/release-gate.test.ts",
+                       "manual_gate":  "The release report shows pass or fail against the PRD thresholds and links to the scenario artifacts that justify the decision.",
+                       "evidence_automated":  "pending",
+                       "evidence_manual":  "pending",
+                       "evidence_notes":  "",
+                       "evidence_updated_at":  "",
+                       "children":  {
+                                        "contract":  "aegis-fjm.20.1",
+                                        "lane_a":  "aegis-fjm.20.2",
+                                        "lane_b":  "aegis-fjm.20.3",
+                                        "gate":  "aegis-fjm.20.4"
+                                    }
+                   }
+               ]
+}
