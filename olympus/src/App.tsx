@@ -1,4 +1,5 @@
-import { useState, useCallback, type JSX } from "react";
+import { useState, useCallback } from "react";
+import type { JSX } from "react";
 import { useSse } from "./lib/use-sse";
 import { injectGlobalStyles } from "./theme/global.css";
 import { TopBar } from "./components/top-bar";

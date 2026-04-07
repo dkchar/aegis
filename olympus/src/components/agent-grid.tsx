@@ -1,11 +1,8 @@
 /**
  * Agent grid component.
  *
- * Lane A implements: responsive grid layout using CSS grid, empty state
- * when no agents are active, and mapping over agents to render AgentCard
- * components (implemented by lane B).
- *
- * This bridges lane A (layout) with lane B's AgentCard component.
+ * Renders a responsive grid of agent cards with an empty state
+ * when no agents are active.
  */
 
 import type { JSX } from "react";
@@ -35,23 +32,25 @@ export function AgentGrid(props: AgentGridProps): JSX.Element {
   }
 
   return (
-    <section data-testid="agent-grid" aria-label="Active Agents" className="agent-grid">
-      {agents.map((agent) => (
-        <AgentCard
-          key={agent.agentId}
-          agentId={agent.agentId}
-          caste={agent.caste}
-          model={agent.model}
-          issueId={agent.issueId}
-          stage={agent.stage}
-          turnCount={agent.turnCount}
-          inputTokens={agent.inputTokens}
-          outputTokens={agent.outputTokens}
-          elapsedSeconds={agent.elapsedSeconds}
-          spendUsd={agent.spendUsd}
-          onKill={onKill}
-        />
-      ))}
+    <section data-testid="agent-grid" aria-label="Active Agents">
+      <div className="agent-grid">
+        {agents.map((agent) => (
+          <AgentCard
+            key={agent.agentId}
+            agentId={agent.agentId}
+            caste={agent.caste}
+            model={agent.model}
+            issueId={agent.issueId}
+            stage={agent.stage}
+            turnCount={agent.turnCount}
+            inputTokens={agent.inputTokens}
+            outputTokens={agent.outputTokens}
+            elapsedSeconds={agent.elapsedSeconds}
+            spendUsd={agent.spendUsd}
+            onKill={onKill}
+          />
+        ))}
+      </div>
     </section>
   );
 }

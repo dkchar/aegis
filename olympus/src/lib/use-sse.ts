@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { SseEvent, OrchestratorStateEvent, CommandResultEvent } from "../types/sse-events";
-import type { DashboardState, ActiveAgentInfo } from "../types/dashboard-state";
+import type { DashboardState, SpendObservation, ActiveAgentInfo } from "../types/dashboard-state";
 
 /** Options for the useSse hook. */
 export interface UseSseOptions {
@@ -23,19 +23,40 @@ export interface UseSseReturn {
   /** Manually reconnect. */
   reconnect: () => void;
   /** Send a command to the control API. */
-  sendCommand: (command: string, payload?: Record<string, unknown>) => Promise<void>;
+  sendCommand: (command: string, payload?: Record<string, unknown>) => Promise<Response>;
 }
 
 const DEFAULT_SSE_URL = "/api/events";
 const STATE_URL = "/api/state";
 const STEER_URL = "/api/steer";
-const RECONNECT_DELAY_MS = 3000;
+
+// Exponential backoff configuration
+const INITIAL_RECONNECT_DELAY_MS = 1000;
+const MAX_RECONNECT_DELAY_MS = 30000;
+const RECONNECT_MULTIPLIER = 2;
+const RECONNECT_JITTER_MS = 500;
+
+/** Calculate reconnect delay with exponential backoff and jitter. */
+function calculateBackoff(attempt: number): number {
+  const exponential = Math.min(
+    INITIAL_RECONNECT_DELAY_MS * Math.pow(RECONNECT_MULTIPLIER, attempt),
+    MAX_RECONNECT_DELAY_MS,
+  );
+  const jitter = Math.random() * RECONNECT_JITTER_MS;
+  return exponential + jitter;
+}
 
 /**
  * SSE client hook for Olympus.
  *
  * Connects to the server's SSE endpoint, maintains the latest dashboard state,
  * and provides a command-sending helper for the control API.
+ *
+ * Features:
+ * - Automatic reconnection with exponential backoff on disconnect
+ * - Initial state fetch on connect
+ * - Parse orchestrator.state and control.command events
+ * - Exposes sendCommand for the control API
  */
 export function useSse(options: UseSseOptions = {}): UseSseReturn {
   const { url = DEFAULT_SSE_URL, enabled = true, onEvent } = options;
@@ -46,6 +67,27 @@ export function useSse(options: UseSseOptions = {}): UseSseReturn {
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isManualCloseRef = useRef(false);
+
+  /** Clear any pending reconnect timer. */
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  }, []);
+
+  /** Close the current SSE connection cleanly. */
+  const closeConnection = useCallback(() => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    clearReconnectTimer();
+    setIsConnected(false);
+  }, [clearReconnectTimer]);
 
   /** Fetch the full dashboard state via REST. */
   const fetchState = useCallback(async () => {
@@ -56,10 +98,23 @@ export function useSse(options: UseSseOptions = {}): UseSseReturn {
       }
       const data: DashboardState = await res.json();
       setState(data);
+      setError(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown state fetch error";
       setError(msg);
     }
+  }, []);
+
+  /** Schedule a reconnect with exponential backoff. */
+  const scheduleReconnect = useCallback(() => {
+    if (isManualCloseRef.current) return;
+
+    const delay = calculateBackoff(reconnectAttemptRef.current);
+    reconnectAttemptRef.current += 1;
+
+    reconnectTimerRef.current = setTimeout(() => {
+      connect();
+    }, delay);
   }, []);
 
   /** Establish SSE connection. */
@@ -67,16 +122,15 @@ export function useSse(options: UseSseOptions = {}): UseSseReturn {
     if (!enabled) return;
 
     // Close any existing connection first
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-    }
+    closeConnection();
+    isManualCloseRef.current = false;
 
     try {
       const es = new EventSource(url);
       eventSourceRef.current = es;
 
       es.onopen = () => {
+        reconnectAttemptRef.current = 0; // Reset backoff on successful connect
         setIsConnected(true);
         setError(null);
         // Fetch initial state on connect
@@ -86,6 +140,8 @@ export function useSse(options: UseSseOptions = {}): UseSseReturn {
       es.onerror = () => {
         setIsConnected(false);
         // Don't set error here — EventSource handles reconnect automatically
+        // Schedule reconnection with exponential backoff
+        scheduleReconnect();
       };
 
       // Listen for orchestrator state updates
@@ -93,34 +149,19 @@ export function useSse(options: UseSseOptions = {}): UseSseReturn {
         const message = (rawEvent as MessageEvent).data;
         try {
           const parsed: OrchestratorStateEvent = JSON.parse(message);
+          // Cast SSE string fields to their constrained union types
+          const agents: DashboardState["agents"] = parsed.data.agents.map((a) => ({
+            ...a,
+            caste: a.caste as ActiveAgentInfo["caste"],
+          }));
+          const spend: DashboardState["spend"] = {
+            ...parsed.data.spend,
+            metering: parsed.data.spend.metering as SpendObservation["metering"],
+          };
           setState({
-            status: {
-              mode: parsed.data.status.mode as "conversational" | "auto",
-              isRunning: parsed.data.status.isRunning,
-              uptimeSeconds: parsed.data.status.uptimeSeconds,
-              activeAgents: parsed.data.status.activeAgents,
-              queueDepth: parsed.data.status.queueDepth,
-            },
-            spend: {
-              metering: parsed.data.spend.metering as DashboardState["spend"]["metering"],
-              costUsd: parsed.data.spend.costUsd,
-              quotaUsedPct: parsed.data.spend.quotaUsedPct,
-              quotaRemainingPct: parsed.data.spend.quotaRemainingPct,
-              totalInputTokens: parsed.data.spend.totalInputTokens,
-              totalOutputTokens: parsed.data.spend.totalOutputTokens,
-            },
-            agents: parsed.data.agents.map((a) => ({
-              agentId: a.agentId,
-              caste: a.caste as ActiveAgentInfo["caste"],
-              model: a.model,
-              issueId: a.issueId,
-              stage: a.stage,
-              turnCount: a.turnCount,
-              inputTokens: a.inputTokens,
-              outputTokens: a.outputTokens,
-              elapsedSeconds: a.elapsedSeconds,
-              spendUsd: a.spendUsd,
-            })),
+            status: parsed.data.status,
+            spend,
+            agents,
           });
           setError(null);
         } catch {
@@ -155,39 +196,37 @@ export function useSse(options: UseSseOptions = {}): UseSseReturn {
       const msg = err instanceof Error ? err.message : "Unknown SSE connection error";
       setError(msg);
       setIsConnected(false);
+      scheduleReconnect();
     }
-  }, [enabled, url, fetchState, onEvent]);
+  }, [enabled, url, fetchState, onEvent, closeConnection, scheduleReconnect]);
 
-  /** Reconnect helper with optional delay. */
+  /** Manually reconnect — resets backoff and forces a fresh connection. */
   const reconnect = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-    }
-    setTimeout(() => {
+    isManualCloseRef.current = false;
+    reconnectAttemptRef.current = 0;
+    closeConnection();
+    // Small delay to ensure the old connection is fully cleaned up
+    reconnectTimerRef.current = setTimeout(() => {
       connect();
-    }, RECONNECT_DELAY_MS);
-  }, [connect]);
+    }, 200);
+  }, [closeConnection, connect]);
 
   /** Send a command to the control API. */
   const sendCommand = useCallback(
-    async (command: string, payload?: Record<string, unknown>) => {
-      try {
-        const res = await fetch(STEER_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ command, ...payload }),
-          signal: abortControllerRef.current?.signal,
-        });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(`Command failed: ${res.status} ${text}`);
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Unknown command error";
-        setError(msg);
+    async (command: string, payload?: Record<string, unknown>): Promise<Response> => {
+      const res = await fetch(STEER_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command, ...payload }),
+        signal: abortControllerRef.current?.signal,
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        const err = new Error(`Command failed: ${res.status} ${text}`);
+        setError(err.message);
         throw err;
       }
+      return res;
     },
     [],
   );
@@ -198,14 +237,11 @@ export function useSse(options: UseSseOptions = {}): UseSseReturn {
     }
 
     return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-      }
+      isManualCloseRef.current = true;
+      closeConnection();
       abortControllerRef.current?.abort();
-      setIsConnected(false);
     };
-  }, [enabled, connect]);
+  }, [enabled, connect, closeConnection]);
 
   return { state, isConnected, error, reconnect, sendCommand };
 }
