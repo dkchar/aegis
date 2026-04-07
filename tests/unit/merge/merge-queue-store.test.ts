@@ -54,6 +54,7 @@ function makeQueueItem(overrides: Partial<QueueItem> = {}): QueueItem {
     sourceStage: overrides.sourceStage ?? "implemented",
     sessionProvenanceId: overrides.sessionProvenanceId ?? "test-session",
     updatedAt: overrides.updatedAt ?? new Date().toISOString(),
+    handoffArtifactRef: overrides.handoffArtifactRef ?? null,
   };
 }
 

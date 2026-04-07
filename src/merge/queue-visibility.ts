@@ -12,6 +12,7 @@
  */
 
 import type { MergeQueueState, QueueItem, QueueItemStatus } from "./merge-queue-store.js";
+import { isTerminalStatus } from "./merge-queue-store.js";
 
 /** A formatted queue item for Olympus display. */
 export interface QueueItemDisplay {
@@ -141,9 +142,7 @@ export function getQueueSnapshot(
   now: number = Date.now(),
 ): QueueSnapshot {
   const nonTerminalItems = state.items.filter(
-    (item) =>
-      item.status !== "merged" &&
-      item.status !== "manual_decision_required",
+    (item) => !isTerminalStatus(item.status),
   );
 
   const waitingItems = state.items.filter((item) => item.status === "queued");
@@ -172,9 +171,7 @@ export function getQueueSnapshot(
  */
 export function getQueueDepth(state: MergeQueueState): number {
   return state.items.filter(
-    (item) =>
-      item.status !== "merged" &&
-      item.status !== "manual_decision_required",
+    (item) => !isTerminalStatus(item.status),
   ).length;
 }
 

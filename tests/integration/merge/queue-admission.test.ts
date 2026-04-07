@@ -568,6 +568,7 @@ describe("Queue Admission — Integration", () => {
         sourceStage: "implemented",
         sessionProvenanceId: "session-1",
         updatedAt: enqueuedAt,
+        handoffArtifactRef: null,
       };
 
       const display = formatQueueItemForDisplay(item, now);
