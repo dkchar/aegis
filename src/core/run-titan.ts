@@ -102,7 +102,7 @@ export interface RunTitanInput {
   runtime: AgentRuntime;
   tracker: TitanIssueCreator;
   budget: BudgetLimit;
-  projectRoot?: string;
+  projectRoot: string;
   mnemosyne?: { prompt_token_budget: number };
 }
 

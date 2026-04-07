@@ -1,12 +1,12 @@
 # Aegis MVP Tracker
 
-- Refreshed: 2026-04-07T01:15:57+01:00
+- Refreshed: 2026-04-07T01:19:45+01:00
 - Source spec: SPECv2.md
 - Design doc: docs/superpowers/specs/2026-04-03-aegis-mvp-slicing-design.md
 - Plan doc: docs/superpowers/plans/2026-04-03-aegis-mvp-slice-plan.md
 - Program epic: aegis-fjm
 - Program status: blocked
-- Program updated: 2026-04-07T00:15:56Z
+- Program updated: 2026-04-07T00:19:45Z
 - Operational queue: use `bd ready`; slice and program epics stay `blocked` as coordination units because Beads cannot model task-to-epic blockers.
 - Planning view: `bd swarm validate` still reports epic-level waves and is advisory, not the executable queue.
 
@@ -15,7 +15,7 @@
 ### S00 - Project Skeleton and Toolchain (aegis-fjm.1)
 
 - Status: closed
-- Updated: 2026-04-07T00:14:17Z
+- Updated: 2026-04-07T00:18:10Z
 - Depends on: none
 - Outcome: Node, TypeScript, Vitest, and Olympus workspace skeleton build cleanly.
 - Automated gate: npm run build; npm run test -- tests/unit/bootstrap/project-skeleton.test.ts
@@ -25,15 +25,15 @@
 - Evidence notes: S00 finalized on feat/s00-project-skeleton after review-driven fixes for linked CLI execution, Vitest project isolation, package publish boundaries, Vite alignment, and the Node engine contract.
 - Evidence updated: 2026-04-03T20:38:22+01:00
 - Children:
-  - contract: aegis-fjm.1.1 [closed] updated 2026-04-07T00:14:17Z
-  - lane_a: aegis-fjm.1.2 [closed] updated 2026-04-07T00:14:18Z
-  - lane_b: aegis-fjm.1.3 [closed] updated 2026-04-07T00:14:18Z
-  - gate: aegis-fjm.1.4 [closed] updated 2026-04-07T00:14:19Z
+  - contract: aegis-fjm.1.1 [closed] updated 2026-04-07T00:18:11Z
+  - lane_a: aegis-fjm.1.2 [closed] updated 2026-04-07T00:18:11Z
+  - lane_b: aegis-fjm.1.3 [closed] updated 2026-04-07T00:18:12Z
+  - gate: aegis-fjm.1.4 [closed] updated 2026-04-07T00:18:12Z
 
 ### S01 - Config and Filesystem Contracts (aegis-fjm.2)
 
 - Status: closed
-- Updated: 2026-04-07T00:14:21Z
+- Updated: 2026-04-07T00:18:15Z
 - Depends on: S00
 - Outcome: The `.aegis` layout, config schema, defaults, and init path are deterministic and idempotent.
 - Automated gate: npm run test -- tests/unit/config/load-config.test.ts tests/integration/config/init-project.test.ts
@@ -43,15 +43,15 @@
 - Evidence notes: S01 gate fixes now include CLI init wiring, malformed-config context, numeric range validation, and centralized config section keys before final review.
 - Evidence updated: 2026-04-04T01:12:04+01:00
 - Children:
-  - contract: aegis-fjm.2.1 [closed] updated 2026-04-07T00:14:22Z
-  - lane_a: aegis-fjm.2.2 [closed] updated 2026-04-07T00:14:22Z
-  - lane_b: aegis-fjm.2.3 [closed] updated 2026-04-07T00:14:23Z
-  - gate: aegis-fjm.2.4 [closed] updated 2026-04-07T00:14:24Z
+  - contract: aegis-fjm.2.1 [closed] updated 2026-04-07T00:18:16Z
+  - lane_a: aegis-fjm.2.2 [closed] updated 2026-04-07T00:18:16Z
+  - lane_b: aegis-fjm.2.3 [closed] updated 2026-04-07T00:18:17Z
+  - gate: aegis-fjm.2.4 [closed] updated 2026-04-07T00:18:17Z
 
 ### S02 - Eval Harness Foundation (aegis-fjm.3)
 
 - Status: closed
-- Updated: 2026-04-07T00:14:26Z
+- Updated: 2026-04-07T00:18:20Z
 - Depends on: S06
 - Outcome: Aegis can run named scenarios and persist comparable result artifacts.
 - Automated gate: npm run test -- tests/unit/evals/result-schema.test.ts tests/integration/evals/run-scenario.test.ts
@@ -61,15 +61,15 @@
 - Evidence notes: S02 gate passed after independent code review. 2 critical path-traversal fixes, 4 important metric/validation fixes applied and re-reviewed to consensus.
 - Evidence updated: 2026-04-04T19:36:41+01:00
 - Children:
-  - contract: aegis-fjm.3.1 [closed] updated 2026-04-07T00:14:27Z
-  - lane_a: aegis-fjm.3.2 [closed] updated 2026-04-07T00:14:27Z
-  - lane_b: aegis-fjm.3.3 [closed] updated 2026-04-07T00:14:28Z
-  - gate: aegis-fjm.3.4 [closed] updated 2026-04-07T00:14:28Z
+  - contract: aegis-fjm.3.1 [closed] updated 2026-04-07T00:18:21Z
+  - lane_a: aegis-fjm.3.2 [closed] updated 2026-04-07T00:18:21Z
+  - lane_b: aegis-fjm.3.3 [closed] updated 2026-04-07T00:18:22Z
+  - gate: aegis-fjm.3.4 [closed] updated 2026-04-07T00:18:22Z
 
 ### S03 - Fixture Repos and Benchmark Corpus (aegis-fjm.4)
 
 - Status: closed
-- Updated: 2026-04-07T00:14:31Z
+- Updated: 2026-04-07T00:18:25Z
 - Depends on: S02
 - Outcome: The MVP benchmark corpus has resettable fixture repos and named scenarios.
 - Automated gate: npm run test -- tests/integration/evals/fixture-sanity.test.ts
@@ -79,15 +79,15 @@
 - Evidence notes: S03 gate passed after independent dual code review. 3 important fixes applied: empty-string validation gap, runtime validateFixture() in loadFixture, index.json sync test.
 - Evidence updated: 2026-04-04T20:24:26+01:00
 - Children:
-  - contract: aegis-fjm.4.1 [closed] updated 2026-04-07T00:14:31Z
-  - lane_a: aegis-fjm.4.2 [closed] updated 2026-04-07T00:14:32Z
-  - lane_b: aegis-fjm.4.3 [closed] updated 2026-04-07T00:14:32Z
-  - gate: aegis-fjm.4.4 [closed] updated 2026-04-07T00:14:33Z
+  - contract: aegis-fjm.4.1 [closed] updated 2026-04-07T00:18:25Z
+  - lane_a: aegis-fjm.4.2 [closed] updated 2026-04-07T00:18:26Z
+  - lane_b: aegis-fjm.4.3 [closed] updated 2026-04-07T00:18:27Z
+  - gate: aegis-fjm.4.4 [closed] updated 2026-04-07T00:18:27Z
 
 ### S04 - Tracker Adapter and Dispatch Store (aegis-fjm.5)
 
 - Status: closed
-- Updated: 2026-04-07T00:14:36Z
+- Updated: 2026-04-07T00:18:30Z
 - Depends on: S01, S03
 - Outcome: Beads task truth and dispatch-state orchestration truth are implemented with explicit stage transitions.
 - Automated gate: npm run test -- tests/unit/core/stage-transition.test.ts tests/integration/core/dispatch-state-recovery.test.ts
@@ -97,15 +97,15 @@
 - Evidence notes: S04 gate passed after independent dual code review with consensus. 1 critical fix (originId linkage), 2 important fixes (enum type safety, stderr capture) applied.
 - Evidence updated: 2026-04-04T23:18:48+01:00
 - Children:
-  - contract: aegis-fjm.5.1 [closed] updated 2026-04-07T00:14:36Z
-  - lane_a: aegis-fjm.5.2 [closed] updated 2026-04-07T00:14:37Z
-  - lane_b: aegis-fjm.5.3 [closed] updated 2026-04-07T00:14:37Z
-  - gate: aegis-fjm.5.4 [closed] updated 2026-04-07T00:14:38Z
+  - contract: aegis-fjm.5.1 [closed] updated 2026-04-07T00:18:30Z
+  - lane_a: aegis-fjm.5.2 [closed] updated 2026-04-07T00:18:31Z
+  - lane_b: aegis-fjm.5.3 [closed] updated 2026-04-07T00:18:31Z
+  - gate: aegis-fjm.5.4 [closed] updated 2026-04-07T00:18:32Z
 
 ### S05 - Runtime Contract and Pi Adapter (aegis-fjm.6)
 
 - Status: closed
-- Updated: 2026-04-07T00:14:41Z
+- Updated: 2026-04-07T00:18:34Z
 - Depends on: S01, S03
 - Outcome: The orchestration core can spawn, steer, abort, and meter Pi sessions through a stable runtime contract.
 - Automated gate: npm run test -- tests/unit/runtime/normalize-stats.test.ts tests/integration/runtime/pi-runtime.test.ts
@@ -115,15 +115,15 @@
 - Evidence notes: S05 gate passed after independent dual code review with consensus. No critical issues. 3 important items (isWithinBudget naming, class export pattern, budget_exceeded event) noted as S10 follow-ups.
 - Evidence updated: 2026-04-04T23:20:06+01:00
 - Children:
-  - contract: aegis-fjm.6.1 [closed] updated 2026-04-07T00:14:41Z
-  - lane_a: aegis-fjm.6.2 [closed] updated 2026-04-07T00:14:42Z
-  - lane_b: aegis-fjm.6.3 [closed] updated 2026-04-07T00:14:42Z
-  - gate: aegis-fjm.6.4 [closed] updated 2026-04-07T00:14:43Z
+  - contract: aegis-fjm.6.1 [closed] updated 2026-04-07T00:18:34Z
+  - lane_a: aegis-fjm.6.2 [closed] updated 2026-04-07T00:18:35Z
+  - lane_b: aegis-fjm.6.3 [closed] updated 2026-04-07T00:18:35Z
+  - gate: aegis-fjm.6.4 [closed] updated 2026-04-07T00:18:36Z
 
 ### S06 - HTTP Server, SSE Bus, and Launch Lifecycle (aegis-fjm.7)
 
 - Status: closed
-- Updated: 2026-04-07T00:14:46Z
+- Updated: 2026-04-07T00:18:38Z
 - Depends on: S00, S01
 - Outcome: The orchestrator exposes a basic launch surface, serves the minimal Olympus shell, and provides the control API plus live SSE updates.
 - Automated gate: npm run test -- tests/integration/server/routes.test.ts tests/integration/cli/start-stop.test.ts
@@ -133,15 +133,15 @@
 - Evidence notes: Emergency epic aegis-fjm.21 closed. PR dkchar/aegis#20 to main.
 - Evidence updated: 2026-04-04T18:56:04+01:00
 - Children:
-  - contract: aegis-fjm.7.1 [closed] updated 2026-04-07T00:14:46Z
-  - lane_a: aegis-fjm.7.2 [closed] updated 2026-04-07T00:14:47Z
-  - lane_b: aegis-fjm.7.3 [closed] updated 2026-04-07T00:14:47Z
-  - gate: aegis-fjm.7.4 [closed] updated 2026-04-07T00:14:48Z
+  - contract: aegis-fjm.7.1 [closed] updated 2026-04-07T00:18:39Z
+  - lane_a: aegis-fjm.7.2 [closed] updated 2026-04-07T00:18:39Z
+  - lane_b: aegis-fjm.7.3 [closed] updated 2026-04-07T00:18:40Z
+  - gate: aegis-fjm.7.4 [closed] updated 2026-04-07T00:18:40Z
 
 ### S07 - Direct Commands and Operating Modes (aegis-fjm.8)
 
 - Status: closed
-- Updated: 2026-04-07T00:14:51Z
+- Updated: 2026-04-07T00:18:43Z
 - Depends on: S04, S05, S06
 - Outcome: The full deterministic MVP command family works in conversational and auto modes.
 - Automated gate: npm run test -- tests/unit/cli/parse-command.test.ts tests/integration/core/operating-mode.test.ts
@@ -149,15 +149,15 @@
 - Automated evidence: pending
 - Manual evidence: pending
 - Children:
-  - contract: aegis-fjm.8.1 [closed] updated 2026-04-07T00:14:51Z
-  - lane_a: aegis-fjm.8.2 [closed] updated 2026-04-07T00:14:52Z
-  - lane_b: aegis-fjm.8.3 [closed] updated 2026-04-07T00:14:53Z
-  - gate: aegis-fjm.8.4 [closed] updated 2026-04-07T00:14:53Z
+  - contract: aegis-fjm.8.1 [closed] updated 2026-04-07T00:18:43Z
+  - lane_a: aegis-fjm.8.2 [closed] updated 2026-04-07T00:18:44Z
+  - lane_b: aegis-fjm.8.3 [closed] updated 2026-04-07T00:18:44Z
+  - gate: aegis-fjm.8.4 [closed] updated 2026-04-07T00:18:45Z
 
 ### S08 - Oracle Scouting Pipeline (aegis-fjm.9)
 
 - Status: closed
-- Updated: 2026-04-07T00:14:56Z
+- Updated: 2026-04-07T00:18:47Z
 - Depends on: S04, S05, S06
 - Outcome: Oracle runs produce strict `OracleAssessment` artifacts, pause on complex work, and create derived issues when needed.
 - Automated gate: npm run test -- tests/unit/castes/oracle/oracle-parser.test.ts tests/integration/core/run-oracle.test.ts
@@ -165,15 +165,15 @@
 - Automated evidence: pending
 - Manual evidence: pending
 - Children:
-  - contract: aegis-fjm.9.1 [closed] updated 2026-04-07T00:14:56Z
-  - lane_a: aegis-fjm.9.2 [closed] updated 2026-04-07T00:14:57Z
-  - lane_b: aegis-fjm.9.3 [closed] updated 2026-04-07T00:14:57Z
-  - gate: aegis-fjm.9.4 [closed] updated 2026-04-07T00:14:58Z
+  - contract: aegis-fjm.9.1 [closed] updated 2026-04-07T00:18:48Z
+  - lane_a: aegis-fjm.9.2 [closed] updated 2026-04-07T00:18:49Z
+  - lane_b: aegis-fjm.9.3 [closed] updated 2026-04-07T00:18:49Z
+  - gate: aegis-fjm.9.4 [closed] updated 2026-04-07T00:18:50Z
 
 ### S09 - Titan Pipeline and Labors (aegis-fjm.10)
 
 - Status: closed
-- Updated: 2026-04-07T00:15:01Z
+- Updated: 2026-04-07T00:18:52Z
 - Depends on: S04, S05, S06
 - Outcome: Titan runs execute inside isolated Labors and emit handoff and clarification artifacts.
 - Automated gate: npm run test -- tests/unit/labor/create-labor.test.ts tests/integration/core/run-titan.test.ts
@@ -183,15 +183,15 @@
 - Evidence notes: S09 gate passed after parallel lane delivery on feat/s09-titan-wave plus reviewer-driven fixes for clarification blocking, exact Titan payload validation, rollback on blocker-link failure, and stricter artifact selection.
 - Evidence updated: 2026-04-05T21:23:14+01:00
 - Children:
-  - contract: aegis-fjm.10.1 [closed] updated 2026-04-07T00:15:01Z
-  - lane_a: aegis-fjm.10.2 [closed] updated 2026-04-07T00:15:02Z
-  - lane_b: aegis-fjm.10.3 [closed] updated 2026-04-07T00:15:02Z
-  - gate: aegis-fjm.10.4 [closed] updated 2026-04-07T00:15:03Z
+  - contract: aegis-fjm.10.1 [closed] updated 2026-04-07T00:18:53Z
+  - lane_a: aegis-fjm.10.2 [closed] updated 2026-04-07T00:18:53Z
+  - lane_b: aegis-fjm.10.3 [closed] updated 2026-04-07T00:18:54Z
+  - gate: aegis-fjm.10.4 [closed] updated 2026-04-07T00:18:54Z
 
 ### S09A - Sentinel Review Pipeline (aegis-fjm.18)
 
 - Status: closed
-- Updated: 2026-04-07T00:15:06Z
+- Updated: 2026-04-07T00:18:57Z
 - Depends on: S07
 - Outcome: Sentinel verdicts, corrective work, and review failure handling exist before merge-queue integration.
 - Automated gate: npm run test -- tests/unit/castes/sentinel/sentinel-parser.test.ts tests/integration/core/run-sentinel.test.ts
@@ -201,15 +201,15 @@
 - Evidence notes: S09A gate closed after 3-reviewer consensus with 8 findings addressed: dead cleanup code fixed, dead conditional removed, JSON validation added to message extraction, verdict ref path aligned, followUpIssueIds prompt clarified, blocker tracking order corrected, 3 new integration tests added.
 - Evidence updated: 2026-04-06T19:04:20+01:00
 - Children:
-  - contract: aegis-fjm.18.1 [closed] updated 2026-04-07T00:15:06Z
-  - lane_a: aegis-fjm.18.2 [closed] updated 2026-04-07T00:15:07Z
-  - lane_b: aegis-fjm.18.3 [closed] updated 2026-04-07T00:15:07Z
-  - gate: aegis-fjm.18.4 [closed] updated 2026-04-07T00:15:08Z
+  - contract: aegis-fjm.18.1 [closed] updated 2026-04-07T00:18:57Z
+  - lane_a: aegis-fjm.18.2 [closed] updated 2026-04-07T00:18:58Z
+  - lane_b: aegis-fjm.18.3 [closed] updated 2026-04-07T00:18:58Z
+  - gate: aegis-fjm.18.4 [closed] updated 2026-04-07T00:18:59Z
 
 ### S10 - Monitor, Reaper, Cooldown, and Recovery (aegis-fjm.11)
 
 - Status: closed
-- Updated: 2026-04-07T00:15:11Z
+- Updated: 2026-04-07T00:19:02Z
 - Depends on: S04, S05, S06, S08, S09, S09A
 - Outcome: Budget enforcement, stuck detection, cooldown, and restart recovery are deterministic and persistent.
 - Automated gate: npm run test -- tests/unit/core/cooldown-policy.test.ts tests/integration/core/monitor-reaper.test.ts
@@ -219,15 +219,15 @@
 - Evidence notes: S10 gate closed after merge of feat/s10-monitor-reaper into feat/s10-gate. Full suite: 685 tests pass, 0 regressions.
 - Evidence updated: 2026-04-06T20:32:10+01:00
 - Children:
-  - contract: aegis-fjm.11.1 [closed] updated 2026-04-07T00:15:11Z
-  - lane_a: aegis-fjm.11.2 [closed] updated 2026-04-07T00:15:12Z
-  - lane_b: aegis-fjm.11.3 [closed] updated 2026-04-07T00:15:12Z
-  - gate: aegis-fjm.11.4 [closed] updated 2026-04-07T00:15:13Z
+  - contract: aegis-fjm.11.1 [closed] updated 2026-04-07T00:19:02Z
+  - lane_a: aegis-fjm.11.2 [closed] updated 2026-04-07T00:19:03Z
+  - lane_b: aegis-fjm.11.3 [closed] updated 2026-04-07T00:19:03Z
+  - gate: aegis-fjm.11.4 [closed] updated 2026-04-07T00:19:04Z
 
 ### S11 - Mnemosyne and Lethe Baseline (aegis-fjm.12)
 
 - Status: closed
-- Updated: 2026-04-07T00:15:16Z
+- Updated: 2026-04-07T00:19:06Z
 - Depends on: S04, S06
 - Outcome: Learnings can be written, selected for prompts, and pruned without mixing them with telemetry.
 - Automated gate: npm run test -- tests/unit/memory/select-learnings.test.ts tests/integration/memory/mnemosyne-store.test.ts
@@ -235,17 +235,17 @@
 - Automated evidence: npm run test -- tests/unit/memory/select-learnings.test.ts tests/integration/memory/mnemosyne-store.test.ts: 49 tests pass (16 unit + 33 integration), 0 failed
 - Manual evidence: Verified: LearningRecord model validates all 3 canonical categories (convention, pattern, failure) and rejects telemetry-like categories. JSONL append/read persists correctly. select-learnings performs exact domain-or-keyword retrieval with stopword filtering, short-tag matching, prompt-budget accounting, and fallback to recent general learnings when no usable specific learning fits. Lethe pruning removes oldest-first with convention-preserving policy. Mnemosyne prompt injection filtering now redacts instruction-like domain and content fields and injects learnings as untrusted reference data for Oracle and Titan. POST /api/learning rejects invalid and explicit null inputs, resolves the configured project root correctly, preserves the existing JSONL file if prune persistence fails before rename, and emits restart-stable unique learning IDs. Telemetry exclusion confirmed.
 - Evidence notes: S11 implements Mnemosyne JSONL store, select-learnings retrieval, Lethe pruning, prompt-safe Oracle and Titan injection, and the server write path, with review-driven fixes for atomic tmp->rename prune rewrites, exact-token matching plus stopword filtering, explicit route input validation, configured-root resolution, short-tag matching, prompt-budget accounting, instruction-like field redaction, and explicit Titan projectRoot handling. All 917 tests pass, lint passes, build passes.
-- Evidence updated: 2026-04-07T01:14:15+01:00
+- Evidence updated: 2026-04-07T01:18:05+01:00
 - Children:
-  - contract: aegis-fjm.12.1 [closed] updated 2026-04-07T00:15:17Z
-  - lane_a: aegis-fjm.12.2 [closed] updated 2026-04-07T00:15:17Z
-  - lane_b: aegis-fjm.12.3 [closed] updated 2026-04-07T00:15:18Z
-  - gate: aegis-fjm.12.4 [closed] updated 2026-04-07T00:15:18Z
+  - contract: aegis-fjm.12.1 [closed] updated 2026-04-07T00:19:07Z
+  - lane_a: aegis-fjm.12.2 [closed] updated 2026-04-07T00:19:07Z
+  - lane_b: aegis-fjm.12.3 [closed] updated 2026-04-07T00:19:08Z
+  - gate: aegis-fjm.12.4 [closed] updated 2026-04-07T00:19:08Z
 
 ### S12 - Olympus MVP Shell (aegis-fjm.13)
 
 - Status: blocked
-- Updated: 2026-04-07T00:15:21Z
+- Updated: 2026-04-07T00:19:11Z
 - Child completion: 0/4
 - Depends on: S06, S10, S11
 - Outcome: Olympus expands the Phase 0 shell into the full MVP dashboard shell, not just live agent cards.
@@ -254,15 +254,15 @@
 - Automated evidence: pending
 - Manual evidence: pending
 - Children:
-  - contract: aegis-fjm.13.1 [open] updated 2026-04-07T00:15:21Z
-  - lane_a: aegis-fjm.13.2 [open] updated 2026-04-07T00:15:22Z
-  - lane_b: aegis-fjm.13.3 [open] updated 2026-04-07T00:15:23Z
-  - gate: aegis-fjm.13.4 [open] updated 2026-04-07T00:15:23Z
+  - contract: aegis-fjm.13.1 [open] updated 2026-04-07T00:19:11Z
+  - lane_a: aegis-fjm.13.2 [open] updated 2026-04-07T00:19:12Z
+  - lane_b: aegis-fjm.13.3 [open] updated 2026-04-07T00:19:12Z
+  - gate: aegis-fjm.13.4 [open] updated 2026-04-07T00:19:13Z
 
 ### S13 - Merge Queue Admission and Persistence (aegis-fjm.14)
 
 - Status: blocked
-- Updated: 2026-04-07T00:15:26Z
+- Updated: 2026-04-07T00:19:16Z
 - Child completion: 0/4
 - Depends on: S09, S10
 - Outcome: Implemented Titan candidates are admitted to a restart-safe merge queue instead of merging directly.
@@ -271,15 +271,15 @@
 - Automated evidence: pending
 - Manual evidence: pending
 - Children:
-  - contract: aegis-fjm.14.1 [open] updated 2026-04-07T00:15:27Z
-  - lane_a: aegis-fjm.14.2 [open] updated 2026-04-07T00:15:27Z
-  - lane_b: aegis-fjm.14.3 [open] updated 2026-04-07T00:15:28Z
-  - gate: aegis-fjm.14.4 [open] updated 2026-04-07T00:15:28Z
+  - contract: aegis-fjm.14.1 [open] updated 2026-04-07T00:19:16Z
+  - lane_a: aegis-fjm.14.2 [open] updated 2026-04-07T00:19:17Z
+  - lane_b: aegis-fjm.14.3 [open] updated 2026-04-07T00:19:17Z
+  - gate: aegis-fjm.14.4 [open] updated 2026-04-07T00:19:18Z
 
 ### S14 - Mechanical Merge Execution and Outcome Artifacts (aegis-fjm.15)
 
 - Status: blocked
-- Updated: 2026-04-07T00:15:31Z
+- Updated: 2026-04-07T00:19:20Z
 - Child completion: 0/4
 - Depends on: S13, S09A
 - Outcome: The merge worker runs gates, lands clean candidates, emits failure artifacts, preserves labor, and triggers post-merge review.
@@ -288,15 +288,15 @@
 - Automated evidence: pending
 - Manual evidence: pending
 - Children:
-  - contract: aegis-fjm.15.1 [open] updated 2026-04-07T00:15:32Z
-  - lane_a: aegis-fjm.15.2 [open] updated 2026-04-07T00:15:32Z
-  - lane_b: aegis-fjm.15.3 [open] updated 2026-04-07T00:15:33Z
-  - gate: aegis-fjm.15.4 [open] updated 2026-04-07T00:15:33Z
+  - contract: aegis-fjm.15.1 [open] updated 2026-04-07T00:19:21Z
+  - lane_a: aegis-fjm.15.2 [open] updated 2026-04-07T00:19:22Z
+  - lane_b: aegis-fjm.15.3 [open] updated 2026-04-07T00:19:22Z
+  - gate: aegis-fjm.15.4 [open] updated 2026-04-07T00:19:23Z
 
 ### S15A - Scope Allocator (aegis-fjm.16)
 
 - Status: closed
-- Updated: 2026-04-07T00:15:36Z
+- Updated: 2026-04-07T00:19:25Z
 - Depends on: S04, S07, S08
 - Outcome: Unsafe parallel Titan work is suppressed before dispatch.
 - Automated gate: npm run test -- tests/unit/core/scope-allocator.test.ts tests/integration/core/scope-allocation.test.ts
@@ -304,15 +304,15 @@
 - Automated evidence: pending
 - Manual evidence: pending
 - Children:
-  - contract: aegis-fjm.16.1 [closed] updated 2026-04-07T00:15:37Z
-  - lane_a: aegis-fjm.16.2 [closed] updated 2026-04-07T00:15:37Z
-  - lane_b: aegis-fjm.16.3 [closed] updated 2026-04-07T00:15:38Z
-  - gate: aegis-fjm.16.4 [closed] updated 2026-04-07T00:15:39Z
+  - contract: aegis-fjm.16.1 [closed] updated 2026-04-07T00:19:26Z
+  - lane_a: aegis-fjm.16.2 [closed] updated 2026-04-07T00:19:26Z
+  - lane_b: aegis-fjm.16.3 [closed] updated 2026-04-07T00:19:27Z
+  - gate: aegis-fjm.16.4 [closed] updated 2026-04-07T00:19:27Z
 
 ### S15B - Janus Escalation Path (aegis-fjm.19)
 
 - Status: blocked
-- Updated: 2026-04-07T00:15:41Z
+- Updated: 2026-04-07T00:19:30Z
 - Child completion: 0/4
 - Depends on: S14
 - Outcome: Tier 3 integration cases can escalate to Janus safely without becoming the happy path.
@@ -321,15 +321,15 @@
 - Automated evidence: pending
 - Manual evidence: pending
 - Children:
-  - contract: aegis-fjm.19.1 [open] updated 2026-04-07T00:15:42Z
-  - lane_a: aegis-fjm.19.2 [open] updated 2026-04-07T00:15:42Z
-  - lane_b: aegis-fjm.19.3 [open] updated 2026-04-07T00:15:43Z
-  - gate: aegis-fjm.19.4 [open] updated 2026-04-07T00:15:43Z
+  - contract: aegis-fjm.19.1 [open] updated 2026-04-07T00:19:31Z
+  - lane_a: aegis-fjm.19.2 [open] updated 2026-04-07T00:19:31Z
+  - lane_b: aegis-fjm.19.3 [open] updated 2026-04-07T00:19:32Z
+  - gate: aegis-fjm.19.4 [open] updated 2026-04-07T00:19:32Z
 
 ### S16A - Benchmark Scenario Wiring (aegis-fjm.17)
 
 - Status: blocked
-- Updated: 2026-04-07T00:15:46Z
+- Updated: 2026-04-07T00:19:35Z
 - Child completion: 0/4
 - Depends on: S03, S11, S12, S14, S15A, S15B
 - Outcome: The designated MVP scenario set is wired to the real orchestration pipeline.
@@ -338,15 +338,15 @@
 - Automated evidence: pending
 - Manual evidence: pending
 - Children:
-  - contract: aegis-fjm.17.1 [open] updated 2026-04-07T00:15:47Z
-  - lane_a: aegis-fjm.17.2 [open] updated 2026-04-07T00:15:47Z
-  - lane_b: aegis-fjm.17.3 [open] updated 2026-04-07T00:15:48Z
-  - gate: aegis-fjm.17.4 [open] updated 2026-04-07T00:15:48Z
+  - contract: aegis-fjm.17.1 [open] updated 2026-04-07T00:19:35Z
+  - lane_a: aegis-fjm.17.2 [open] updated 2026-04-07T00:19:36Z
+  - lane_b: aegis-fjm.17.3 [open] updated 2026-04-07T00:19:36Z
+  - gate: aegis-fjm.17.4 [open] updated 2026-04-07T00:19:37Z
 
 ### S16B - Release Metrics and Evidence Gate (aegis-fjm.20)
 
 - Status: blocked
-- Updated: 2026-04-07T00:15:51Z
+- Updated: 2026-04-07T00:19:40Z
 - Child completion: 0/4
 - Depends on: S02, S16A
 - Outcome: MVP metrics, thresholds, and evidence reporting are computed and enforced.
@@ -355,8 +355,8 @@
 - Automated evidence: pending
 - Manual evidence: pending
 - Children:
-  - contract: aegis-fjm.20.1 [open] updated 2026-04-07T00:15:52Z
-  - lane_a: aegis-fjm.20.2 [open] updated 2026-04-07T00:15:52Z
-  - lane_b: aegis-fjm.20.3 [open] updated 2026-04-07T00:15:53Z
-  - gate: aegis-fjm.20.4 [open] updated 2026-04-07T00:15:53Z
+  - contract: aegis-fjm.20.1 [open] updated 2026-04-07T00:19:40Z
+  - lane_a: aegis-fjm.20.2 [open] updated 2026-04-07T00:19:41Z
+  - lane_b: aegis-fjm.20.3 [open] updated 2026-04-07T00:19:41Z
+  - gate: aegis-fjm.20.4 [open] updated 2026-04-07T00:19:42Z
 

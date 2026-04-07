@@ -1,5 +1,5 @@
 {
-    "generated_at":  "2026-04-07T01:15:56+01:00",
+    "generated_at":  "2026-04-07T01:19:44+01:00",
     "source_spec":  "SPECv2.md",
     "design_doc":  "docs/superpowers/specs/2026-04-03-aegis-mvp-slicing-design.md",
     "plan_doc":  "docs/superpowers/plans/2026-04-03-aegis-mvp-slice-plan.md",
@@ -314,7 +314,7 @@
                        "evidence_automated":  "npm run test -- tests/unit/memory/select-learnings.test.ts tests/integration/memory/mnemosyne-store.test.ts: 49 tests pass (16 unit + 33 integration), 0 failed",
                        "evidence_manual":  "Verified: LearningRecord model validates all 3 canonical categories (convention, pattern, failure) and rejects telemetry-like categories. JSONL append/read persists correctly. select-learnings performs exact domain-or-keyword retrieval with stopword filtering, short-tag matching, prompt-budget accounting, and fallback to recent general learnings when no usable specific learning fits. Lethe pruning removes oldest-first with convention-preserving policy. Mnemosyne prompt injection filtering now redacts instruction-like domain and content fields and injects learnings as untrusted reference data for Oracle and Titan. POST /api/learning rejects invalid and explicit null inputs, resolves the configured project root correctly, preserves the existing JSONL file if prune persistence fails before rename, and emits restart-stable unique learning IDs. Telemetry exclusion confirmed.",
                        "evidence_notes":  "S11 implements Mnemosyne JSONL store, select-learnings retrieval, Lethe pruning, prompt-safe Oracle and Titan injection, and the server write path, with review-driven fixes for atomic tmp-\u003erename prune rewrites, exact-token matching plus stopword filtering, explicit route input validation, configured-root resolution, short-tag matching, prompt-budget accounting, instruction-like field redaction, and explicit Titan projectRoot handling. All 917 tests pass, lint passes, build passes.",
-                       "evidence_updated_at":  "2026-04-07T01:14:15+01:00",
+                       "evidence_updated_at":  "2026-04-07T01:18:05+01:00",
                        "children":  {
                                         "contract":  "aegis-fjm.12.1",
                                         "lane_a":  "aegis-fjm.12.2",
