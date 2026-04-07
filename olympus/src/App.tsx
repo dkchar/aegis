@@ -1,11 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, type JSX } from "react";
 import { useSse } from "./lib/use-sse";
 import { injectGlobalStyles } from "./theme/global.css";
 import { TopBar } from "./components/top-bar";
 import { SettingsPanel } from "./components/settings-panel";
 import { AgentGrid } from "./components/agent-grid";
 import { CommandBar } from "./components/command-bar";
-import { killAgent } from "./lib/api-client";
 
 // Inject global styles on first render
 injectGlobalStyles();
@@ -27,11 +26,10 @@ export function App(): JSX.Element {
   const handleKill = useCallback(
     async (agentId: string) => {
       try {
-        const res = await killAgent(agentId);
-        const data = await res.json().catch(() => ({}));
+        await sendCommand("kill", { agentId });
         setCommandResults((prev) => [
           ...prev,
-          { command: `kill ${agentId}`, success: res.ok, result: JSON.stringify(data) },
+          { command: `kill ${agentId}`, success: true, result: "Agent killed" },
         ]);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
@@ -41,17 +39,16 @@ export function App(): JSX.Element {
         ]);
       }
     },
-    [],
+    [sendCommand],
   );
 
   const handleCommand = useCallback(
     async (command: string, payload?: Record<string, unknown>) => {
       try {
-        const res = await sendCommand(command, payload);
-        const data = await res.json().catch(() => ({}));
+        await sendCommand(command, payload);
         setCommandResults((prev) => [
           ...prev,
-          { command, success: res.ok, result: JSON.stringify(data) },
+          { command, success: true, result: "OK" },
         ]);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";

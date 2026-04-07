@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { SseEvent, OrchestratorStateEvent, CommandResultEvent } from "../types/sse-events";
-import type { DashboardState } from "../types/dashboard-state";
+import type { DashboardState, ActiveAgentInfo } from "../types/dashboard-state";
 
 /** Options for the useSse hook. */
 export interface UseSseOptions {
@@ -94,9 +94,33 @@ export function useSse(options: UseSseOptions = {}): UseSseReturn {
         try {
           const parsed: OrchestratorStateEvent = JSON.parse(message);
           setState({
-            status: parsed.data.status,
-            spend: parsed.data.spend,
-            agents: parsed.data.agents,
+            status: {
+              mode: parsed.data.status.mode as "conversational" | "auto",
+              isRunning: parsed.data.status.isRunning,
+              uptimeSeconds: parsed.data.status.uptimeSeconds,
+              activeAgents: parsed.data.status.activeAgents,
+              queueDepth: parsed.data.status.queueDepth,
+            },
+            spend: {
+              metering: parsed.data.spend.metering as DashboardState["spend"]["metering"],
+              costUsd: parsed.data.spend.costUsd,
+              quotaUsedPct: parsed.data.spend.quotaUsedPct,
+              quotaRemainingPct: parsed.data.spend.quotaRemainingPct,
+              totalInputTokens: parsed.data.spend.totalInputTokens,
+              totalOutputTokens: parsed.data.spend.totalOutputTokens,
+            },
+            agents: parsed.data.agents.map((a) => ({
+              agentId: a.agentId,
+              caste: a.caste as ActiveAgentInfo["caste"],
+              model: a.model,
+              issueId: a.issueId,
+              stage: a.stage,
+              turnCount: a.turnCount,
+              inputTokens: a.inputTokens,
+              outputTokens: a.outputTokens,
+              elapsedSeconds: a.elapsedSeconds,
+              spendUsd: a.spendUsd,
+            })),
           });
           setError(null);
         } catch {

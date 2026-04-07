@@ -16,6 +16,7 @@ export type { AgentGridProps } from "./agent-grid";
 
 export { StatusBar } from "./status-bar";
 export type { StatusBarProps } from "./status-bar";
+export { formatUptime } from "./status-bar";
 
 export { MetricDisplay } from "./metric-display";
 export type { MetricDisplayProps } from "./metric-display";

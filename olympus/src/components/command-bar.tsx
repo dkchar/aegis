@@ -5,6 +5,8 @@
  * and kill action integration.
  */
 
+import type { JSX } from "react";
+
 export interface CommandBarProps {
   onCommand: (command: string, payload?: Record<string, unknown>) => Promise<void>;
   onKill: (agentId: string) => void;

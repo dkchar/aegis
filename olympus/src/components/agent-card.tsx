@@ -5,6 +5,7 @@
  * token count, elapsed time, spend/quota usage, and kill action.
  */
 
+import type { JSX } from "react";
 import type { ActiveAgentInfo } from "../types/dashboard-state";
 
 export interface AgentCardProps extends ActiveAgentInfo {
