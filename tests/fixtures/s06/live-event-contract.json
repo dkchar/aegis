@@ -51,6 +51,16 @@
         "attemptCount",
         "errorDetail"
       ]
+    },
+    {
+      "type": "merge.outcome",
+      "requiredPayloadFields": [
+        "issueId",
+        "outcome",
+        "candidateBranch",
+        "targetBranch",
+        "detail"
+      ]
     }
   ]
 }

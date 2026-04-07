@@ -280,20 +280,21 @@
 
 ### S14 - Mechanical Merge Execution and Outcome Artifacts (aegis-fjm.15)
 
-- Status: blocked
-- Updated: 2026-04-07T22:40:17Z
-- Child completion: 1/4 (contract ready)
+- Status: closed
+- Updated: 2026-04-07T22:24:25Z
 - Depends on: S13, S09A
 - Outcome: The merge worker runs gates, lands clean candidates, emits failure artifacts, preserves labor, and triggers post-merge review.
 - Automated gate: npm run test -- tests/unit/merge/run-gates.test.ts tests/integration/merge/merge-outcomes.test.ts
 - Manual gate: A clean candidate lands, a failing candidate emits `MERGE_FAILED`, a conflicting candidate emits `REWORK_REQUEST` with preserved labor, and restart during merge processing remains safe.
-- Automated evidence: pending
-- Manual evidence: pending
+- Automated evidence: passed: npm run test -- tests/unit/merge/run-gates.test.ts tests/integration/merge/merge-outcomes.test.ts tests/unit/merge/queue-worker.test.ts (52 tests); npm run test (62 files, 1129 tests, 11 todo); npm run build; npm run lint on 2026-04-07
+- Manual evidence: passed: clean candidate lands via local git merge without remote; failing candidate emits MERGE_FAILED with preserved labor; conflicting candidate emits REWORK_REQUEST with preserved labor; branch restore ensures no HEAD mutation; outcome artifacts persist via atomic tmp-rename; restart safety confirmed
+- Evidence notes: S14 gate closed after 3-reviewer consensus with all CRITICAL+IMPORTANT findings addressed: 1 CRITICAL (broken atomic write in preserve-labor fixed with renameSync), 5 IMPORTANT (branch save/restore in attemptMerge, skip pull without remote, corrected conflict tier classification, removed unused imports, updated tests). New modules: run-gates.ts (mechanical gate runner), apply-merge.ts (merge attempt + conflict classification), emit-outcome-artifact.ts (atomic artifact persistence), preserve-labor.ts (labor preservation with metadata).
+- Evidence updated: 2026-04-07T22:24:25+01:00
 - Children:
-  - contract: aegis-fjm.15.1 [open] updated 2026-04-07T18:58:11Z
-  - lane_a: aegis-fjm.15.2 [open] updated 2026-04-07T18:58:12Z
-  - lane_b: aegis-fjm.15.3 [open] updated 2026-04-07T18:58:12Z
-  - gate: aegis-fjm.15.4 [open] updated 2026-04-07T18:58:13Z
+  - contract: aegis-fjm.15.1 [closed] updated 2026-04-07T22:24:12Z
+  - lane_a: aegis-fjm.15.2 [closed] updated 2026-04-07T22:24:19Z
+  - lane_b: aegis-fjm.15.3 [closed] updated 2026-04-07T22:24:22Z
+  - gate: aegis-fjm.15.4 [closed] updated 2026-04-07T22:24:25Z
 
 ### S15A - Scope Allocator (aegis-fjm.16)
 
