@@ -19,7 +19,10 @@ import {
   type MergeQueueState,
   type QueueItem,
 } from "../../../src/merge/merge-queue-store.js";
-import { getActiveWorkCount } from "../../../src/merge/queue-worker.js";
+import {
+  getActiveWorkCount,
+  processNextQueueItem,
+} from "../../../src/merge/queue-worker.js";
 import { mkdirSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -41,6 +44,7 @@ function makeQueueItem(overrides: Partial<QueueItem> = {}): QueueItem {
     sourceStage: overrides.sourceStage ?? "implemented",
     sessionProvenanceId: overrides.sessionProvenanceId ?? "test-session",
     updatedAt: overrides.updatedAt ?? new Date().toISOString(),
+    handoffArtifactRef: overrides.handoffArtifactRef ?? null,
   };
 }
 
@@ -85,27 +89,132 @@ describe("Queue Worker and Persistence — Lane A Unit", () => {
     });
   });
 
-  describe("atomic write pattern", () => {
-    it("creates .tmp file before final rename", () => {
+  describe("processNextQueueItem", () => {
+    function makePublisher() {
+      const events: Array<Record<string, unknown>> = [];
+      return {
+        events,
+        publisher: {
+          publish: (event: Record<string, unknown>) => events.push(event),
+        },
+      };
+    }
+
+    it("returns null for empty queue", async () => {
+      const state = emptyMergeQueueState();
+      const { publisher } = makePublisher();
+      const result = await processNextQueueItem(state, {
+        projectRoot: testDir,
+        eventPublisher: publisher as never,
+        janusEnabled: false,
+        maxRetryAttempts: 3,
+      });
+      expect(result).toBeNull();
+    });
+
+    it("marks queued item as active", async () => {
+      const state: MergeQueueState = {
+        schemaVersion: 1,
+        items: [makeQueueItem({ issueId: "next-1", status: "queued", position: 0 })],
+        processedCount: 0,
+      };
+      const { events, publisher } = makePublisher();
+      const output = await processNextQueueItem(state, {
+        projectRoot: testDir,
+        eventPublisher: publisher as never,
+        janusEnabled: false,
+        maxRetryAttempts: 3,
+      });
+
+      expect(output).not.toBeNull();
+      const activeItem = output!.updatedState.items.find((i) => i.issueId === "next-1");
+      expect(activeItem!.status).toBe("active");
+    });
+
+    it("does NOT increment attemptCount when marking active", async () => {
+      const state: MergeQueueState = {
+        schemaVersion: 1,
+        items: [
+          makeQueueItem({
+            issueId: "next-1",
+            status: "queued",
+            position: 0,
+            attemptCount: 0,
+          }),
+        ],
+        processedCount: 0,
+      };
+      const { publisher } = makePublisher();
+      const output = await processNextQueueItem(state, {
+        projectRoot: testDir,
+        eventPublisher: publisher as never,
+        janusEnabled: false,
+        maxRetryAttempts: 3,
+      });
+
+      expect(output).not.toBeNull();
+      const activeItem = output!.updatedState.items.find((i) => i.issueId === "next-1");
+      expect(activeItem!.attemptCount).toBe(0); // unchanged
+    });
+
+    it("publishes a merge.queue_state SSE event", async () => {
+      const state: MergeQueueState = {
+        schemaVersion: 1,
+        items: [makeQueueItem({ issueId: "next-1", status: "queued", position: 0 })],
+        processedCount: 0,
+      };
+      const { events, publisher } = makePublisher();
+      await processNextQueueItem(state, {
+        projectRoot: testDir,
+        eventPublisher: publisher as never,
+        janusEnabled: false,
+        maxRetryAttempts: 3,
+      });
+
+      expect(events.length).toBe(1);
+      expect(events[0].type).toBe("merge.queue_state");
+      expect((events[0].payload as Record<string, unknown>).status).toBe("active");
+    });
+
+    it("returns success: false for S13 skeleton with S14 error message", async () => {
+      const state: MergeQueueState = {
+        schemaVersion: 1,
+        items: [makeQueueItem({ issueId: "next-1", status: "queued", position: 0 })],
+        processedCount: 0,
+      };
+      const { publisher } = makePublisher();
+      const output = await processNextQueueItem(state, {
+        projectRoot: testDir,
+        eventPublisher: publisher as never,
+        janusEnabled: false,
+        maxRetryAttempts: 3,
+      });
+
+      expect(output).not.toBeNull();
+      expect(output!.result.success).toBe(false);
+      expect(output!.result.error).toContain("S14");
+    });
+  });
+
+  describe("atomic write pattern with crash recovery", () => {
+    it("orphaned tmp file is ignored on load", () => {
+      const aegisDir = join(testDir, ".aegis");
+      mkdirSync(aegisDir, { recursive: true });
+
+      // Write a valid state
       const state = emptyMergeQueueState();
       saveMergeQueueState(testDir, state);
 
-      // After save, the final file should exist in .aegis subdir, tmp should not
-      const finalPath = join(testDir, ".aegis", "merge-queue.json");
-      const tmpPath = join(testDir, ".aegis", "merge-queue.json.tmp");
+      // Simulate orphaned tmp from a crashed write
+      const tmpPath = join(aegisDir, "merge-queue.json.tmp");
+      writeFileSync(tmpPath, "{ orphaned tmp }", "utf-8");
 
-      expect(existsSync(finalPath)).toBe(true);
-      expect(existsSync(tmpPath)).toBe(false);
-    });
+      // Load should still work fine
+      const loaded = loadMergeQueueState(testDir);
+      expect(loaded.schemaVersion).toBe(1);
 
-    it("survives interrupted write (tmp exists, final still valid)", () => {
-      // Write initial state
-      const state1 = emptyMergeQueueState();
-      saveMergeQueueState(testDir, state1);
-
-      // Load it back
-      const loaded1 = loadMergeQueueState(testDir);
-      expect(loaded1.schemaVersion).toBe(1);
+      // Clean up
+      rmSync(tmpPath, { force: true });
     });
   });
 

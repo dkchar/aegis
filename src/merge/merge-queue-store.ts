@@ -62,6 +62,9 @@ export interface QueueItem {
 
   /** ISO-8601 timestamp of last modification. */
   updatedAt: string;
+
+  /** Optional reference to Titan's handoff artifact for this candidate. */
+  handoffArtifactRef: string | null;
 }
 
 // ---------------------------------------------------------------------------

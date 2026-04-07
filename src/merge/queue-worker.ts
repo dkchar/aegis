@@ -12,6 +12,7 @@
  */
 
 import type { MergeQueueState, QueueItem } from "./merge-queue-store.js";
+import { nextQueuedItem } from "./merge-queue-store.js";
 import type { LiveEventPublisher } from "../events/event-bus.js";
 
 /** Configuration for the queue worker. */
@@ -63,20 +64,17 @@ export async function processNextQueueItem(
   state: MergeQueueState,
   config: QueueWorkerConfig,
 ): Promise<{ updatedState: MergeQueueState; result: QueueProcessingResult } | null> {
-  // Find the next queued item (FIFO)
-  const nextItem = state.items
-    .filter((item) => item.status === "queued")
-    .sort((a, b) => a.position - b.position)[0];
+  // Find the next queued item (FIFO) using canonical store function
+  const nextItem = nextQueuedItem(state);
 
   if (!nextItem) {
     return null;
   }
 
-  // Mark item as active
+  // Mark item as active (do NOT increment attemptCount until a genuine merge attempt)
   const updatedItem: QueueItem = {
     ...nextItem,
     status: "active",
-    attemptCount: nextItem.attemptCount + 1,
     updatedAt: new Date().toISOString(),
   };
 
@@ -103,11 +101,14 @@ export async function processNextQueueItem(
     },
   });
 
+  // S14 will implement actual merge gate execution here.
+  // For S13 skeleton: return the state transition only.
+  // The caller is responsible for not looping on this result in production.
   return {
     updatedState,
     result: {
       issueId: nextItem.issueId,
-      success: false, // S14 will implement actual merge logic
+      success: false,
       error: "Merge gate execution not yet implemented (S14)",
       newStatus: "active",
     },

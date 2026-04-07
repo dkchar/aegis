@@ -51,15 +51,15 @@ export interface AdmissionResult {
 /**
  * Run the full candidate admission workflow.
  *
- * This is the orchestrator-facing entry point that performs all steps atomically:
+ * This is the orchestrator-facing entry point that performs all steps:
  *
  * 1. Validates the dispatch record is eligible (stage === implemented, not already queued)
  * 2. Admits the candidate to the merge queue (FIFO tail position)
  * 3. Transitions dispatch state: implemented → queued_for_merge
  * 4. Emits a merge.queue_state SSE event for Olympus visibility
  *
- * All operations are pure — this function returns new state objects without
- * mutating any inputs.
+ * The state transformations (steps 2-3) are pure — new objects are returned
+ * without mutating inputs. The SSE event emission (step 4) is a side effect.
  *
  * @param dispatchState - Current dispatch state.
  * @param queueState - Current merge queue state.
@@ -107,7 +107,7 @@ export function runAdmissionWorkflow(
   };
 
   // Step 4: Emit merge.queue_state SSE event for Olympus
-  const admittedItem = newQueueState.items.find((item) => item.issueId === issueId);
+  const admittedItem = newQueueState.items.find((item) => item.issueId === issueId)!;
   const event: AegisLiveEvent = {
     id: crypto.randomUUID(),
     type: "merge.queue_state",
@@ -116,7 +116,7 @@ export function runAdmissionWorkflow(
     payload: {
       issueId,
       status: "queued",
-      attemptCount: admittedItem?.attemptCount ?? 0,
+      attemptCount: admittedItem.attemptCount,
       errorDetail: null,
     },
   };

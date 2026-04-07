@@ -10,7 +10,7 @@
 
 import type { MergeQueueState, QueueItem } from "./merge-queue-store.js";
 import type { DispatchRecord } from "../core/dispatch-state.js";
-import { isInQueue } from "./merge-queue-store.js";
+import { isInQueue, isTerminalStatus } from "./merge-queue-store.js";
 import { DispatchStage } from "../core/stage-transition.js";
 
 /** Input for admitting a candidate to the merge queue. */
@@ -85,8 +85,7 @@ export function admitCandidate(
 
   // Assign position at the end of the queue
   const activeItemCount = state.items.filter(
-    (item) =>
-      item.status !== "merged" && item.status !== "manual_decision_required",
+    (item) => !isTerminalStatus(item.status),
   ).length;
 
   const now = new Date().toISOString();
@@ -103,6 +102,7 @@ export function admitCandidate(
     sourceStage: input.sourceStage,
     sessionProvenanceId: input.sessionProvenanceId,
     updatedAt: now,
+    handoffArtifactRef: input.handoffArtifactRef ?? null,
   };
 
   return {

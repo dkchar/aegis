@@ -1,12 +1,12 @@
 # Aegis MVP Tracker
 
-- Refreshed: 2026-04-07T19:58:30+01:00
+- Refreshed: 2026-04-07T22:40:17+01:00
 - Source spec: SPECv2.md
 - Design doc: docs/superpowers/specs/2026-04-03-aegis-mvp-slicing-design.md
 - Plan doc: docs/superpowers/plans/2026-04-03-aegis-mvp-slice-plan.md
 - Program epic: aegis-fjm
 - Program status: blocked
-- Program updated: 2026-04-07T18:58:30Z
+- Program updated: 2026-04-07T22:40:17Z
 - Operational queue: use `bd ready`; slice and program epics stay `blocked` as coordination units because Beads cannot model task-to-epic blockers.
 - Planning view: `bd swarm validate` still reports epic-level waves and is advisory, not the executable queue.
 
@@ -262,26 +262,27 @@
 
 ### S13 - Merge Queue Admission and Persistence (aegis-fjm.14)
 
-- Status: blocked
-- Updated: 2026-04-07T18:58:06Z
-- Child completion: 0/4
+- Status: closed
+- Updated: 2026-04-07T22:40:17Z
 - Depends on: S09, S10
 - Outcome: Implemented Titan candidates are admitted to a restart-safe merge queue instead of merging directly.
 - Automated gate: npm run test -- tests/unit/merge/merge-queue-store.test.ts tests/integration/merge/queue-admission.test.ts
 - Manual gate: Successful Titan output enters the queue instead of merging directly, and queued state survives restart before merge execution continues.
-- Automated evidence: pending
-- Manual evidence: pending
+- Automated evidence: passed: npm run test -- tests/unit/merge/merge-queue-store.test.ts tests/integration/merge/queue-admission.test.ts (2 files, 53 tests); npm run test (60 files, 1088 tests, 11 todo); npm run build; npm run lint on 2026-04-07
+- Manual evidence: passed: Verified Titan output transitions to implemented then queued_for_merge with no bypass to merged. Queue state survives restart with full fidelity via atomic tmp-rename. reconcileMergeQueueState resets active to queued. FIFO ordering preserved. 27/27 restart tests pass.
+- Evidence notes: S13 gate closed: merge queue admission and persistence implemented with restart-safe persistence, FIFO ordering, SSE event emission, Olympus visibility. All 1088 tests pass, build passes, lint passes.
+- Evidence updated: 2026-04-07T22:39:16+01:00
 - Children:
-  - contract: aegis-fjm.14.1 [open] updated 2026-04-07T18:58:07Z
-  - lane_a: aegis-fjm.14.2 [open] updated 2026-04-07T18:58:07Z
-  - lane_b: aegis-fjm.14.3 [open] updated 2026-04-07T18:58:08Z
-  - gate: aegis-fjm.14.4 [open] updated 2026-04-07T18:58:09Z
+  - contract: aegis-fjm.14.1 [closed] updated 2026-04-07T20:26:22Z
+  - lane_a: aegis-fjm.14.2 [closed] updated 2026-04-07T20:41:57Z
+  - lane_b: aegis-fjm.14.3 [closed] updated 2026-04-07T20:38:47Z
+  - gate: aegis-fjm.14.4 [closed] updated 2026-04-07T21:40:08Z
 
 ### S14 - Mechanical Merge Execution and Outcome Artifacts (aegis-fjm.15)
 
 - Status: blocked
-- Updated: 2026-04-07T18:58:11Z
-- Child completion: 0/4
+- Updated: 2026-04-07T22:40:17Z
+- Child completion: 1/4 (contract ready)
 - Depends on: S13, S09A
 - Outcome: The merge worker runs gates, lands clean candidates, emits failure artifacts, preserves labor, and triggers post-merge review.
 - Automated gate: npm run test -- tests/unit/merge/run-gates.test.ts tests/integration/merge/merge-outcomes.test.ts

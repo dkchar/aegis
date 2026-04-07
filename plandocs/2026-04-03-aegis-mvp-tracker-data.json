@@ -1,5 +1,5 @@
 {
-    "generated_at":  "2026-04-07T19:58:30+01:00",
+    "generated_at":  "2026-04-07T22:39:16+01:00",
     "source_spec":  "SPECv2.md",
     "design_doc":  "docs/superpowers/specs/2026-04-03-aegis-mvp-slicing-design.md",
     "plan_doc":  "docs/superpowers/plans/2026-04-03-aegis-mvp-slice-plan.md",
@@ -360,10 +360,10 @@
                        "outcome":  "Implemented Titan candidates are admitted to a restart-safe merge queue instead of merging directly.",
                        "automated_gate":  "npm run test -- tests/unit/merge/merge-queue-store.test.ts tests/integration/merge/queue-admission.test.ts",
                        "manual_gate":  "Successful Titan output enters the queue instead of merging directly, and queued state survives restart before merge execution continues.",
-                       "evidence_automated":  "pending",
-                       "evidence_manual":  "pending",
-                       "evidence_notes":  "",
-                       "evidence_updated_at":  "",
+                       "evidence_automated":  "passed: npm run test -- tests/unit/merge/merge-queue-store.test.ts tests/integration/merge/queue-admission.test.ts (2 files, 53 tests); npm run test (60 files, 1088 tests, 11 todo); npm run build; npm run lint on 2026-04-07",
+                       "evidence_manual":  "passed: Verified Titan output transitions to implemented then queued_for_merge with no bypass to merged. Queue state survives restart with full fidelity via atomic tmp-rename. reconcileMergeQueueState resets active to queued. FIFO ordering preserved. 27/27 restart tests pass.",
+                       "evidence_notes":  "S13 gate closed: merge queue admission and persistence implemented with restart-safe persistence, FIFO ordering, SSE event emission, Olympus visibility. All 1088 tests pass, build passes, lint passes.",
+                       "evidence_updated_at":  "2026-04-07T22:39:16+01:00",
                        "children":  {
                                         "contract":  "aegis-fjm.14.1",
                                         "lane_a":  "aegis-fjm.14.2",
