@@ -53,16 +53,16 @@ export interface QueueProcessingResult {
  * For S13, this skeleton:
  *   - accepts the queue state and config
  *   - marks the next queued item as active
- *   - returns a placeholder result (actual merge logic in S14)
+ *   - returns the updated state AND processing result
  *
  * @param state - Current merge queue state.
  * @param config - Worker configuration.
- * @returns Processing result with the item's new status.
+ * @returns Tuple of [updated state, processing result] or null if queue is empty.
  */
 export async function processNextQueueItem(
   state: MergeQueueState,
   config: QueueWorkerConfig,
-): Promise<QueueProcessingResult | null> {
+): Promise<{ updatedState: MergeQueueState; result: QueueProcessingResult } | null> {
   // Find the next queued item (FIFO)
   const nextItem = state.items
     .filter((item) => item.status === "queued")
@@ -72,12 +72,21 @@ export async function processNextQueueItem(
     return null;
   }
 
-  // S13 skeleton: mark as active, S14 will implement actual merge
+  // Mark item as active
   const updatedItem: QueueItem = {
     ...nextItem,
     status: "active",
     attemptCount: nextItem.attemptCount + 1,
     updatedAt: new Date().toISOString(),
+  };
+
+  // Create updated state with the modified item
+  const updatedState: MergeQueueState = {
+    schemaVersion: state.schemaVersion,
+    items: state.items.map((item) =>
+      item.issueId === nextItem.issueId ? updatedItem : item,
+    ),
+    processedCount: state.processedCount,
   };
 
   // Publish event for queue state change
@@ -90,24 +99,32 @@ export async function processNextQueueItem(
       issueId: nextItem.issueId,
       status: "active",
       attemptCount: updatedItem.attemptCount,
+      errorDetail: null,
     },
   });
 
   return {
-    issueId: nextItem.issueId,
-    success: false, // S14 will implement actual merge logic
-    error: "Merge gate execution not yet implemented (S14)",
-    newStatus: "active",
+    updatedState,
+    result: {
+      issueId: nextItem.issueId,
+      success: false, // S14 will implement actual merge logic
+      error: "Merge gate execution not yet implemented (S14)",
+      newStatus: "active",
+    },
   };
 }
 
 /**
- * Get the current queue depth for monitoring and Olympus display.
+ * Get the count of items actively being processed.
+ *
+ * This is narrower than getQueueDepth from queue-visibility.ts, which counts
+ * all non-terminal items. This function only counts queued + active items
+ * (i.e., items the worker would actually touch).
  *
  * @param state - Current merge queue state.
- * @returns Number of items waiting or being processed.
+ * @returns Number of items in queued or active status.
  */
-export function getQueueDepth(state: MergeQueueState): number {
+export function getActiveWorkCount(state: MergeQueueState): number {
   return state.items.filter(
     (item) =>
       item.status === "queued" || item.status === "active",

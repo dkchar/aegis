@@ -25,6 +25,7 @@ import {
 import { admitCandidate, dequeueItem, isEligibleForEnqueue } from "../../../src/merge/enqueue-candidate.js";
 import { mkdirSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import type { DispatchRecord } from "../../../src/core/dispatch-state.js";
 import { DispatchStage } from "../../../src/core/stage-transition.js";
 
@@ -82,7 +83,7 @@ describe("Merge Queue Store — Unit", () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = join(process.cwd(), ".aegis-test-" + Date.now());
+    testDir = join(process.cwd(), ".aegis-test-" + randomUUID());
     mkdirSync(testDir, { recursive: true });
   });
 
@@ -156,7 +157,7 @@ describe("Merge Queue Store — Unit", () => {
     });
   });
 
-  describe("nextQueedItem", () => {
+  describe("nextQueuedItem", () => {
     it("returns the first queued item by position", () => {
       const state = makeTestQueueState([
         makeQueueItem({ issueId: "second", position: 1 }),

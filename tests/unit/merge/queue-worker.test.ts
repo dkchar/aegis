@@ -19,9 +19,10 @@ import {
   type MergeQueueState,
   type QueueItem,
 } from "../../../src/merge/merge-queue-store.js";
-import { getQueueDepth } from "../../../src/merge/queue-worker.js";
+import { getActiveWorkCount } from "../../../src/merge/queue-worker.js";
 import { mkdirSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -51,7 +52,7 @@ describe("Queue Worker and Persistence — Lane A Unit", () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = join(process.cwd(), ".aegis-test-" + Date.now());
+    testDir = join(process.cwd(), ".aegis-test-" + randomUUID());
     mkdirSync(testDir, { recursive: true });
   });
 
@@ -61,10 +62,10 @@ describe("Queue Worker and Persistence — Lane A Unit", () => {
     }
   });
 
-  describe("getQueueDepth", () => {
+  describe("getActiveWorkCount", () => {
     it("returns 0 for empty queue", () => {
       const state = emptyMergeQueueState();
-      expect(getQueueDepth(state)).toBe(0);
+      expect(getActiveWorkCount(state)).toBe(0);
     });
 
     it("counts only queued and active items", () => {
@@ -80,7 +81,7 @@ describe("Queue Worker and Persistence — Lane A Unit", () => {
         processedCount: 0,
       };
 
-      expect(getQueueDepth(state)).toBe(3); // q1, q2, a1
+      expect(getActiveWorkCount(state)).toBe(3); // q1, q2, a1
     });
   });
 

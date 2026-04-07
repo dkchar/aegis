@@ -17,7 +17,7 @@ import type { DispatchRecord, DispatchState } from "../core/dispatch-state.js";
 import { transitionStage } from "../core/stage-transition.js";
 import type { MergeQueueState } from "./merge-queue-store.js";
 import { admitCandidate, isEligibleForEnqueue } from "./enqueue-candidate.js";
-import { isInQueue } from "./merge-queue-store.js";
+import { isInQueue, isTerminalStatus } from "./merge-queue-store.js";
 import type { LiveEventPublisher, AegisLiveEvent } from "../events/event-bus.js";
 import { DispatchStage } from "../core/stage-transition.js";
 
@@ -131,7 +131,7 @@ export function runAdmissionWorkflow(
 }
 
 /**
- * Compute the queue depth (number of items waiting or being processed).
+ * Compute the queue depth (number of non-terminal items).
  *
  * This is a convenience export of the calculation used by Olympus for
  * monitoring dashboards.
@@ -141,13 +141,7 @@ export function runAdmissionWorkflow(
  */
 export function computeQueueDepth(state: MergeQueueState): number {
   return state.items.filter(
-    (item) =>
-      item.status === "queued" ||
-      item.status === "active" ||
-      item.status === "rework_requested" ||
-      item.status === "janus_required" ||
-      item.status === "janus_resolved" ||
-      item.status === "manual_decision_required",
+    (item) => !isTerminalStatus(item.status),
   ).length;
 }
 

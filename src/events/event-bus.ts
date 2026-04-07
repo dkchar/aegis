@@ -153,7 +153,7 @@ function assertLiveEvent(event: AegisLiveEvent) {
 }
 
 function normalizeReplayLimit(value: number | undefined) {
-  if (!Number.isInteger(value) || value === undefined || value < 1) {
+  if (value === undefined || !Number.isInteger(value) || value < 1) {
     return DEFAULT_LIVE_EVENT_REPLAY_LIMIT;
   }
 

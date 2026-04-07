@@ -48,6 +48,7 @@ import { transitionStage, DispatchStage } from "../../../src/core/stage-transiti
 import type { DispatchRecord, DispatchState } from "../../../src/core/dispatch-state.js";
 import { mkdirSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -72,7 +73,7 @@ describe("Queue Admission — Integration", () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = join(process.cwd(), ".aegis-test-" + Date.now());
+    testDir = join(process.cwd(), ".aegis-test-" + randomUUID());
     mkdirSync(testDir, { recursive: true });
   });
 

@@ -10,6 +10,8 @@
 
 import type { MergeQueueState, QueueItem } from "./merge-queue-store.js";
 import type { DispatchRecord } from "../core/dispatch-state.js";
+import { isInQueue } from "./merge-queue-store.js";
+import { DispatchStage } from "../core/stage-transition.js";
 
 /** Input for admitting a candidate to the merge queue. */
 export interface EnqueueCandidateInput {
@@ -49,7 +51,7 @@ export function isEligibleForEnqueue(
   alreadyInQueue: boolean,
 ): boolean {
   return (
-    record.stage === "implemented" &&
+    record.stage === DispatchStage.Implemented &&
     !alreadyInQueue &&
     record.issueId.trim().length > 0
   );
@@ -72,13 +74,8 @@ export function admitCandidate(
   state: MergeQueueState,
   input: EnqueueCandidateInput,
 ): MergeQueueState {
-  // Check for duplicate admission
-  const alreadyExists = state.items.some(
-    (item) =>
-      item.issueId === input.issueId &&
-      item.status !== "merged" &&
-      item.status !== "manual_decision_required",
-  );
+  // Check for duplicate admission using canonical isInQueue
+  const alreadyExists = isInQueue(state, input.issueId);
 
   if (alreadyExists) {
     throw new Error(
@@ -133,7 +130,6 @@ export function dequeueItem(
     .map((item, index) => ({
       ...item,
       position: index,
-      updatedAt: new Date().toISOString(),
     }));
 
   return {
