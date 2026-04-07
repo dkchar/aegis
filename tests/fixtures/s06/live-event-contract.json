@@ -42,6 +42,15 @@
         "hasOverlap",
         "evaluatedAt"
       ]
+    },
+    {
+      "type": "merge.queue_state",
+      "requiredPayloadFields": [
+        "issueId",
+        "status",
+        "attemptCount",
+        "errorDetail"
+      ]
     }
   ]
 }
