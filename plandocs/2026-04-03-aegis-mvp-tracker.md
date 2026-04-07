@@ -315,8 +315,8 @@
 ### S15B - Janus Escalation Path (aegis-fjm.19)
 
 - Status: blocked
-- Updated: 2026-04-07T18:58:18Z
-- Child completion: 0/4
+- Updated: 2026-04-07T23:09:15Z
+- Child completion: 1/4 (contract ready)
 - Depends on: S14
 - Outcome: Tier 3 integration cases can escalate to Janus safely without becoming the happy path.
 - Automated gate: npm run test -- tests/unit/castes/janus/janus-parser.test.ts tests/integration/merge/janus-escalation.test.ts
