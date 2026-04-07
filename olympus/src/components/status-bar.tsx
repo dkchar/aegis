@@ -5,6 +5,8 @@
  * connection status, and uptime display.
  */
 
+import type { JSX } from "react";
+
 export interface StatusBarProps {
   isRunning: boolean;
   mode: "conversational" | "auto" | null;

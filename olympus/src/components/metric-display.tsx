@@ -5,6 +5,8 @@
  * and other dashboard metrics.
  */
 
+import type { JSX } from "react";
+
 export interface MetricDisplayProps {
   label: string;
   value: string | number;

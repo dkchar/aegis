@@ -5,6 +5,7 @@
  * uptime, queue depth, and auto mode toggle.
  */
 
+import type { JSX } from "react";
 import type { DashboardState } from "../types/dashboard-state";
 
 export interface TopBarProps {

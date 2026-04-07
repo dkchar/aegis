@@ -5,6 +5,8 @@
  * and preference management.
  */
 
+import type { JSX } from "react";
+
 export interface SettingsPanelProps {
   isOpen: boolean;
   onClose: () => void;
