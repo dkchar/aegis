@@ -22,8 +22,8 @@
 | S09 | Titan Pipeline and Labors | blocked; contract seed landed, lanes open |
 | S09A | Sentinel Review Pipeline | blocked; not started |
 | S10 | Monitor, Reaper, Cooldown, and Recovery | closed |
-| S11 | Mnemosyne and Lethe Baseline | blocked; not started |
-| S12 | Olympus MVP Shell | blocked; not started |
+| S11 | Mnemosyne and Lethe Baseline | closed |
+| S12 | Olympus MVP Shell | closed |
 | S13 | Merge Queue Admission and Persistence | blocked; not started |
 | S14 | Mechanical Merge Execution and Outcome Artifacts | blocked; not started |
 | S15A | Scope Allocator | closed; PR #42 pending merge |
