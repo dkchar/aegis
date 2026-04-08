@@ -95,7 +95,13 @@ function runSingleGate(gate: GateDefinition): GateResult {
   const startTime = Date.now();
 
   try {
-    const result = spawnSync(gate.command, gate.args, {
+    const command = process.platform === "win32"
+      ? process.env.ComSpec ?? "cmd.exe"
+      : gate.command;
+    const args = process.platform === "win32"
+      ? ["/d", "/s", "/c", gate.command, ...gate.args]
+      : [...gate.args];
+    const result = spawnSync(command, args, {
       cwd: gate.cwd,
       timeout: gate.timeoutMs,
       encoding: "utf-8",
@@ -178,11 +184,13 @@ export function defaultGateConfig(
   projectRoot: string,
   candidateCwd: string,
 ): GateRunnerConfig {
+  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+
   return {
     gates: [
       {
         name: "lint",
-        command: "npm",
+        command: npmCommand,
         args: ["run", "lint"],
         cwd: candidateCwd,
         timeoutMs: 120_000,
@@ -190,7 +198,7 @@ export function defaultGateConfig(
       },
       {
         name: "build",
-        command: "npm",
+        command: npmCommand,
         args: ["run", "build"],
         cwd: candidateCwd,
         timeoutMs: 120_000,
@@ -198,7 +206,7 @@ export function defaultGateConfig(
       },
       {
         name: "tests",
-        command: "npm",
+        command: npmCommand,
         args: ["run", "test"],
         cwd: candidateCwd,
         timeoutMs: 300_000,

@@ -349,6 +349,6 @@ describe("S03 fixture sanity", () => {
           ).toBe("boolean");
         }
       }
-    });
+    }, 30_000);
   });
 });

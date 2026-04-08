@@ -2,7 +2,7 @@
 
 **Source of truth:** `SPECv2.md`  
 **Tracker:** `plandocs/2026-04-03-aegis-mvp-tracker.md`  
-**Generated:** 2026-04-05
+**Generated:** 2026-04-08
 
 ---
 
@@ -17,21 +17,21 @@
 | S04 | Tracker Adapter and Dispatch Store | closed |
 | S05 | Runtime Contract and Pi Adapter | closed |
 | S06 | HTTP Server, SSE Bus, and Launch Lifecycle | closed |
-| S07 | Direct Commands and Operating Modes | blocked; contract seed landed, lanes open |
-| S08 | Oracle Scouting Pipeline | blocked; contract seed landed, lanes open |
-| S09 | Titan Pipeline and Labors | blocked; contract seed landed, lanes open |
-| S09A | Sentinel Review Pipeline | blocked; not started |
+| S07 | Direct Commands and Operating Modes | closed |
+| S08 | Oracle Scouting Pipeline | closed |
+| S09 | Titan Pipeline and Labors | closed |
+| S09A | Sentinel Review Pipeline | closed |
 | S10 | Monitor, Reaper, Cooldown, and Recovery | closed |
 | S11 | Mnemosyne and Lethe Baseline | closed |
 | S12 | Olympus MVP Shell | closed |
-| S13 | Merge Queue Admission and Persistence | blocked; not started |
-| S14 | Mechanical Merge Execution and Outcome Artifacts | blocked; not started |
+| S13 | Merge Queue Admission and Persistence | closed |
+| S14 | Mechanical Merge Execution and Outcome Artifacts | closed |
 | S15A | Scope Allocator | closed; PR #42 pending merge |
-| S15B | Janus Escalation Path | blocked; not started |
-| S16A | Benchmark Scenario Wiring | blocked; not started |
+| S15B | Janus Escalation Path | closed |
+| S16A | Benchmark Scenario Wiring | closed |
 | S16B | Release Metrics and Evidence Gate | blocked; not started |
 
-**Current execution posture:** S15A complete. Next ready: S11 contract (aegis-fjm.12.1) or S15B contract after S14 dependency clears.
+**Current execution posture:** S16A complete. The next ready work is S16B contract `aegis-fjm.20.1` in `bd ready`.
 
 ---
 
@@ -94,8 +94,12 @@ Deterministic orchestration core. No runtime-specific imports.
 - `operating-mode.ts`: S07 contract for conversational vs auto mode state plus pause/resume helpers.
 - `auto-loop.ts`: S07 contract for "new ready only" auto-mode freshness gating.
 - `command-executor.ts`: S07 contract for parsed-command routing and execution result shape.
-- `run-oracle.ts`: S08 pure Oracle runner; builds the prompt, parses the strict assessment, derives sub-issue inputs, and surfaces `requiresHumanApproval` for complex work.
-- `run-titan.ts`: S09 pure Titan handoff contract; defines handoff artifact, clarification artifact, and lifecycle rules without yet wiring runtime execution.
+- `run-oracle.ts`: Oracle runtime dispatch, strict assessment parsing, artifact persistence, complexity gating, and derived-issue materialization.
+- `run-titan.ts`: Titan runtime dispatch inside a labor, handoff and clarification artifact emission, and stage transitions.
+- `run-sentinel.ts`: Sentinel review dispatch, verdict persistence, and corrective-fix issue creation.
+- `run-janus.ts`: Janus integration-resolution dispatch and requeue/manual-decision/fail transitions.
+- `poller.ts`: ready-queue polling and dispatch classification.
+- `recovery.ts`, `monitor.ts`, `reaper.ts`, `reaper-impl.ts`: restart, monitoring, and session-finalization logic.
 
 ### `src/tracker/`
 Beads tracker surface.
@@ -119,9 +123,21 @@ S08 contract files for Oracle scouting.
 - `oracle-parser.ts`: strict `OracleAssessment` parser and typed parse errors.
 
 ### `src/castes/titan/`
-S09 contract files for Titan execution.
+Titan prompt contract for labor-bound execution.
 
 - `titan-prompt.ts`: prompt sections, rules, and prompt-contract generator for a labor-bound Titan session.
+
+### `src/castes/sentinel/`
+Sentinel review prompt and strict verdict parsing.
+
+- `sentinel-prompt.ts`: review prompt contract and read-only tool policy.
+- `sentinel-parser.ts`: strict `SentinelVerdict` parser.
+
+### `src/castes/janus/`
+Janus integration-resolution prompt and strict artifact parsing.
+
+- `janus-prompt.ts`: escalation prompt contract for preserved-labor integration work.
+- `janus-parser.ts`: strict `JanusResolutionArtifact` parser.
 
 ### `src/labor/`
 S09 contract files for labor lifecycle planning.
@@ -151,29 +167,40 @@ CLI implementations.
 - `parse-command.ts`: S07 deterministic direct-command parser for the canonical MVP command family.
 
 ### `src/evals/`
-Eval harness foundation from S02 and S03.
+Eval harness foundation plus wired MVP scenario runners.
 
 - `fixture-schema.ts`: scenario fixture schema and validation.
 - `result-schema.ts`: eval run artifact schema and score summary type.
 - `schema-helpers.ts`: shared validation constants/helpers.
 - `validate-result.ts`: result artifact validator.
-- `run-scenario.ts`: deterministic fixture-driven scenario runner.
+- `run-scenario.ts`: scenario runner with wired MVP live-module paths plus fixture fallback for unwired scenarios.
 - `write-result.ts`: result artifact persistence.
 - `compute-score-summary.ts`: metric computation from run artifacts.
 - `compare-runs.ts`: regression comparison helper.
+- `wire-mvp-scenarios.ts`: canonical MVP scenario manifest and lane split bindings.
+- `mvp-scenario-runners/`: shared harness plus lane-specific MVP scenario runners.
+
+### `src/merge/`
+Merge queue, merge worker, Janus integration, and merge artifact plumbing.
+
+- `merge-queue-store.ts`: queue persistence and restart reconciliation.
+- `enqueue-candidate.ts`, `admission-workflow.ts`: implemented -> queued_for_merge admission path.
+- `queue-worker.ts`: merge queue processing and Janus escalation integration.
+- `apply-merge.ts`, `run-gates.ts`, `emit-outcome-artifact.ts`, `preserve-labor.ts`: merge execution and durable outcome artifacts.
+- `janus-integration.ts`, `janus-outcome-artifact.ts`, `tiered-conflict-policy.ts`: Janus requeue/manual-decision handling and escalation policy.
 
 ---
 
 ## `olympus/` - Dashboard Workspace
 
-The dashboard is still Phase 0 shell only.
+Olympus is the landed MVP dashboard shell from S12.
 
-- `src/App.tsx`: placeholder Olympus root.
+- `src/App.tsx`: Olympus root and state composition.
 - `src/main.tsx`: React bootstrap.
 - `index.html`, `vite.config.ts`, `package.json`, `tsconfig.json`: workspace plumbing.
 - `dist/`: committed build output served by the HTTP server when present.
-
-Full MVP dashboard work remains owned by S12.
+- `src/components/`: top bar, settings panel, agent cards, and command bar.
+- `src/lib/use-sse.ts`: SSE client with retry/backoff behavior.
 
 ---
 
@@ -276,7 +303,7 @@ Created by `aegis init` and ignored from git.
 
 - `config.json`: project config overrides.
 - `dispatch-state.json`: orchestration truth.
-- `merge-queue.json`: merge queue state placeholder until S13.
+- `merge-queue.json`: merge queue state.
 - `mnemosyne.jsonl`: learning store placeholder until S11.
 - `runtime-state.json`: active server state when `aegis start` is running.
 - `runtime-stop-request.json`: stop signal file.
@@ -297,17 +324,30 @@ CLI (src/index.ts)
   |-- stop   -> src/cli/stop.ts
   `-- status -> src/cli/status.ts
 
-Direct commands (S07 contract)
+Direct commands (S07)
   parse-command.ts -> command-executor.ts
                      |-- operating-mode.ts
                      `-- auto-loop.ts
 
-Oracle (S08 contract)
+Oracle (S08)
   oracle-prompt.ts -> run-oracle.ts -> create-derived-issues.ts
   oracle-parser.ts /
 
-Titan (S09 contract)
+Titan (S09)
   create-labor.ts -> titan-prompt.ts -> run-titan.ts -> cleanup-labor.ts
+
+Sentinel (S09A)
+  sentinel-prompt.ts -> run-sentinel.ts -> create-fix-issue.ts
+  sentinel-parser.ts /
+
+Merge queue + Janus (S13-S15B)
+  admission-workflow.ts -> merge-queue-store.ts -> queue-worker.ts
+                                              |-- run-gates.ts / apply-merge.ts
+                                              `-- run-janus.ts -> janus-integration.ts
+
+Eval wiring (S16A)
+  wire-mvp-scenarios.ts -> mvp-scenario-runners/* -> run-scenario.ts
+                                                 `-> result artifacts + score summaries
 
 Scope Allocator (S15A)
   triage.ts -> allocateScope() -> scope-allocator.ts
@@ -321,19 +361,14 @@ Scope Allocator (S15A)
 
 ## What Is Not Yet Built
 
-The following areas are still incomplete even though some contract files now exist:
+The major MVP workflow slices through S16A are now landed. The primary remaining gap in this reference is S16B, which still owns:
 
-- S07 lane logic: no real command routing implementation yet beyond parser and execution contracts.
-- S08 lane logic: no runtime-backed Oracle dispatch or tracker mutation wiring yet beyond pure contracts.
-- S09 lane logic: no real labor creation/cleanup shelling or Titan runtime integration yet beyond planning artifacts.
-- S09A: no Sentinel prompt/parser/review pipeline files yet.
-- S11: no Mnemosyne/Lethe source files yet.
-- S12: Olympus is still the minimal shell, not the MVP dashboard.
-- S13-S16B: merge queue, Janus, scenario wiring, and release gate modules are still absent.
-- S15A scope allocator: implemented (PR #42 pending merge) — `src/core/scope-allocator.ts`, `src/core/overlap-visibility.ts`, `src/core/triage.ts` wired with forceDispatch, seedFileScope, narrowFileScope.
+- release-threshold evaluation and evidence reports for the benchmark suite
+- final metrics/release-gate modules beyond the current score-summary scaffolding
+
+Some post-MVP areas from `SPECv2.md` also remain intentionally absent, including extended caste families and broader release/reporting surfaces.
 
 Keep the distinction clear:
 
-- Contract seed landed -> interfaces, scaffolding, and tests exist.
-- Lane not landed -> behavior is still intentionally incomplete.
-- Gate not landed -> slice evidence is still pending.
+- Landed slice -> implementation, tests, and recorded gate evidence exist.
+- Planned slice -> tracker and design docs exist, but implementation is still intentionally absent.

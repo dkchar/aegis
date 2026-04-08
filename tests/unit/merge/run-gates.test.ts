@@ -188,8 +188,16 @@ describe("runGates", () => {
 
     expect(result.results).toHaveLength(1);
     expect(result.results[0].passed).toBe(false);
-    expect(result.results[0].exitCode).toBeNull();
-    expect(result.results[0].error).toBeDefined();
+    if (process.platform === "win32") {
+      expect(result.results[0].exitCode).toBe(1);
+    } else {
+      expect(result.results[0].exitCode).toBeNull();
+    }
+    if (process.platform === "win32") {
+      expect(result.results[0].stderr).toContain("not recognized");
+    } else {
+      expect(result.results[0].error).toBeDefined();
+    }
   });
 
   it("captures stdout and stderr", async () => {
@@ -258,5 +266,12 @@ describe("defaultGateConfig", () => {
     const config = defaultGateConfig(testDir, customCwd);
 
     expect(config.gates.every((g) => g.cwd === customCwd)).toBe(true);
+  });
+
+  it("uses a Windows-safe npm command name", () => {
+    const config = defaultGateConfig(testDir, candidateDir);
+    const expectedCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+
+    expect(config.gates.every((gate) => gate.command === expectedCommand)).toBe(true);
   });
 });

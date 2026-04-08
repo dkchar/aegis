@@ -1,12 +1,12 @@
 # Aegis MVP Tracker
 
-- Refreshed: 2026-04-07T22:40:17+01:00
+- Refreshed: 2026-04-08T19:11:41+01:00
 - Source spec: SPECv2.md
 - Design doc: docs/superpowers/specs/2026-04-03-aegis-mvp-slicing-design.md
 - Plan doc: docs/superpowers/plans/2026-04-03-aegis-mvp-slice-plan.md
 - Program epic: aegis-fjm
 - Program status: blocked
-- Program updated: 2026-04-07T22:40:17Z
+- Program updated: 2026-04-08T14:33:48Z
 - Operational queue: use `bd ready`; slice and program epics stay `blocked` as coordination units because Beads cannot model task-to-epic blockers.
 - Planning view: `bd swarm validate` still reports epic-level waves and is advisory, not the executable queue.
 
@@ -332,20 +332,22 @@
 
 ### S16A - Benchmark Scenario Wiring (aegis-fjm.17)
 
-- Status: blocked
-- Updated: 2026-04-07T18:58:22Z
-- Child completion: 0/4
+- Status: closed
+- Updated: 2026-04-08T14:33:48Z
+- Child completion: 4/4
 - Depends on: S03, S11, S12, S14, S15A, S15B
 - Outcome: The designated MVP scenario set is wired to the real orchestration pipeline.
 - Automated gate: npm run test -- tests/integration/evals/mvp-scenario-wiring.test.ts
 - Manual gate: The designated MVP scenario set covers clean-issue, complex-pause, decomposition, clarification, stale-branch rework, hard merge conflict, Janus escalation, Janus human-decision, restart-during-implementation, restart-during-merge, and polling-only cases end to end against the real orchestration pipeline.
-- Automated evidence: pending
-- Manual evidence: pending
+- Automated evidence: passed: npm run test -- tests/integration/evals/mvp-scenario-wiring.test.ts (1 file, 6 tests); npm run test -- tests/integration/evals/lane-a-mvp-scenario-runners.test.ts tests/integration/evals/lane-b-scenario-runners.test.ts (2 files, 11 tests); npm run test (68 files, 1272 tests, 11 todo); npm run lint; npm run build on 2026-04-08
+- Manual evidence: passed: all 11 MVP scenarios now run through landed Oracle, Titan, merge admission, queue-worker gate execution, live git merge outcomes, Sentinel, Janus, restart reconciliation, and poller module paths inside deterministic git-backed scenario sandboxes on 2026-04-08
+- Evidence notes: S16A now creates real labor worktrees inside deterministic scenario repos, commits candidate changes before admission, drives clean/rework/conflict/Janus/restart outcomes through processNextQueueItem, fails closed when an MVP runner is missing, derives human-intervention IDs from live scenario effects instead of fixture defaults, and hardens run-gates.ts plus the eval timeout coverage for Windows-safe gate execution. PR dkchar/aegis#51 opened against main.
+- Evidence updated: 2026-04-08T19:11:41+01:00
 - Children:
-  - contract: aegis-fjm.17.1 [open] updated 2026-04-07T18:58:23Z
-  - lane_a: aegis-fjm.17.2 [open] updated 2026-04-07T18:58:23Z
-  - lane_b: aegis-fjm.17.3 [open] updated 2026-04-07T18:58:24Z
-  - gate: aegis-fjm.17.4 [open] updated 2026-04-07T18:58:24Z
+  - contract: aegis-fjm.17.1 [closed] updated 2026-04-08T13:55:52Z
+  - lane_a: aegis-fjm.17.2 [closed] updated 2026-04-08T14:32:54Z
+  - lane_b: aegis-fjm.17.3 [closed] updated 2026-04-08T14:32:54Z
+  - gate: aegis-fjm.17.4 [closed] updated 2026-04-08T14:33:18Z
 
 ### S16B - Release Metrics and Evidence Gate (aegis-fjm.20)
 

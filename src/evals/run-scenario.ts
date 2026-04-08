@@ -20,6 +20,7 @@ import type {
 } from "./result-schema.js";
 import type { Fixture } from "./fixture-schema.js";
 import { validateFixture } from "./fixture-schema.js";
+import { tryRunMvpScenario } from "./mvp-scenario-runners/index.js";
 
 // ---------------------------------------------------------------------------
 // Options
@@ -164,6 +165,24 @@ export async function runScenario(options: RunScenarioOptions): Promise<EvalRunR
 
   const runtime = resolvedConfig.runtime;
   const model_mapping = { ...resolvedConfig.models };
+
+  const liveScenarioResult = await tryRunMvpScenario({
+    scenario,
+    fixture,
+    projectRoot,
+    aegisRoot,
+    aegisVersion: aegis_version,
+    gitSha: git_sha,
+    configFingerprint: config_fingerprint,
+    runtime,
+    modelMapping: model_mapping,
+    startedAt,
+    startedAtIso,
+  });
+
+  if (liveScenarioResult) {
+    return liveScenarioResult;
+  }
 
   const finishedAt = new Date();
   const finishedAtIso = finishedAt.toISOString();
