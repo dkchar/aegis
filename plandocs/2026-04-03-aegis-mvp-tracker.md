@@ -1,13 +1,13 @@
 # Aegis MVP Tracker
 
-- Refreshed: 2026-04-08T21:35:50+01:00
+- Refreshed: 2026-04-08T22:23:00+01:00
 - Source spec: SPECv2.md
 - Design doc: docs/superpowers/specs/2026-04-03-aegis-mvp-slicing-design.md
 - Plan doc: docs/superpowers/plans/2026-04-03-aegis-mvp-slice-plan.md
 - Program epic: aegis-fjm
 - Program status: blocked
 - Program updated: 2026-04-08T20:35:49Z
-- Operational queue: use `bd ready`; slice and program epics stay `blocked` as coordination units because Beads cannot model task-to-epic blockers.
+- Operational queue: use `bd ready`; `aegis-75i` is the current ready remediation after S16B review found blocking evidence/reporting defects. Slice and program epics stay `blocked` as coordination units because Beads cannot model task-to-epic blockers.
 - Planning view: `bd swarm validate` still reports epic-level waves and is advisory, not the executable queue.
 
 ## Slice Epics
@@ -359,9 +359,9 @@
 - Automated gate: npm run test -- tests/unit/evals/compute-metrics.test.ts tests/integration/evals/release-gate.test.ts
 - Manual gate: The release report shows pass or fail against the PRD thresholds and links to the scenario artifacts that justify the decision.
 - Automated evidence: passed: npm run test -- tests/unit/evals/compute-metrics.test.ts tests/integration/evals/release-gate.test.ts (2 files, 11 tests); npm run test (70 files, 1284 passed, 11 todo); npm run lint; npm run build on 2026-04-08
-- Manual evidence: passed: generated .aegis/evals/reports/2026-04-08T20-26-21.309Z-s16b-release-report.json with evidence links for every release check; overall_status=fail because issue_completion_rate_80pct and human_interventions_within_threshold miss the PRD thresholds on the current MVP suite.
-- Evidence notes: S16B landed compute-metrics.ts, release-gate.ts, structured issue_evidence in eval results, and release-report generation. Current suite metrics: issue_completion_rate=0.6923076923076923, structured_artifact_compliance_rate=1, clarification_compliance_rate=1, restart_recovery_success_rate=1, human_interventions_per_10_issues=4.444444444444445, janus_invocation_rate_per_10_issues=1.5384615384615385.
-- Evidence updated: 2026-04-08T21:31:55+01:00
+- Manual evidence: disputed after review: generated .aegis/evals/reports/2026-04-08T20-26-21.309Z-s16b-release-report.json with evidence links for every release check; overall_status=fail because issue_completion_rate_80pct and human_interventions_within_threshold miss the PRD thresholds on the current MVP suite, but three independent review agents agreed the evidence/report path is not yet trustworthy enough to treat the gate as accepted.
+- Evidence notes: Beads shows S16B closed, but consensus review opened follow-up bug `aegis-75i`, which is now the ready work. Required remediation: persist real issue evidence from live scenario runs under the eval root, enforce issue_evidence/completion_outcomes/merge_outcomes parity in result validation, fail closed for missed clarification and restart recovery behavior, tighten the Janus minority-path threshold so exactly 5 per 10 fails, and land a checked-in end-to-end release-report generator that discovers suite results from disk and persists the report artifact.
+- Evidence updated: 2026-04-08T22:23:00+01:00
 - Children:
   - contract: aegis-fjm.20.1 [closed] updated 2026-04-08T20:35:45Z
   - lane_a: aegis-fjm.20.2 [closed] updated 2026-04-08T20:35:45Z

@@ -29,9 +29,9 @@
 | S15A | Scope Allocator | closed; merged to main (#42 / ecdec32) |
 | S15B | Janus Escalation Path | closed |
 | S16A | Benchmark Scenario Wiring | closed |
-| S16B | Release Metrics and Evidence Gate | closed |
+| S16B | Release Metrics and Evidence Gate | closed in Beads; follow-up bug `aegis-75i` open |
 
-**Current execution posture:** All canonical MVP slices through S16B are closed. `bd ready --json` is empty on 2026-04-08, so there is no remaining ready slice work in the MVP tracker.
+**Current execution posture:** All canonical MVP slice epics through S16B are closed in Beads, but `bd ready --json` now surfaces `aegis-75i` on 2026-04-08. That bug captures post-close S16B review findings around evidence persistence, metric fail-closed behavior, and checked-in release-report generation, so the project is in remediation rather than "nothing left to do."
 
 ---
 
@@ -384,7 +384,7 @@ Scope Allocator (S15A)
 
 ## What Is Not Yet Built
 
-The canonical MVP workflow slices through S16B are now landed. The remaining intentional gaps in this reference are post-MVP areas from `SPECv2.md`, including broader caste families, richer operator/reporting surfaces beyond the MVP release checklist/report, and future workflow expansion outside the shipped zero-to-MVP scope.
+The canonical MVP workflow slices through S16B are implemented, but S16B has an open post-review remediation bug (`aegis-75i`) before the release evidence path should be treated as fully accepted. The remaining intentional gaps in this reference are otherwise post-MVP areas from `SPECv2.md`, including broader caste families, richer operator/reporting surfaces beyond the MVP release checklist/report, and future workflow expansion outside the shipped zero-to-MVP scope.
 
 Keep the distinction clear:
 
