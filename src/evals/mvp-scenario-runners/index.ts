@@ -18,7 +18,7 @@ export async function tryRunMvpScenario(
 
   const runner = scenarioRunners[context.scenario.id];
   if (!runner) {
-    return null;
+    throw new Error(`Missing live MVP scenario runner for ${context.scenario.id}`);
   }
 
   return runner(context);

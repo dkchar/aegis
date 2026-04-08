@@ -1,6 +1,7 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 import type { DispatchRecord } from "../../core/dispatch-state.js";
 import { DispatchStage } from "../../core/stage-transition.js";
@@ -12,6 +13,10 @@ import {
   planLaborCreation,
   type LaborCreationPlan,
 } from "../../labor/create-labor.js";
+import {
+  parseOutcomeArtifact,
+  type MergeOutcomeArtifact,
+} from "../../merge/emit-outcome-artifact.js";
 import type {
   AgentEvent,
   AgentHandle,
@@ -86,6 +91,36 @@ export interface DispatchRecordOptions {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function runGit(
+  workingDirectory: string,
+  args: readonly string[],
+): string {
+  const result = spawnSync("git", args, {
+    cwd: workingDirectory,
+    encoding: "utf-8",
+    windowsHide: true,
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `git ${args.join(" ")} failed: ${(result.stderr ?? result.stdout ?? "unknown error").trim()}`,
+    );
+  }
+
+  return (result.stdout ?? "").trim();
+}
+
+function gitBranchExists(projectRoot: string, branchName: string): boolean {
+  const result = spawnSync(
+    "git",
+    ["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`],
+    {
+      cwd: projectRoot,
+      windowsHide: true,
+    },
+  );
+  return result.status === 0;
 }
 
 function cloneIssue(issue: AegisIssue): AegisIssue {
@@ -338,16 +373,72 @@ export class InMemoryScenarioTracker {
   }
 }
 
+function writeRepoFiles(
+  root: string,
+  files: Readonly<Record<string, string>>,
+) {
+  for (const [relativePath, contents] of Object.entries(files)) {
+    const absolutePath = path.join(root, relativePath);
+    mkdirSync(path.dirname(absolutePath), { recursive: true });
+    writeFileSync(absolutePath, `${contents}\n`, "utf8");
+  }
+}
+
+export function commitGitFiles(
+  workingTreeRoot: string,
+  files: Readonly<Record<string, string>>,
+  message: string,
+) {
+  const filePaths = Object.keys(files);
+  if (filePaths.length === 0) {
+    throw new Error("commitGitFiles requires at least one file");
+  }
+
+  writeRepoFiles(workingTreeRoot, files);
+  runGit(workingTreeRoot, ["add", "--", ...filePaths]);
+  runGit(workingTreeRoot, ["commit", "-m", message]);
+}
+
 export function createScenarioSandbox(): ScenarioSandbox {
   const projectRoot = mkdtempSync(path.join(tmpdir(), "aegis-mvp-scenario-"));
+  const binDirectory = path.join(projectRoot, ".scenario-bin");
+  const previousPath = process.env.PATH ?? "";
+  const previousPathMixed = process.env.Path ?? previousPath;
+  const nextPath = `${binDirectory}${path.delimiter}${previousPathMixed}`;
   mkdirSync(path.join(projectRoot, ".aegis"), { recursive: true });
   mkdirSync(path.join(projectRoot, ".aegis", "labors"), { recursive: true });
+  mkdirSync(binDirectory, { recursive: true });
   writeFileSync(path.join(projectRoot, ".aegis", "mnemosyne.jsonl"), "", "utf8");
+  writeFileSync(path.join(binDirectory, "npm.cmd"), "@echo off\r\nexit /b 0\r\n", "utf8");
+  writeFileSync(path.join(binDirectory, "npm"), "#!/bin/sh\nexit 0\n", "utf8");
+  process.env.PATH = nextPath;
+  process.env.Path = nextPath;
+  writeRepoFiles(projectRoot, {
+    "README.md": "# Scenario Sandbox",
+    "package.json": JSON.stringify({
+      name: "aegis-scenario-sandbox",
+      private: true,
+      version: "1.0.0",
+      scripts: {
+        lint: "node -e \"process.exit(0)\"",
+        build: "node -e \"process.exit(0)\"",
+        test: "node -e \"process.exit(0)\"",
+      },
+    }, null, 2),
+  });
+  runGit(projectRoot, ["init"]);
+  runGit(projectRoot, ["config", "user.email", "scenario@test.local"]);
+  runGit(projectRoot, ["config", "user.name", "Scenario Test"]);
+  runGit(projectRoot, ["add", "--", "README.md", "package.json", ".aegis/mnemosyne.jsonl"]);
+  runGit(projectRoot, ["commit", "-m", "scenario baseline"]);
+  runGit(projectRoot, ["branch", "-M", "main"]);
 
   return {
     projectRoot,
     eventBus: createInMemoryLiveEventBus(),
     cleanup: () => {
+      process.env.PATH = previousPath;
+      process.env.Path = previousPathMixed;
       rmSync(projectRoot, { recursive: true, force: true });
     },
   };
@@ -413,12 +504,47 @@ export function ensureLaborPlan(
   baseBranch: string = "main",
 ): LaborCreationPlan {
   const labor = planLaborCreation({
-    issueId,
-    projectRoot,
-    baseBranch,
-  });
+      issueId,
+      projectRoot,
+      baseBranch,
+    });
+
+  if (existsSync(path.join(projectRoot, ".git"))) {
+    if (!existsSync(path.join(labor.laborPath, ".git"))) {
+      mkdirSync(path.dirname(labor.laborPath), { recursive: true });
+      const worktreeArgs = gitBranchExists(projectRoot, labor.branchName)
+        ? ["worktree", "add", labor.laborPath, labor.branchName]
+        : [...labor.createWorktreeCommand.args];
+      runGit(projectRoot, worktreeArgs);
+    }
+    return labor;
+  }
+
   mkdirSync(labor.laborPath, { recursive: true });
   return labor;
+}
+
+export function loadLatestOutcomeArtifact(
+  projectRoot: string,
+  issueId: string,
+): MergeOutcomeArtifact | null {
+  const laborsDirectory = path.join(projectRoot, ".aegis", "labors");
+  if (!existsSync(laborsDirectory)) {
+    return null;
+  }
+
+  const safeIssueId = issueId.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const candidates = readdirSync(laborsDirectory)
+    .filter((entry) => entry.startsWith(`merge-outcome-${safeIssueId}-`) && entry.endsWith(".json"))
+    .sort();
+  const latest = candidates.at(-1);
+  if (!latest) {
+    return null;
+  }
+
+  return parseOutcomeArtifact(
+    readFileSync(path.join(laborsDirectory, latest), "utf8"),
+  );
 }
 
 function buildIssueTypes(fixture: Fixture): Record<string, number> {
@@ -458,9 +584,7 @@ export function buildScenarioResult(
     issue_types: buildIssueTypes(context.fixture),
     completion_outcomes: { ...overrides.completionOutcomes },
     merge_outcomes: { ...overrides.mergeOutcomes },
-    human_intervention_issue_ids: [
-      ...(overrides.humanInterventionIssueIds ?? context.fixture.human_interventions),
-    ],
+    human_intervention_issue_ids: [...(overrides.humanInterventionIssueIds ?? [])],
     cost_totals: null,
     quota_totals: null,
     timing: {

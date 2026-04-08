@@ -10,19 +10,21 @@ import { DispatchStage, transitionStage } from "../../core/stage-transition.js";
 import { runOracle } from "../../core/run-oracle.js";
 import { runSentinel } from "../../core/run-sentinel.js";
 import { runTitan } from "../../core/run-titan.js";
-import { emitOutcomeArtifact } from "../../merge/emit-outcome-artifact.js";
 import { runAdmissionWorkflow } from "../../merge/admission-workflow.js";
 import { emptyMergeQueueState } from "../../merge/merge-queue-store.js";
+import { processNextQueueItem } from "../../merge/queue-worker.js";
 import type { AegisIssue } from "../../tracker/issue-model.js";
 import type { MvpScenarioId } from "../wire-mvp-scenarios.js";
 import {
   buildScenarioResult,
+  commitGitFiles,
   createDispatchRecord,
   createScenarioSandbox,
   createScriptedRuntime,
   createTrackedIssue,
   ensureLaborPlan,
   InMemoryScenarioTracker,
+  loadLatestOutcomeArtifact,
   type MvpScenarioRunner,
 } from "./shared.js";
 
@@ -173,12 +175,43 @@ async function runSentinelPassStage(
   });
 }
 
+function buildCandidateFiles(
+  issueId: string,
+  filesChanged: readonly string[],
+  label: string,
+): Record<string, string> {
+  const targetFiles = filesChanged.length > 0
+    ? filesChanged
+    : [`src/scenarios/${issueId}.txt`];
+
+  return Object.fromEntries(
+    targetFiles.map((relativePath, index) => [
+      relativePath,
+      `scenario=${issueId}\nlabel=${label}\nfile_index=${index}`,
+    ]),
+  );
+}
+
+function materializeTitanCandidate(
+  laborPath: string,
+  issueId: string,
+  filesChanged: readonly string[],
+  label: string,
+) {
+  commitGitFiles(
+    laborPath,
+    buildCandidateFiles(issueId, filesChanged, label),
+    `scenario(${issueId}): ${label}`,
+  );
+}
+
 async function admitAndMergeClean(
   projectRoot: string,
   eventBus: ReturnType<typeof createScenarioSandbox>["eventBus"],
   tracker: InMemoryScenarioTracker,
   issue: AegisIssue,
   implementedRecord: DispatchRecord,
+  label: string,
 ): Promise<DispatchRecord> {
   const dispatchState: DispatchState = {
     schemaVersion: 1,
@@ -197,23 +230,30 @@ async function admitAndMergeClean(
     },
   );
   const queuedRecord = admission.dispatchState.records[issue.id];
-  const mergingRecord = transitionStage(queuedRecord, DispatchStage.Merging);
-  const mergedRecord = transitionStage(mergingRecord, DispatchStage.Merged);
-
-  await emitOutcomeArtifact(
-    issue.id,
-    "MERGED",
-    `aegis/${issue.id}`,
-    "main",
-    0,
-    "Clean merge succeeded",
-    false,
+  const workerResult = await processNextQueueItem(admission.queueState, {
     projectRoot,
-  );
+    eventPublisher: eventBus,
+    janusEnabled: false,
+    maxRetryAttempts: 2,
+    targetBranch: "main",
+  });
+  if (!workerResult || workerResult.result.newStatus !== "merged") {
+    throw new Error(
+      `Queue worker did not merge ${issue.id} cleanly for ${label}: ${JSON.stringify(workerResult?.result ?? null)}`,
+    );
+  }
+
+  const outcomeArtifact = loadLatestOutcomeArtifact(projectRoot, issue.id);
+  if (!outcomeArtifact || outcomeArtifact.outcome !== "MERGED") {
+    throw new Error(`Queue worker did not emit a MERGED artifact for ${issue.id}`);
+  }
 
   await tracker.closeIssue(issue.id);
 
-  return mergedRecord;
+  return transitionStage(
+    transitionStage(queuedRecord, DispatchStage.Merging),
+    DispatchStage.Merged,
+  );
 }
 
 async function runCompletedIssue(
@@ -252,6 +292,12 @@ async function runCompletedIssue(
       files_changed: ["src/index.ts"],
     }),
   );
+  materializeTitanCandidate(
+    titanResult.handoffArtifact.laborPath,
+    issue.id,
+    titanResult.handoffArtifact.filesChanged,
+    options.sentinelSummary ?? `merge ${issue.id}`,
+  );
 
   const mergedRecord = await admitAndMergeClean(
     projectRoot,
@@ -259,6 +305,7 @@ async function runCompletedIssue(
     tracker,
     issue,
     titanResult.updatedRecord,
+    options.sentinelSummary ?? `merge ${issue.id}`,
   );
   await runSentinelPassStage(
     projectRoot,
@@ -325,6 +372,7 @@ const complexPauseRunner: MvpScenarioRunner = async (context) => {
       mergeOutcomes: {
         "complex-001": "not_attempted",
       },
+      humanInterventionIssueIds: [issue.id],
     });
   } finally {
     sandbox.cleanup();
@@ -408,6 +456,7 @@ const decompositionRunner: MvpScenarioRunner = async (context) => {
       tracker,
       parentIssue,
       parentTitanResult.updatedRecord,
+      `Sentinel approved ${parentIssue.id}`,
     );
     await runSentinelPassStage(
       sandbox.projectRoot,
@@ -475,6 +524,7 @@ const clarificationRunner: MvpScenarioRunner = async (context) => {
       mergeOutcomes: {
         "ambiguous-001": "not_attempted",
       },
+      humanInterventionIssueIds: [issue.id],
     });
   } finally {
     sandbox.cleanup();

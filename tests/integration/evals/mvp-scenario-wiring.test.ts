@@ -185,15 +185,23 @@ describe("S16A contract seed", () => {
 });
 
 describe("S16A lane execution scaffolding", () => {
-  it("lane A scenarios run through the landed Oracle, Titan, merge, and restart paths", async () => {
-    for (const scenarioId of LANE_A_MVP_SCENARIO_IDS) {
-      await expectScenarioToRunWithCompleteArtifacts(scenarioId);
-    }
-  });
+  it(
+    "lane A scenarios run through the landed Oracle, Titan, merge, and restart paths",
+    async () => {
+      for (const scenarioId of LANE_A_MVP_SCENARIO_IDS) {
+        await expectScenarioToRunWithCompleteArtifacts(scenarioId);
+      }
+    },
+    30_000,
+  );
 
-  it("lane B scenarios run through the landed merge, Janus, restart, and polling paths", async () => {
-    for (const scenarioId of LANE_B_MVP_SCENARIO_IDS) {
-      await expectScenarioToRunWithCompleteArtifacts(scenarioId);
-    }
-  });
+  it(
+    "lane B scenarios run through the landed merge, Janus, restart, and polling paths",
+    async () => {
+      for (const scenarioId of LANE_B_MVP_SCENARIO_IDS) {
+        await expectScenarioToRunWithCompleteArtifacts(scenarioId);
+      }
+    },
+    30_000,
+  );
 });

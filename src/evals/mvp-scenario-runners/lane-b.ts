@@ -1,16 +1,15 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
+
 import { DEFAULT_AEGIS_CONFIG } from "../../config/defaults.js";
+import { saveDispatchState } from "../../core/dispatch-state.js";
 import { pollForWork } from "../../core/poller.js";
-import { runJanus } from "../../core/run-janus.js";
 import { runOracle } from "../../core/run-oracle.js";
 import { runSentinel } from "../../core/run-sentinel.js";
 import { runTitan } from "../../core/run-titan.js";
 import { DispatchStage, transitionStage } from "../../core/stage-transition.js";
-import { emitOutcomeArtifact } from "../../merge/emit-outcome-artifact.js";
 import { runAdmissionWorkflow } from "../../merge/admission-workflow.js";
-import { handleJanusResult } from "../../merge/janus-integration.js";
-import {
-  dequeueItem,
-} from "../../merge/enqueue-candidate.js";
+import { loadHumanDecisionArtifact } from "../../merge/janus-integration.js";
 import {
   emptyMergeQueueState,
   loadMergeQueueState,
@@ -18,18 +17,21 @@ import {
   saveMergeQueueState,
   type MergeQueueState,
 } from "../../merge/merge-queue-store.js";
-import { preserveLabor } from "../../merge/preserve-labor.js";
+import { processNextQueueItem } from "../../merge/queue-worker.js";
+import type { JanusInvocationPolicy } from "../../merge/tiered-conflict-policy.js";
 import type { AegisIssue, ReadyIssue } from "../../tracker/issue-model.js";
 import type { BeadsClient } from "../../tracker/beads-client.js";
 import type { MvpScenarioId } from "../wire-mvp-scenarios.js";
 import {
   buildScenarioResult,
+  commitGitFiles,
   createDispatchRecord,
   createScenarioSandbox,
   createScriptedRuntime,
   createTrackedIssue,
   ensureLaborPlan,
   InMemoryScenarioTracker,
+  loadLatestOutcomeArtifact,
   type MvpScenarioRunner,
 } from "./shared.js";
 import type { DispatchRecord } from "../../core/dispatch-state.js";
@@ -183,9 +185,80 @@ async function runSentinelPassStage(
   });
 }
 
+function buildCandidateFiles(
+  issueId: string,
+  filesChanged: readonly string[],
+  label: string,
+): Record<string, string> {
+  const targetFiles = filesChanged.length > 0
+    ? filesChanged
+    : [`src/scenarios/${issueId}.txt`];
+
+  return Object.fromEntries(
+    targetFiles.map((relativePath, index) => [
+      relativePath,
+      `scenario=${issueId}\nlabel=${label}\nfile_index=${index}`,
+    ]),
+  );
+}
+
+function materializeTitanCandidate(
+  laborPath: string,
+  issueId: string,
+  filesChanged: readonly string[],
+  label: string,
+) {
+  commitGitFiles(
+    laborPath,
+    buildCandidateFiles(issueId, filesChanged, label),
+    `scenario(${issueId}): ${label}`,
+  );
+}
+
+function materializeMainBranchFiles(
+  projectRoot: string,
+  issueId: string,
+  filesChanged: readonly string[],
+  label: string,
+) {
+  commitGitFiles(
+    projectRoot,
+    buildCandidateFiles(issueId, filesChanged, label),
+    `scenario(${issueId}): ${label}`,
+  );
+}
+
+async function processQueueItem(
+  projectRoot: string,
+  eventBus: ReturnType<typeof createScenarioSandbox>["eventBus"],
+  queueState: MergeQueueState,
+  options: {
+    janusEnabled?: boolean;
+    runtime?: ReturnType<typeof createScriptedRuntime>;
+    maxRetryAttempts?: number;
+    janusInvocationPolicy?: JanusInvocationPolicy;
+  } = {},
+) {
+  const result = await processNextQueueItem(queueState, {
+    projectRoot,
+    eventPublisher: eventBus,
+    janusEnabled: options.janusEnabled ?? false,
+    maxRetryAttempts: options.maxRetryAttempts ?? 2,
+    targetBranch: "main",
+    runtime: options.runtime,
+    janusInvocationPolicy: options.janusInvocationPolicy,
+  });
+  if (!result) {
+    throw new Error("Queue worker unexpectedly returned null");
+  }
+
+  return result;
+}
+
 function admitIssue(
   eventBus: ReturnType<typeof createScenarioSandbox>["eventBus"],
   implementedRecord: DispatchRecord,
+  targetBranch: string = "main",
 ): {
   queuedRecord: DispatchRecord;
   queueState: MergeQueueState;
@@ -202,7 +275,7 @@ function admitIssue(
     {
       dispatchRecord: implementedRecord,
       candidateBranch: `aegis/${implementedRecord.issueId}`,
-      targetBranch: "main",
+      targetBranch,
     },
   );
 
@@ -214,23 +287,27 @@ function admitIssue(
 
 async function mergeCleanAfterQueue(
   projectRoot: string,
+  eventBus: ReturnType<typeof createScenarioSandbox>["eventBus"],
   tracker: InMemoryScenarioTracker,
   issue: AegisIssue,
   queuedRecord: DispatchRecord,
+  queueState: MergeQueueState,
   reviewSummary: string,
 ) {
-  const mergingRecord = transitionStage(queuedRecord, DispatchStage.Merging);
-  const mergedRecord = transitionStage(mergingRecord, DispatchStage.Merged);
+  const queueResult = await processQueueItem(projectRoot, eventBus, queueState);
+  if (queueResult.result.newStatus !== "merged") {
+    throw new Error(
+      `Queue worker did not merge ${issue.id} cleanly: ${JSON.stringify(queueResult.result)}`,
+    );
+  }
+  const outcomeArtifact = loadLatestOutcomeArtifact(projectRoot, issue.id);
+  if (!outcomeArtifact || outcomeArtifact.outcome !== "MERGED") {
+    throw new Error(`Queue worker did not emit a MERGED artifact for ${issue.id}`);
+  }
 
-  await emitOutcomeArtifact(
-    issue.id,
-    "MERGED",
-    `aegis/${issue.id}`,
-    "main",
-    0,
-    "Clean merge succeeded",
-    false,
-    projectRoot,
+  const mergedRecord = transitionStage(
+    transitionStage(queuedRecord, DispatchStage.Merging),
+    DispatchStage.Merged,
   );
   await runSentinelPassStage(
     projectRoot,
@@ -248,6 +325,7 @@ async function prepareImplementedIssue(
   issue: AegisIssue,
   oracleFiles: string[],
   titanFiles: string[],
+  candidateLabel: string,
 ) {
   const oracleResult = await runOracleStage(
     projectRoot,
@@ -263,7 +341,7 @@ async function prepareImplementedIssue(
     throw new Error(`Scenario expected ${issue.id} to be ready for implementation`);
   }
 
-  return runTitanStage(
+  const titanResult = await runTitanStage(
     projectRoot,
     tracker,
     issue,
@@ -271,9 +349,17 @@ async function prepareImplementedIssue(
     buildTitanPayload({
       outcome: "success",
       summary: `Implemented ${issue.id}`,
-      files_changed: titanFiles,
-    }),
+        files_changed: titanFiles,
+      }),
   );
+  materializeTitanCandidate(
+    titanResult.handoffArtifact.laborPath,
+    issue.id,
+    titanResult.handoffArtifact.filesChanged,
+    candidateLabel,
+  );
+
+  return titanResult;
 }
 
 const staleBranchReworkRunner: MvpScenarioRunner = async (context) => {
@@ -287,71 +373,45 @@ const staleBranchReworkRunner: MvpScenarioRunner = async (context) => {
       issue,
       ["src/merge/queue-worker.ts"],
       ["src/merge/queue-worker.ts"],
+      "stale initial candidate",
     );
-    const firstAdmission = admitIssue(sandbox.eventBus, implementedResult.updatedRecord);
-
-    await emitOutcomeArtifact(
-      issue.id,
-      "REWORK_REQUEST",
-      `aegis/${issue.id}`,
-      "main",
-      1,
-      "Stale branch requires a refreshed implementation pass",
-      true,
-      sandbox.projectRoot,
-    );
-    await preserveLabor({
-      issueId: issue.id,
-      laborPath: ensureLaborPlan(sandbox.projectRoot, issue.id).laborPath,
-      branchName: ensureLaborPlan(sandbox.projectRoot, issue.id).branchName,
-      outcome: "REWORK_REQUEST",
-      isConflict: false,
-      reason: "Stale branch requires refresh",
-    });
-
-    const refreshedOracle = await runOracleStage(
-      sandbox.projectRoot,
-      tracker,
-      issue,
-      buildOraclePayload({
-        estimated_complexity: "moderate",
-        ready: true,
-        files_affected: ["src/merge/queue-worker.ts"],
-      }),
-    );
-    const refreshedTitan = await runTitanStage(
-      sandbox.projectRoot,
-      tracker,
-      issue,
-      refreshedOracle.updatedRecord,
-      buildTitanPayload({
-        outcome: "success",
-        summary: "Refreshed candidate after stale-branch rework",
-        files_changed: ["src/merge/queue-worker.ts"],
-      }),
-    );
-    const refreshedQueue = dequeueItem(firstAdmission.queueState, issue.id);
-    const secondAdmission = runAdmissionWorkflow(
-      {
-        schemaVersion: 1,
-        records: {
-          [issue.id]: refreshedTitan.updatedRecord,
-        },
-      },
-      refreshedQueue,
+    const firstAdmission = admitIssue(
       sandbox.eventBus,
-      {
-        dispatchRecord: refreshedTitan.updatedRecord,
-        candidateBranch: `aegis/${issue.id}`,
-        targetBranch: "main",
-      },
+      implementedResult.updatedRecord,
+      "missing-main",
     );
+    const firstPass = await processQueueItem(
+      sandbox.projectRoot,
+      sandbox.eventBus,
+      firstAdmission.queueState,
+    );
+    if (firstPass.result.newStatus !== "rework_requested") {
+      throw new Error(
+        `Stale branch scenario must request rework on the first merge pass: ${JSON.stringify(firstPass.result)}`,
+      );
+    }
+    const firstArtifact = loadLatestOutcomeArtifact(sandbox.projectRoot, issue.id);
+    if (!firstArtifact || firstArtifact.outcome !== "REWORK_REQUEST" || !firstArtifact.laborPreserved) {
+      throw new Error("Stale branch scenario must emit a preserved REWORK_REQUEST artifact");
+    }
+
+    const refreshedTitan = await prepareImplementedIssue(
+      sandbox.projectRoot,
+      tracker,
+      issue,
+      ["src/merge/queue-worker.ts"],
+      ["src/merge/queue-worker.ts"],
+      "stale refreshed candidate",
+    );
+    const secondAdmission = admitIssue(sandbox.eventBus, refreshedTitan.updatedRecord);
 
     await mergeCleanAfterQueue(
       sandbox.projectRoot,
+      sandbox.eventBus,
       tracker,
       issue,
-      secondAdmission.dispatchState.records[issue.id],
+      secondAdmission.queuedRecord,
+      secondAdmission.queueState,
       "Sentinel approved reworked candidate",
     );
 
@@ -379,28 +439,37 @@ const hardMergeConflictRunner: MvpScenarioRunner = async (context) => {
       issue,
       ["src/merge/apply-merge.ts"],
       ["src/merge/apply-merge.ts"],
+      "hard conflict candidate",
     );
-    admitIssue(sandbox.eventBus, implementedResult.updatedRecord);
-
-    await emitOutcomeArtifact(
-      issue.id,
-      "MERGE_FAILED",
-      `aegis/${issue.id}`,
-      "main",
-      2,
-      "Hard merge conflict with preserved labor",
-      true,
+    materializeMainBranchFiles(
       sandbox.projectRoot,
-      "CONFLICT (content): merge conflict in src/merge/apply-merge.ts",
+      issue.id,
+      ["src/merge/apply-merge.ts"],
+      "hard conflict on main",
     );
-    await preserveLabor({
-      issueId: issue.id,
-      laborPath: ensureLaborPlan(sandbox.projectRoot, issue.id).laborPath,
-      branchName: ensureLaborPlan(sandbox.projectRoot, issue.id).branchName,
-      outcome: "MERGE_FAILED",
-      isConflict: true,
-      reason: "Hard merge conflict",
-    });
+    const admission = admitIssue(sandbox.eventBus, implementedResult.updatedRecord);
+    const conflictResult = await processQueueItem(
+      sandbox.projectRoot,
+      sandbox.eventBus,
+      admission.queueState,
+      {
+        maxRetryAttempts: 3,
+      },
+    );
+    if (conflictResult.result.newStatus !== "merge_failed") {
+      throw new Error("Hard merge conflict scenario must fail in the queue worker");
+    }
+    const conflictArtifact = loadLatestOutcomeArtifact(sandbox.projectRoot, issue.id);
+    if (!conflictArtifact || conflictArtifact.outcome !== "MERGE_FAILED" || !conflictArtifact.laborPreserved) {
+      throw new Error("Hard merge conflict scenario must preserve labor through the queue worker");
+    }
+    if (!existsSync(path.join(
+      ensureLaborPlan(sandbox.projectRoot, issue.id).laborPath,
+      ".aegis-labor",
+      "preservation.json",
+    ))) {
+      throw new Error("Hard merge conflict scenario must persist labor preservation metadata");
+    }
 
     return buildScenarioResult(context, {
       completionOutcomes: {
@@ -409,6 +478,7 @@ const hardMergeConflictRunner: MvpScenarioRunner = async (context) => {
       mergeOutcomes: {
         "conflict-001": "conflict_unresolved",
       },
+      humanInterventionIssueIds: [issue.id],
     });
   } finally {
     sandbox.cleanup();
@@ -426,79 +496,94 @@ const janusEscalationRunner: MvpScenarioRunner = async (context) => {
       issue,
       ["src/merge/queue-worker.ts"],
       ["src/merge/queue-worker.ts"],
+      "janus escalation candidate",
+    );
+    materializeMainBranchFiles(
+      sandbox.projectRoot,
+      issue.id,
+      ["src/merge/queue-worker.ts"],
+      "janus escalation main conflict",
     );
     const admission = admitIssue(sandbox.eventBus, implementedResult.updatedRecord);
-    const janusRequiredState: MergeQueueState = {
+    const escalationQueueState: MergeQueueState = {
       schemaVersion: admission.queueState.schemaVersion,
       items: admission.queueState.items.map((item) => ({
         ...item,
-        status: "janus_required",
-        attemptCount: 2,
-        lastError: "Semantic conflict threshold reached",
+        attemptCount: 1,
       })),
       processedCount: admission.queueState.processedCount,
     };
-    const resolvingRecord = withRunningAgent(
-      transitionStage(
-        transitionStage(admission.queuedRecord, DispatchStage.Merging),
-        DispatchStage.ResolvingIntegration,
-      ),
-      "janus",
-    );
-
-    await emitOutcomeArtifact(
-      issue.id,
-      "MERGE_FAILED",
-      `aegis/${issue.id}`,
-      "main",
-      3,
-      "Tier 3 merge conflict escalated to Janus",
-      true,
+    const firstPass = await processQueueItem(
       sandbox.projectRoot,
-      "retry threshold reached",
-    );
-
-    const janusResult = await runJanus({
-      issueId: issue.id,
-      queueItemId: issue.id,
-      preservedLaborPath: ensureLaborPlan(sandbox.projectRoot, issue.id).laborPath,
-      conflictSummary: "Tier 3 merge conflict escalated to Janus",
-      filesInvolved: ["src/merge/queue-worker.ts"],
-      previousMergeErrors: "retry threshold reached",
-      conflictTier: 3,
-      record: resolvingRecord,
-      runtime: createScriptedRuntime({
-        [`janus:${issue.id}`]: {
-          messages: [
-            buildJanusPayload({
-              issueId: issue.id,
-              conflictSummary: "Janus resolved the integration conflict",
-              recommendedNextAction: "requeue",
-            }),
-          ],
-        },
-      }),
-      budget: DEFAULT_AEGIS_CONFIG.budgets.janus,
-      projectRoot: sandbox.projectRoot,
-    });
-    const janusHandling = await handleJanusResult(
-      janusResult.resolutionArtifact!,
-      sandbox.projectRoot,
-      janusRequiredState,
       sandbox.eventBus,
+      escalationQueueState,
+      {
+        janusEnabled: true,
+        maxRetryAttempts: 2,
+        janusInvocationPolicy: {
+          janusEnabled: true,
+          maxRetryAttempts: 2,
+          maxConflictFiles: 10,
+          economicGuardrailsAllow: true,
+        },
+      },
+    );
+    if (firstPass.result.newStatus !== "janus_required") {
+      throw new Error(
+        `Janus escalation scenario must escalate through the queue worker: ${JSON.stringify(firstPass.result)}`,
+      );
+    }
+    saveDispatchState(sandbox.projectRoot, {
+      schemaVersion: 1,
+      records: {
+        [issue.id]: transitionStage(admission.queuedRecord, DispatchStage.Merging),
+      },
+    });
+    const janusPass = await processQueueItem(
+      sandbox.projectRoot,
+      sandbox.eventBus,
+      firstPass.updatedState,
+      {
+        janusEnabled: true,
+        maxRetryAttempts: 2,
+        runtime: createScriptedRuntime({
+          [`janus:${issue.id}`]: {
+            messages: [
+              buildJanusPayload({
+                issueId: issue.id,
+                conflictSummary: "Janus resolved the integration conflict",
+                recommendedNextAction: "requeue",
+              }),
+            ],
+          },
+        }),
+      },
+    );
+    if (janusPass.result.newStatus !== "queued") {
+      throw new Error("Janus escalation scenario must requeue after Janus resolution");
+    }
+    commitGitFiles(
+      ensureLaborPlan(sandbox.projectRoot, issue.id).laborPath,
+      {
+        ...buildCandidateFiles(
+          issue.id,
+          ["src/merge/queue-worker.ts"],
+          "janus escalation main conflict",
+        ),
+        "src/merge/janus-resolution.ts": "resolved=true\nstrategy=requeue",
+      },
+      `scenario(${issue.id}): janus resolution`,
     );
 
     await mergeCleanAfterQueue(
       sandbox.projectRoot,
+      sandbox.eventBus,
       tracker,
       issue,
-      janusResult.updatedRecord,
+      admission.queuedRecord,
+      janusPass.updatedState,
       "Sentinel approved Janus-resolved candidate",
     );
-
-    if (janusHandling.finalStatus !== "queued") {
-      throw new Error("Janus escalation scenario must requeue after resolution");
-    }
 
     return buildScenarioResult(context, {
       completionOutcomes: {
@@ -524,57 +609,73 @@ const janusHumanDecisionRunner: MvpScenarioRunner = async (context) => {
       issue,
       ["src/merge/janus-integration.ts"],
       ["src/merge/janus-integration.ts"],
+      "janus human-decision candidate",
+    );
+    materializeMainBranchFiles(
+      sandbox.projectRoot,
+      issue.id,
+      ["src/merge/janus-integration.ts"],
+      "janus human-decision main conflict",
     );
     const admission = admitIssue(sandbox.eventBus, implementedResult.updatedRecord);
-    const janusRequiredState: MergeQueueState = {
+    const escalationQueueState: MergeQueueState = {
       schemaVersion: admission.queueState.schemaVersion,
       items: admission.queueState.items.map((item) => ({
         ...item,
-        status: "janus_required",
-        attemptCount: 2,
-        lastError: "semantic ambiguity detected",
+        attemptCount: 1,
       })),
       processedCount: admission.queueState.processedCount,
     };
-    const resolvingRecord = withRunningAgent(
-      transitionStage(
-        transitionStage(admission.queuedRecord, DispatchStage.Merging),
-        DispatchStage.ResolvingIntegration,
-      ),
-      "janus",
-    );
-
-    const janusResult = await runJanus({
-      issueId: issue.id,
-      queueItemId: issue.id,
-      preservedLaborPath: ensureLaborPlan(sandbox.projectRoot, issue.id).laborPath,
-      conflictSummary: "Semantic ambiguity requires human decision",
-      filesInvolved: ["src/merge/janus-integration.ts"],
-      previousMergeErrors: "semantic ambiguity detected",
-      conflictTier: 3,
-      record: resolvingRecord,
-      runtime: createScriptedRuntime({
-        [`janus:${issue.id}`]: {
-          messages: [
-            buildJanusPayload({
-              issueId: issue.id,
-              conflictSummary: "Semantic ambiguity requires human decision",
-              recommendedNextAction: "manual_decision",
-            }),
-          ],
-        },
-      }),
-      budget: DEFAULT_AEGIS_CONFIG.budgets.janus,
-      projectRoot: sandbox.projectRoot,
-    });
-    const janusHandling = await handleJanusResult(
-      janusResult.resolutionArtifact!,
+    const firstPass = await processQueueItem(
       sandbox.projectRoot,
-      janusRequiredState,
       sandbox.eventBus,
+      escalationQueueState,
+      {
+        janusEnabled: true,
+        maxRetryAttempts: 2,
+        janusInvocationPolicy: {
+          janusEnabled: true,
+          maxRetryAttempts: 2,
+          maxConflictFiles: 10,
+          economicGuardrailsAllow: true,
+        },
+      },
     );
-
-    if (!janusHandling.humanDecisionCreated) {
+    if (firstPass.result.newStatus !== "janus_required") {
+      throw new Error(
+        `Janus human-decision scenario must escalate through the queue worker: ${JSON.stringify(firstPass.result)}`,
+      );
+    }
+    saveDispatchState(sandbox.projectRoot, {
+      schemaVersion: 1,
+      records: {
+        [issue.id]: transitionStage(admission.queuedRecord, DispatchStage.Merging),
+      },
+    });
+    const janusPass = await processQueueItem(
+      sandbox.projectRoot,
+      sandbox.eventBus,
+      firstPass.updatedState,
+      {
+        janusEnabled: true,
+        maxRetryAttempts: 2,
+        runtime: createScriptedRuntime({
+          [`janus:${issue.id}`]: {
+            messages: [
+              buildJanusPayload({
+                issueId: issue.id,
+                conflictSummary: "Semantic ambiguity requires human decision",
+                recommendedNextAction: "manual_decision",
+              }),
+            ],
+          },
+        }),
+      },
+    );
+    if (janusPass.result.newStatus !== "manual_decision_required") {
+      throw new Error("Janus human-decision scenario must require a manual decision");
+    }
+    if (!loadHumanDecisionArtifact(issue.id, sandbox.projectRoot)) {
       throw new Error("Janus human-decision scenario must create a human decision artifact");
     }
 
@@ -585,6 +686,7 @@ const janusHumanDecisionRunner: MvpScenarioRunner = async (context) => {
       mergeOutcomes: {
         "janus-hd-001": "conflict_unresolved",
       },
+      humanInterventionIssueIds: [issue.id],
     });
   } finally {
     sandbox.cleanup();
@@ -602,6 +704,7 @@ const restartDuringMergeRunner: MvpScenarioRunner = async (context) => {
       issue,
       ["src/merge/merge-queue-store.ts"],
       ["src/merge/merge-queue-store.ts"],
+      "restart merge candidate",
     );
     const admission = admitIssue(sandbox.eventBus, implementedResult.updatedRecord);
     const activeQueueState: MergeQueueState = {
@@ -627,9 +730,11 @@ const restartDuringMergeRunner: MvpScenarioRunner = async (context) => {
 
     await mergeCleanAfterQueue(
       sandbox.projectRoot,
+      sandbox.eventBus,
       tracker,
       issue,
       admission.queuedRecord,
+      reconciledQueue,
       "Sentinel approved post-restart merge recovery",
     );
 
@@ -701,13 +806,21 @@ const pollingOnlyRunner: MvpScenarioRunner = async (context) => {
         files_changed: ["src/core/poller.ts"],
       }),
     );
+    materializeTitanCandidate(
+      titanResult.handoffArtifact.laborPath,
+      issue.id,
+      titanResult.handoffArtifact.filesChanged,
+      "polling-only candidate",
+    );
     const admission = admitIssue(sandbox.eventBus, titanResult.updatedRecord);
 
     await mergeCleanAfterQueue(
       sandbox.projectRoot,
+      sandbox.eventBus,
       tracker,
       issue,
       admission.queuedRecord,
+      admission.queueState,
       "Sentinel approved polling-only candidate",
     );
 

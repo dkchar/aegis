@@ -1,5 +1,5 @@
 {
-    "generated_at":  "2026-04-07T22:39:16+01:00",
+    "generated_at":  "2026-04-08T15:34:18+01:00",
     "source_spec":  "SPECv2.md",
     "design_doc":  "docs/superpowers/specs/2026-04-03-aegis-mvp-slicing-design.md",
     "plan_doc":  "docs/superpowers/plans/2026-04-03-aegis-mvp-slice-plan.md",
@@ -460,10 +460,10 @@
                        "outcome":  "The designated MVP scenario set is wired to the real orchestration pipeline.",
                        "automated_gate":  "npm run test -- tests/integration/evals/mvp-scenario-wiring.test.ts",
                        "manual_gate":  "The designated MVP scenario set covers clean-issue, complex-pause, decomposition, clarification, stale-branch rework, hard merge conflict, Janus escalation, Janus human-decision, restart-during-implementation, restart-during-merge, and polling-only cases end to end against the real orchestration pipeline.",
-                       "evidence_automated":  "pending",
-                       "evidence_manual":  "pending",
-                       "evidence_notes":  "",
-                       "evidence_updated_at":  "",
+                       "evidence_automated":  "passed: npm run test -- tests/integration/evals/mvp-scenario-wiring.test.ts (1 file, 6 tests); npm run test -- tests/integration/evals/lane-a-mvp-scenario-runners.test.ts tests/integration/evals/lane-b-scenario-runners.test.ts (2 files, 11 tests); npm run test (68 files, 1271 tests, 11 todo); npm run lint; npm run build on 2026-04-08",
+                       "evidence_manual":  "passed: all 11 MVP scenarios now run through landed Oracle, Titan, merge admission/outcome artifact, Sentinel, Janus, restart reconciliation, and poller module paths with deterministic scripted runtimes instead of fixture-only outcome replay on 2026-04-08",
+                       "evidence_notes":  "S16A landed scenario-runner harness helpers plus lane-specific MVP runners for clean, complex-pause, decomposition, clarification, stale-branch rework, hard conflict, Janus requeue, Janus human-decision, restart-during-implementation, restart-during-merge, and polling-only cases. Added lane-specific integration tests and replaced the shared S16A TODO gate coverage with real runScenario assertions.",
+                       "evidence_updated_at":  "2026-04-08T15:34:18+01:00",
                        "children":  {
                                         "contract":  "aegis-fjm.17.1",
                                         "lane_a":  "aegis-fjm.17.2",
