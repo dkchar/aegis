@@ -1,6 +1,6 @@
 # Aegis MVP Tracker
 
-- Refreshed: 2026-04-08T15:34:18+01:00
+- Refreshed: 2026-04-08T16:47:37+01:00
 - Source spec: SPECv2.md
 - Design doc: docs/superpowers/specs/2026-04-03-aegis-mvp-slicing-design.md
 - Plan doc: docs/superpowers/plans/2026-04-03-aegis-mvp-slice-plan.md
@@ -339,10 +339,10 @@
 - Outcome: The designated MVP scenario set is wired to the real orchestration pipeline.
 - Automated gate: npm run test -- tests/integration/evals/mvp-scenario-wiring.test.ts
 - Manual gate: The designated MVP scenario set covers clean-issue, complex-pause, decomposition, clarification, stale-branch rework, hard merge conflict, Janus escalation, Janus human-decision, restart-during-implementation, restart-during-merge, and polling-only cases end to end against the real orchestration pipeline.
-- Automated evidence: passed: npm run test -- tests/integration/evals/mvp-scenario-wiring.test.ts (1 file, 6 tests); npm run test -- tests/integration/evals/lane-a-mvp-scenario-runners.test.ts tests/integration/evals/lane-b-scenario-runners.test.ts (2 files, 11 tests); npm run test (68 files, 1271 tests, 11 todo); npm run lint; npm run build on 2026-04-08
-- Manual evidence: passed: all 11 MVP scenarios now run through landed Oracle, Titan, merge admission/outcome artifact, Sentinel, Janus, restart reconciliation, and poller module paths with deterministic scripted runtimes instead of fixture-only outcome replay on 2026-04-08
-- Evidence notes: S16A landed scenario-runner harness helpers plus lane-specific MVP runners for clean, complex-pause, decomposition, clarification, stale-branch rework, hard conflict, Janus requeue, Janus human-decision, restart-during-implementation, restart-during-merge, and polling-only cases. Added lane-specific integration tests and replaced the shared S16A TODO gate coverage with real runScenario assertions.
-- Evidence updated: 2026-04-08T15:34:18+01:00
+- Automated evidence: passed: npm run test -- tests/integration/evals/mvp-scenario-wiring.test.ts (1 file, 6 tests); npm run test -- tests/integration/evals/lane-a-mvp-scenario-runners.test.ts tests/integration/evals/lane-b-scenario-runners.test.ts (2 files, 11 tests); npm run test (68 files, 1272 tests, 11 todo); npm run lint; npm run build on 2026-04-08
+- Manual evidence: passed: all 11 MVP scenarios now run through landed Oracle, Titan, merge admission, queue-worker gate execution, live git merge outcomes, Sentinel, Janus, restart reconciliation, and poller module paths inside deterministic git-backed scenario sandboxes on 2026-04-08
+- Evidence notes: S16A now creates real labor worktrees inside deterministic scenario repos, commits candidate changes before admission, drives clean/rework/conflict/Janus/restart outcomes through processNextQueueItem, fails closed when an MVP runner is missing, derives human-intervention IDs from live scenario effects instead of fixture defaults, and hardens run-gates.ts plus the eval timeout coverage for Windows-safe gate execution.
+- Evidence updated: 2026-04-08T16:47:37+01:00
 - Children:
   - contract: aegis-fjm.17.1 [closed] updated 2026-04-08T13:55:52Z
   - lane_a: aegis-fjm.17.2 [closed] updated 2026-04-08T14:32:54Z
