@@ -3,7 +3,9 @@
 - Date: 2026-04-08
 - Branch: `feat/s16b-release-metrics`
 - Ready Beads issue: `aegis-75i`
-- Last clean committed state in this worktree: `3673d77` (`chore: refresh tracker parity and stabilize slow tests`)
+- Current umbrella branch tip: `1125fd3` (`docs: record s16b remediation handoff`)
+- Last clean implementation commit to resume from: `3673d77` (`chore: refresh tracker parity and stabilize slow tests`)
+- Main worktree status after cleanup: clean; accidental local `olympus/` deletions on `main` were restored and are not pending work
 
 ## Why S16B Was Not Accepted
 
