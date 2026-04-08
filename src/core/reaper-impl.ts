@@ -85,6 +85,9 @@ export class ReaperImpl implements Reaper {
       case "sentinel":
         artifacts = this.verifySentinelArtifacts(issueId, events);
         break;
+      case "janus":
+        artifacts = this.verifyJanusArtifacts(issueId, events);
+        break;
       default:
         artifacts = {
           issueId,
@@ -269,6 +272,36 @@ export class ReaperImpl implements Reaper {
     };
   }
 
+  verifyJanusArtifacts(
+    issueId: string,
+    events: AgentEvent[],
+  ): ArtifactVerification {
+    const checks: ArtifactCheck[] = [];
+
+    // Check for Janus resolution artifact in messages
+    const resolutionMessages = events.filter(
+      (e) =>
+        e.type === "message" &&
+        this.looksLikeJanusResolution(e.text),
+    );
+
+    const hasResolution = resolutionMessages.length > 0;
+    checks.push({
+      name: "janus_resolution_artifact",
+      passed: hasResolution,
+      detail: hasResolution
+        ? `Found ${resolutionMessages.length} Janus resolution message(s)`
+        : "No valid JanusResolutionArtifact found in session messages",
+    });
+
+    return {
+      issueId,
+      caste: "janus",
+      passed: checks.every((c) => c.passed),
+      checks,
+    };
+  }
+
   // -----------------------------------------------------------------------
   // Private helpers
   // -----------------------------------------------------------------------
@@ -342,6 +375,27 @@ export class ReaperImpl implements Reaper {
         typeof obj["issuesFound"] === "boolean" &&
         Array.isArray(obj["followUpIssueIds"]) &&
         Array.isArray(obj["riskAreas"])
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private looksLikeJanusResolution(text: string): boolean {
+    try {
+      const parsed = JSON.parse(text);
+      if (typeof parsed !== "object" || parsed === null) return false;
+      const obj = parsed as Record<string, unknown>;
+      return (
+        typeof obj["originatingIssueId"] === "string" &&
+        typeof obj["queueItemId"] === "string" &&
+        typeof obj["preservedLaborPath"] === "string" &&
+        typeof obj["conflictSummary"] === "string" &&
+        typeof obj["resolutionStrategy"] === "string" &&
+        Array.isArray(obj["filesTouched"]) &&
+        (obj["recommendedNextAction"] === "requeue" ||
+          obj["recommendedNextAction"] === "manual_decision" ||
+          obj["recommendedNextAction"] === "fail")
       );
     } catch {
       return false;

@@ -93,7 +93,7 @@ function buildTransitionTable(): Map<DispatchStage, Set<DispatchStage>> {
     DispatchStage.Merged,
     DispatchStage.Failed,
   );
-  add(DispatchStage.ResolvingIntegration, DispatchStage.Merged, DispatchStage.Failed);
+  add(DispatchStage.ResolvingIntegration, DispatchStage.Merged, DispatchStage.QueuedForMerge, DispatchStage.Failed);
   add(DispatchStage.Merged, DispatchStage.Reviewing, DispatchStage.Failed);
   add(DispatchStage.Reviewing, DispatchStage.Complete, DispatchStage.Failed);
   // complete: no outgoing transitions — terminal success

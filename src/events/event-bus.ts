@@ -7,6 +7,7 @@ import type { SuppressionEntry } from "../core/scope-allocator.js";
 import type {
   MergeQueueStateEventPayload,
   MergeOutcomeEventPayload,
+  MergeJanusEscalationEventPayload,
 } from "./merge-events.js";
 
 export const LIVE_EVENT_ENVELOPE_FIELDS = [
@@ -24,6 +25,7 @@ export const LIVE_EVENT_TYPES = [
   "scope.suppression",
   "merge.queue_state",
   "merge.outcome",
+  "merge.janus_escalation",
 ] as const;
 
 export type LiveEventType = (typeof LIVE_EVENT_TYPES)[number];
@@ -63,6 +65,7 @@ export interface LiveEventPayloadMap {
   "scope.suppression": ScopeSuppressionEventPayload;
   "merge.queue_state": MergeQueueStateEventPayload;
   "merge.outcome": MergeOutcomeEventPayload;
+  "merge.janus_escalation": MergeJanusEscalationEventPayload;
 }
 
 export type LiveEventPayload<TType extends LiveEventType> = LiveEventPayloadMap[TType];
@@ -88,6 +91,7 @@ const LIVE_EVENT_PAYLOAD_FIELDS: {
   "scope.suppression": ["dispatchable", "suppressed", "hasOverlap", "evaluatedAt"],
   "merge.queue_state": ["issueId", "status", "attemptCount", "errorDetail"],
   "merge.outcome": ["issueId", "outcome", "candidateBranch", "targetBranch", "detail"],
+  "merge.janus_escalation": ["issueId", "reason", "attemptCount", "janusEnabled"],
 };
 
 export function isLiveEventType(value: string): value is LiveEventType {

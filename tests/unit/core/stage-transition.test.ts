@@ -129,6 +129,10 @@ describe("validateTransition — valid transitions", () => {
     expect(validateTransition(DispatchStage.ResolvingIntegration, DispatchStage.Merged)).toBe(true);
   });
 
+  it("allows resolving_integration → queued_for_merge (Janus requeue)", () => {
+    expect(validateTransition(DispatchStage.ResolvingIntegration, DispatchStage.QueuedForMerge)).toBe(true);
+  });
+
   it("allows merged → reviewing", () => {
     expect(validateTransition(DispatchStage.Merged, DispatchStage.Reviewing)).toBe(true);
   });
