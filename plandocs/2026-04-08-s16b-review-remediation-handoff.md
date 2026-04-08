@@ -3,7 +3,7 @@
 - Date: 2026-04-08
 - Branch: `feat/s16b-release-metrics`
 - Ready Beads issue: `aegis-75i`
-- Current umbrella branch tip: `96bc8ee` (`docs: clarify s16b resume point`)
+- Current umbrella branch tip: resume from the latest commit on `feat/s16b-release-metrics`; this handoff file is kept on that branch tip
 - Last clean implementation commit to resume from: `3673d77` (`chore: refresh tracker parity and stabilize slow tests`)
 - Main worktree status after cleanup: clean; accidental local `olympus/` deletions on `main` were restored and are not pending work
 
