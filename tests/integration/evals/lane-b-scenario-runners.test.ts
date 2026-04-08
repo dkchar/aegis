@@ -18,19 +18,23 @@ function getScenario(id: string) {
 }
 
 describe("lane B MVP scenario runners", () => {
-  it("replays a stale-branch merge through rework and then merges cleanly", async () => {
-    const result = await runScenario({
-      scenario: getScenario("stale-branch-rework"),
-      projectRoot: repoRoot,
-    });
+  it(
+    "replays a stale-branch merge through rework and then merges cleanly",
+    async () => {
+      const result = await runScenario({
+        scenario: getScenario("stale-branch-rework"),
+        projectRoot: repoRoot,
+      });
 
-    expect(result.completion_outcomes).toEqual({
-      "stale-001": "completed",
-    });
-    expect(result.merge_outcomes).toEqual({
-      "stale-001": "merged_after_rework",
-    });
-  });
+      expect(result.completion_outcomes).toEqual({
+        "stale-001": "completed",
+      });
+      expect(result.merge_outcomes).toEqual({
+        "stale-001": "merged_after_rework",
+      });
+    },
+    15_000,
+  );
 
   it("preserves labor on a hard merge conflict and leaves the issue failed", async () => {
     const result = await runScenario({

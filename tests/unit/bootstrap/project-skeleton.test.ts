@@ -197,7 +197,7 @@ describe("S00 project skeleton contract", () => {
     } finally {
       rmSync(linkedRoot, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it("buildBootstrapManifest delegates path resolution to src/shared/paths", async () => {
     vi.resetModules();

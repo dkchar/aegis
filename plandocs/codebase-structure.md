@@ -26,12 +26,12 @@
 | S12 | Olympus MVP Shell | closed |
 | S13 | Merge Queue Admission and Persistence | closed |
 | S14 | Mechanical Merge Execution and Outcome Artifacts | closed |
-| S15A | Scope Allocator | closed; PR #42 pending merge |
+| S15A | Scope Allocator | closed; merged to main (#42 / ecdec32) |
 | S15B | Janus Escalation Path | closed |
 | S16A | Benchmark Scenario Wiring | closed |
-| S16B | Release Metrics and Evidence Gate | blocked; not started |
+| S16B | Release Metrics and Evidence Gate | closed |
 
-**Current execution posture:** S16A complete. The next ready work is S16B contract `aegis-fjm.20.1` in `bd ready`.
+**Current execution posture:** All canonical MVP slices through S16B are closed. `bd ready --json` is empty on 2026-04-08, so there is no remaining ready slice work in the MVP tracker.
 
 ---
 
@@ -94,6 +94,9 @@ Deterministic orchestration core. No runtime-specific imports.
 - `operating-mode.ts`: S07 contract for conversational vs auto mode state plus pause/resume helpers.
 - `auto-loop.ts`: S07 contract for "new ready only" auto-mode freshness gating.
 - `command-executor.ts`: S07 contract for parsed-command routing and execution result shape.
+- `triage.ts`: S15A scope-aware dispatch decisions for scouted issues before Titan launch.
+- `scope-allocator.ts`: S15A deterministic file-scope overlap detection and suppression rules.
+- `overlap-visibility.ts`: S15A Olympus-facing overlap summaries and suppression formatting.
 - `run-oracle.ts`: Oracle runtime dispatch, strict assessment parsing, artifact persistence, complexity gating, and derived-issue materialization.
 - `run-titan.ts`: Titan runtime dispatch inside a labor, handoff and clarification artifact emission, and stage transitions.
 - `run-sentinel.ts`: Sentinel review dispatch, verdict persistence, and corrective-fix issue creation.
@@ -170,12 +173,14 @@ CLI implementations.
 Eval harness foundation plus wired MVP scenario runners.
 
 - `fixture-schema.ts`: scenario fixture schema and validation.
-- `result-schema.ts`: eval run artifact schema and score summary type.
+- `result-schema.ts`: eval run artifact schema, score summary type, and per-issue evidence model.
 - `schema-helpers.ts`: shared validation constants/helpers.
 - `validate-result.ts`: result artifact validator.
 - `run-scenario.ts`: scenario runner with wired MVP live-module paths plus fixture fallback for unwired scenarios.
 - `write-result.ts`: result artifact persistence.
-- `compute-score-summary.ts`: metric computation from run artifacts.
+- `compute-score-summary.ts`: per-scenario score summary derived from release metrics.
+- `compute-metrics.ts`: suite-level release metric aggregation across MVP scenario results.
+- `release-gate.ts`: release-threshold evaluation and evidence-linked report generation.
 - `compare-runs.ts`: regression comparison helper.
 - `wire-mvp-scenarios.ts`: canonical MVP scenario manifest and lane split bindings.
 - `mvp-scenario-runners/`: shared harness plus lane-specific MVP scenario runners.
@@ -220,6 +225,9 @@ Olympus is the landed MVP dashboard shell from S12.
 - `tests/unit/bootstrap/github-workflows.test.ts`
 - `tests/unit/config/load-config.test.ts`
 - `tests/unit/core/stage-transition.test.ts`
+- `tests/unit/core/triage.test.ts`
+- `tests/unit/core/scope-allocator.test.ts`
+- `tests/unit/core/overlap-visibility.test.ts`
 - `tests/unit/cli/runtime-ownership.test.ts`
 - `tests/unit/cli/stop.test.ts`
 - `tests/unit/cli/browser-and-stop-contract.test.ts`
@@ -227,9 +235,11 @@ Olympus is the landed MVP dashboard shell from S12.
 - `tests/unit/runtime/normalize-stats.test.ts`
 - `tests/unit/evals/fixture-schema.test.ts`
 - `tests/unit/evals/result-schema.test.ts`
+- `tests/unit/evals/compute-metrics.test.ts`
 - `tests/unit/tracker/beads-client.test.ts`
 - `tests/unit/tracker/beads-client-create-issue-classes.test.ts`
 - `tests/unit/castes/oracle/oracle-parser.test.ts`: S08 strict assessment parsing contract.
+- `tests/unit/castes/janus/janus-parser.test.ts`: S15B strict Janus artifact parsing contract.
 - `tests/unit/labor/create-labor.test.ts`: S09 labor path/branch/cleanup planning contract.
 
 ### Integration Tests
@@ -239,12 +249,19 @@ Olympus is the landed MVP dashboard shell from S12.
 - `tests/integration/core/operating-mode.test.ts`: S07 mode-state and auto-loop contract behavior.
 - `tests/integration/core/run-oracle.test.ts`: S08 prompt, derived-issue, and complexity-pause contract.
 - `tests/integration/core/run-titan.test.ts`: S09 handoff and clarification artifact contract.
+- `tests/integration/core/scope-allocation.test.ts`: S15A dispatch suppression and force-dispatch coverage.
+- `tests/integration/core/run-janus.test.ts`: Janus dispatch and stage-transition integration contract.
 - `tests/integration/cli/start-stop.test.ts`
 - `tests/integration/server/routes.test.ts`
 - `tests/integration/server/sse-drain.test.ts`
 - `tests/integration/runtime/pi-runtime.test.ts`
 - `tests/integration/evals/fixture-sanity.test.ts`
 - `tests/integration/evals/run-scenario.test.ts`
+- `tests/integration/evals/mvp-scenario-wiring.test.ts`
+- `tests/integration/evals/lane-a-mvp-scenario-runners.test.ts`
+- `tests/integration/evals/lane-b-scenario-runners.test.ts`
+- `tests/integration/evals/release-gate.test.ts`
+- `tests/integration/merge/janus-escalation.test.ts`
 
 ### Manual Tests
 
@@ -273,6 +290,7 @@ Scenario directories for the benchmark corpus, including:
 
 - `index.json`: master fixture list.
 - `core-suite.json`: the current scenario manifest and expected outcomes.
+- `mvp-gate.json`: canonical full-suite manifest used by the S16B release gate.
 
 ---
 
@@ -290,6 +308,7 @@ Scenario directories for the benchmark corpus, including:
 
 ## `docs/` - Design and Plan Docs
 
+- `docs/mvp-release-checklist.md`: static operator checklist mirrored by the S16B release gate.
 - `docs/superpowers/plans/2026-04-03-aegis-mvp-slice-plan.md`: slice execution plan.
 - `docs/superpowers/specs/2026-04-03-aegis-mvp-slicing-design.md`: design for slice structure and tracker layout.
 - `docs/superpowers/specs/2026-04-05-completed-slices-cleanup-design.md`: cleanup design for already-landed slices.
@@ -349,6 +368,10 @@ Eval wiring (S16A)
   wire-mvp-scenarios.ts -> mvp-scenario-runners/* -> run-scenario.ts
                                                  `-> result artifacts + score summaries
 
+Release gate (S16B)
+  mvp-gate.json -> run-scenario.ts / compute-score-summary.ts -> compute-metrics.ts -> release-gate.ts
+                                                                       `-> docs/mvp-release-checklist.md
+
 Scope Allocator (S15A)
   triage.ts -> allocateScope() -> scope-allocator.ts
                |-- computeOverlap()
@@ -361,12 +384,7 @@ Scope Allocator (S15A)
 
 ## What Is Not Yet Built
 
-The major MVP workflow slices through S16A are now landed. The primary remaining gap in this reference is S16B, which still owns:
-
-- release-threshold evaluation and evidence reports for the benchmark suite
-- final metrics/release-gate modules beyond the current score-summary scaffolding
-
-Some post-MVP areas from `SPECv2.md` also remain intentionally absent, including extended caste families and broader release/reporting surfaces.
+The canonical MVP workflow slices through S16B are now landed. The remaining intentional gaps in this reference are post-MVP areas from `SPECv2.md`, including broader caste families, richer operator/reporting surfaces beyond the MVP release checklist/report, and future workflow expansion outside the shipped zero-to-MVP scope.
 
 Keep the distinction clear:
 

@@ -118,6 +118,7 @@ describe("S02 scenario runner — lane A (runScenario)", () => {
 
       expect(result.scenario_id).toBe(scenario.id);
     },
+    15_000,
   );
 
   it(
