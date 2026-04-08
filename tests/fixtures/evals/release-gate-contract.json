@@ -1,0 +1,60 @@
+{
+  "generated_at": "2026-04-08T19:30:00.000Z",
+  "artifacts": {
+    "single-clean-issue": {
+      "scenario_id": "single-clean-issue",
+      "result_path": ".aegis/evals/single-clean-issue/2026-04-08T19-00-00.000Z.json",
+      "summary_path": ".aegis/evals/single-clean-issue/2026-04-08T19-00-00.000Z.summary.json"
+    },
+    "complex-pause": {
+      "scenario_id": "complex-pause",
+      "result_path": ".aegis/evals/complex-pause/2026-04-08T19-01-00.000Z.json",
+      "summary_path": ".aegis/evals/complex-pause/2026-04-08T19-01-00.000Z.summary.json"
+    },
+    "decomposition": {
+      "scenario_id": "decomposition",
+      "result_path": ".aegis/evals/decomposition/2026-04-08T19-02-00.000Z.json",
+      "summary_path": ".aegis/evals/decomposition/2026-04-08T19-02-00.000Z.summary.json"
+    },
+    "clarification": {
+      "scenario_id": "clarification",
+      "result_path": ".aegis/evals/clarification/2026-04-08T19-03-00.000Z.json",
+      "summary_path": ".aegis/evals/clarification/2026-04-08T19-03-00.000Z.summary.json"
+    },
+    "stale-branch-rework": {
+      "scenario_id": "stale-branch-rework",
+      "result_path": ".aegis/evals/stale-branch-rework/2026-04-08T19-04-00.000Z.json",
+      "summary_path": ".aegis/evals/stale-branch-rework/2026-04-08T19-04-00.000Z.summary.json"
+    },
+    "hard-merge-conflict": {
+      "scenario_id": "hard-merge-conflict",
+      "result_path": ".aegis/evals/hard-merge-conflict/2026-04-08T19-05-00.000Z.json",
+      "summary_path": ".aegis/evals/hard-merge-conflict/2026-04-08T19-05-00.000Z.summary.json"
+    },
+    "janus-escalation": {
+      "scenario_id": "janus-escalation",
+      "result_path": ".aegis/evals/janus-escalation/2026-04-08T19-06-00.000Z.json",
+      "summary_path": ".aegis/evals/janus-escalation/2026-04-08T19-06-00.000Z.summary.json"
+    },
+    "janus-human-decision": {
+      "scenario_id": "janus-human-decision",
+      "result_path": ".aegis/evals/janus-human-decision/2026-04-08T19-07-00.000Z.json",
+      "summary_path": ".aegis/evals/janus-human-decision/2026-04-08T19-07-00.000Z.summary.json"
+    },
+    "restart-during-implementation": {
+      "scenario_id": "restart-during-implementation",
+      "result_path": ".aegis/evals/restart-during-implementation/2026-04-08T19-08-00.000Z.json",
+      "summary_path": ".aegis/evals/restart-during-implementation/2026-04-08T19-08-00.000Z.summary.json"
+    },
+    "restart-during-merge": {
+      "scenario_id": "restart-during-merge",
+      "result_path": ".aegis/evals/restart-during-merge/2026-04-08T19-09-00.000Z.json",
+      "summary_path": ".aegis/evals/restart-during-merge/2026-04-08T19-09-00.000Z.summary.json"
+    },
+    "polling-only": {
+      "scenario_id": "polling-only",
+      "result_path": ".aegis/evals/polling-only/2026-04-08T19-10-00.000Z.json",
+      "summary_path": ".aegis/evals/polling-only/2026-04-08T19-10-00.000Z.summary.json"
+    }
+  }
+}

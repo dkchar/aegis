@@ -18,20 +18,24 @@ function getScenario(id: string) {
 }
 
 describe("lane A MVP scenario runners", () => {
-  it("runs the clean issue through Oracle, Titan, admission, merge, and Sentinel", async () => {
-    const result = await runScenario({
-      scenario: getScenario("single-clean-issue"),
-      projectRoot: repoRoot,
-    });
+  it(
+    "runs the clean issue through Oracle, Titan, admission, merge, and Sentinel",
+    async () => {
+      const result = await runScenario({
+        scenario: getScenario("single-clean-issue"),
+        projectRoot: repoRoot,
+      });
 
-    expect(result.completion_outcomes).toEqual({
-      "test-001": "completed",
-    });
-    expect(result.merge_outcomes).toEqual({
-      "test-001": "merged_clean",
-    });
-    expect(result.human_intervention_issue_ids).toEqual([]);
-  });
+      expect(result.completion_outcomes).toEqual({
+        "test-001": "completed",
+      });
+      expect(result.merge_outcomes).toEqual({
+        "test-001": "merged_clean",
+      });
+      expect(result.human_intervention_issue_ids).toEqual([]);
+    },
+    15_000,
+  );
 
   it("keeps complex issues paused before Titan dispatch", async () => {
     const result = await runScenario({

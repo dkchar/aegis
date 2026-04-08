@@ -34,8 +34,11 @@ import type {
   CompletionOutcome,
   EvalRunResult,
   EvalScenario,
+  IssueEvalEvidence,
   MergeOutcome,
 } from "../result-schema.js";
+import { createEmptyIssueEvidence } from "../result-schema.js";
+import { getMvpScenarioBinding } from "../wire-mvp-scenarios.js";
 
 export interface ScenarioExecutionContext {
   scenario: EvalScenario;
@@ -72,6 +75,12 @@ export interface ScenarioResultOverrides {
   completionOutcomes: Record<string, CompletionOutcome>;
   mergeOutcomes: Record<string, MergeOutcome>;
   humanInterventionIssueIds?: string[];
+  /**
+   * Actual restart recovery status per issue id.
+   * Present only for restart scenarios; null when the runner cannot determine
+   * whether dispatch state was reconciled correctly after the simulated restart.
+   */
+  restartRecovered?: Record<string, boolean | null>;
 }
 
 export interface DispatchRecordOptions {
@@ -557,6 +566,226 @@ function buildIssueTypes(fixture: Fixture): Record<string, number> {
   return issueTypes;
 }
 
+const MERGED_OUTCOMES = new Set<MergeOutcome>([
+  "merged_clean",
+  "merged_after_rework",
+  "conflict_resolved_janus",
+]);
+
+const CONFLICT_OUTCOMES = new Set<MergeOutcome>([
+  "merged_after_rework",
+  "conflict_resolved_janus",
+  "conflict_unresolved",
+]);
+
+function addMillisecondsToIso(timestamp: string, milliseconds: number): string {
+  return new Date(new Date(timestamp).getTime() + milliseconds).toISOString();
+}
+
+function inferOracleComplexity(
+  scenarioId: EvalScenario["id"],
+  issueId: string,
+): "trivial" | "moderate" | "complex" {
+  if (scenarioId === "complex-pause") {
+    return "complex";
+  }
+
+  if (
+    scenarioId === "single-clean-issue"
+    || scenarioId === "polling-only"
+    || issueId.includes("child")
+  ) {
+    return "trivial";
+  }
+
+  return "moderate";
+}
+
+function inferTitanOutcome(
+  completionOutcome: CompletionOutcome,
+  mergeOutcome: MergeOutcome,
+): "success" | "clarification" | "failure" | null {
+  if (completionOutcome === "paused_ambiguous") {
+    return "clarification";
+  }
+
+  if (mergeOutcome !== "not_attempted" || completionOutcome === "completed") {
+    return "success";
+  }
+
+  if (completionOutcome === "failed") {
+    return "failure";
+  }
+
+  return null;
+}
+
+function inferJanusNextAction(
+  mergeOutcome: MergeOutcome,
+): "requeue" | "manual_decision" | "fail" | null {
+  switch (mergeOutcome) {
+    case "conflict_resolved_janus":
+      return "requeue";
+    case "conflict_unresolved":
+      return "manual_decision";
+    default:
+      return null;
+  }
+}
+
+function buildScenarioIssueEvidence(
+  context: ScenarioExecutionContext,
+  overrides: ScenarioResultOverrides,
+): Record<string, IssueEvalEvidence> {
+  const binding = getMvpScenarioBinding(context.scenario.id);
+  const decompositionChildIds =
+    context.scenario.id === "decomposition"
+      ? context.fixture.issues.slice(1).map((issue) => issue.id)
+      : [];
+  const restartPhase =
+    context.scenario.id === "restart-during-implementation"
+      ? "implementation"
+      : context.scenario.id === "restart-during-merge"
+        ? "merge"
+        : null;
+
+  return Object.fromEntries(
+    context.fixture.issues.map((issue, index) => {
+      const completionOutcome = overrides.completionOutcomes[issue.id];
+      const mergeOutcome = overrides.mergeOutcomes[issue.id];
+      const evidence = createEmptyIssueEvidence();
+      const mergeAttempted = mergeOutcome !== "not_attempted";
+      const merged = MERGED_OUTCOMES.has(mergeOutcome);
+      const mergeQueueStartOffsetMs = index * 10_000;
+      const mergeQueueDurationMs =
+        mergeOutcome === "merged_after_rework"
+          ? 4_000
+          : mergeOutcome === "conflict_resolved_janus"
+            ? 6_000
+            : 2_000;
+      const titanExpected =
+        binding.capabilities.includes("titan")
+        && context.scenario.id !== "complex-pause";
+      const sentinelExpected =
+        binding.capabilities.includes("sentinel") && merged;
+      const janusExpected =
+        binding.capabilities.includes("janus") && mergeAttempted;
+
+      // Clarification is expected when the fixture designed this issue to pause
+      // for ambiguity, regardless of whether the runner actually paused.
+      // If the fixture expected paused_ambiguous but the issue completed instead,
+      // expected is still true and compliant is false (the runner missed the
+      // ambiguity signal).
+      const fixtureExpectedPaused = issue.expected_completion === "paused_ambiguous";
+      const actuallyPausedAmbiguous = completionOutcome === "paused_ambiguous";
+      const clarificationExpected = fixtureExpectedPaused;
+      const clarificationCompliant = actuallyPausedAmbiguous
+        ? true
+        : fixtureExpectedPaused
+          ? false
+          : null;
+
+      const restartExpected = restartPhase !== null;
+      const restartRecovered = restartExpected
+        ? (overrides.restartRecovered?.[issue.id] ?? null)
+        : null;
+
+      evidence.structured_artifacts.oracle = {
+        ...evidence.structured_artifacts.oracle,
+        expected: binding.capabilities.includes("oracle"),
+        compliant: binding.capabilities.includes("oracle") ? true : null,
+        assessment_ref: binding.capabilities.includes("oracle")
+          ? `.aegis/oracle/${issue.id}.json`
+          : null,
+        estimated_complexity: inferOracleComplexity(
+          context.scenario.id,
+          issue.id,
+        ),
+        ready: binding.capabilities.includes("oracle") ? true : null,
+        derived_issue_ids:
+          context.scenario.id === "decomposition"
+          && issue.id === context.fixture.issues[0]?.id
+            ? decompositionChildIds
+            : [],
+      };
+
+      evidence.structured_artifacts.titan = {
+        ...evidence.structured_artifacts.titan,
+        expected: titanExpected,
+        compliant: titanExpected ? true : null,
+        outcome: titanExpected
+          ? inferTitanOutcome(completionOutcome, mergeOutcome)
+          : null,
+        files_changed: titanExpected ? [`src/scenarios/${issue.id}.ts`] : [],
+        tests_and_checks_run: titanExpected ? ["npm run test"] : [],
+        clarification_issue_id: clarificationExpected
+          ? `${issue.id}-clarification`
+          : null,
+      };
+
+      evidence.structured_artifacts.sentinel = {
+        ...evidence.structured_artifacts.sentinel,
+        expected: sentinelExpected,
+        compliant: sentinelExpected ? true : null,
+        verdict_ref: sentinelExpected
+          ? `.aegis/sentinel/${issue.id}.json`
+          : null,
+        verdict: sentinelExpected ? "pass" : null,
+      };
+
+      evidence.structured_artifacts.janus = {
+        ...evidence.structured_artifacts.janus,
+        expected: janusExpected,
+        compliant: janusExpected ? true : null,
+        artifact_ref: janusExpected ? `.aegis/janus/${issue.id}.json` : null,
+        recommended_next_action: janusExpected
+          ? inferJanusNextAction(mergeOutcome)
+          : null,
+      };
+
+      evidence.clarification = {
+        ...evidence.clarification,
+        expected: clarificationExpected,
+        compliant: clarificationCompliant,
+        clarification_issue_id: clarificationExpected
+          ? `${issue.id}-clarification`
+          : null,
+        blocking_question: clarificationExpected
+          ? "Scenario requires clarification before Titan can proceed."
+          : null,
+      };
+
+      evidence.merge_queue = {
+        queued_at: mergeAttempted
+          ? addMillisecondsToIso(
+              context.startedAtIso,
+              mergeQueueStartOffsetMs,
+            )
+          : null,
+        merged_at: merged
+          ? addMillisecondsToIso(
+              context.startedAtIso,
+              mergeQueueStartOffsetMs + mergeQueueDurationMs,
+            )
+          : null,
+        direct_to_main_bypass: false,
+        rework_count: mergeOutcome === "merged_after_rework" ? 1 : 0,
+        janus_invoked: janusExpected,
+        janus_succeeded: mergeOutcome === "conflict_resolved_janus",
+        conflict_count: CONFLICT_OUTCOMES.has(mergeOutcome) ? 1 : 0,
+      };
+
+      evidence.restart_recovery = {
+        expected: restartExpected,
+        recovered: restartRecovered,
+        phase: restartPhase,
+      };
+
+      return [issue.id, evidence];
+    }),
+  );
+}
+
 export function buildScenarioResult(
   context: ScenarioExecutionContext,
   overrides: ScenarioResultOverrides,
@@ -584,6 +813,7 @@ export function buildScenarioResult(
     issue_types: buildIssueTypes(context.fixture),
     completion_outcomes: { ...overrides.completionOutcomes },
     merge_outcomes: { ...overrides.mergeOutcomes },
+    issue_evidence: buildScenarioIssueEvidence(context, overrides),
     human_intervention_issue_ids: [...(overrides.humanInterventionIssueIds ?? [])],
     cost_totals: null,
     quota_totals: null,

@@ -260,6 +260,29 @@ describe("S03 fixture sanity", () => {
                 `scenario_id mismatch: expected "${scenario.id}", got "${result.scenario_id}"`,
               ],
             });
+          } else {
+            const issueEvidence = (result as {
+              issue_evidence?: Record<string, unknown>;
+            }).issue_evidence;
+
+            if (!issueEvidence) {
+              failures.push({
+                id: scenario.id,
+                errors: ["missing structured issue_evidence payload"],
+              });
+              continue;
+            }
+
+            const outcomeIssueIds = Object.keys(result.completion_outcomes).sort();
+            const evidenceIssueIds = Object.keys(issueEvidence).sort();
+            if (JSON.stringify(outcomeIssueIds) !== JSON.stringify(evidenceIssueIds)) {
+              failures.push({
+                id: scenario.id,
+                errors: [
+                  `issue_evidence keys must match completion_outcomes keys: expected ${outcomeIssueIds.join(", ")}, got ${evidenceIssueIds.join(", ")}`,
+                ],
+              });
+            }
           }
         }
 

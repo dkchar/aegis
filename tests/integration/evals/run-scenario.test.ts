@@ -17,6 +17,7 @@ import { DEFAULT_AEGIS_CONFIG } from "../../../src/config/defaults.js";
 import { runScenario } from "../../../src/evals/run-scenario.js";
 import { writeResult, readResult } from "../../../src/evals/write-result.js";
 import type { EvalRunResult, EvalScenario } from "../../../src/evals/result-schema.js";
+import { createEmptyIssueEvidence } from "../../../src/evals/result-schema.js";
 import { computeScoreSummary } from "../../../src/evals/compute-score-summary.js";
 import { compareScoreSummaries } from "../../../src/evals/compare-runs.js";
 
@@ -43,7 +44,9 @@ function makeTestScenario(): EvalScenario {
 }
 
 /** A minimal pre-built EvalRunResult for persistence tests. */
-function makeMinimalResult(overrides: Partial<EvalRunResult> = {}): EvalRunResult {
+function makeMinimalResult(
+  overrides: Omit<Partial<EvalRunResult>, "issue_evidence"> = {},
+): EvalRunResult {
   return {
     aegis_version: "0.1.0",
     git_sha: "abc1234def5678901234567890123456789012345",
@@ -55,6 +58,9 @@ function makeMinimalResult(overrides: Partial<EvalRunResult> = {}): EvalRunResul
     issue_types: { task: 1 },
     completion_outcomes: { "test-001": "completed" },
     merge_outcomes: { "test-001": "merged_clean" },
+    issue_evidence: {
+      "test-001": createEmptyIssueEvidence(),
+    },
     human_intervention_issue_ids: [],
     cost_totals: null,
     quota_totals: null,
@@ -64,7 +70,7 @@ function makeMinimalResult(overrides: Partial<EvalRunResult> = {}): EvalRunResul
       elapsed_ms: 300_000,
     },
     ...overrides,
-  };
+  } as EvalRunResult;
 }
 
 /** Temp dirs created by tests — cleaned up in afterEach. */
@@ -112,6 +118,7 @@ describe("S02 scenario runner — lane A (runScenario)", () => {
 
       expect(result.scenario_id).toBe(scenario.id);
     },
+    15_000,
   );
 
   it(

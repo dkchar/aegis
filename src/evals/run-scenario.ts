@@ -18,6 +18,7 @@ import type {
   CompletionOutcome,
   MergeOutcome,
 } from "./result-schema.js";
+import { createEmptyIssueEvidence } from "./result-schema.js";
 import type { Fixture } from "./fixture-schema.js";
 import { validateFixture } from "./fixture-schema.js";
 import { tryRunMvpScenario } from "./mvp-scenario-runners/index.js";
@@ -199,6 +200,9 @@ export async function runScenario(options: RunScenarioOptions): Promise<EvalRunR
     issue_types,
     completion_outcomes,
     merge_outcomes,
+    issue_evidence: Object.fromEntries(
+      fixture.issues.map((issue) => [issue.id, createEmptyIssueEvidence()]),
+    ) as EvalRunResult["issue_evidence"],
     human_intervention_issue_ids: [...fixture.human_interventions],
     cost_totals: null,
     quota_totals: null,

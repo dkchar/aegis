@@ -15,8 +15,10 @@ import {
   EVALS_RESULTS_PATH,
   COMPLETION_OUTCOMES,
   MERGE_OUTCOMES,
+  createEmptyIssueEvidence,
   type EvalRunResult,
   type EvalScenario,
+  type IssueEvalEvidence,
   type ScoreSummary,
 } from "../../../src/evals/result-schema.js";
 import { DEFAULT_AEGIS_CONFIG } from "../../../src/config/defaults.js";
@@ -26,9 +28,58 @@ import { compareScoreSummaries } from "../../../src/evals/compare-runs.js";
 
 const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
 
+interface IssueEvidenceOverrides {
+  oracle?: Partial<IssueEvalEvidence["structured_artifacts"]["oracle"]>;
+  titan?: Partial<IssueEvalEvidence["structured_artifacts"]["titan"]>;
+  sentinel?: Partial<IssueEvalEvidence["structured_artifacts"]["sentinel"]>;
+  janus?: Partial<IssueEvalEvidence["structured_artifacts"]["janus"]>;
+  clarification?: Partial<IssueEvalEvidence["clarification"]>;
+  merge_queue?: Partial<IssueEvalEvidence["merge_queue"]>;
+  restart_recovery?: Partial<IssueEvalEvidence["restart_recovery"]>;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function makeIssueEvidence(
+  overrides: IssueEvidenceOverrides = {},
+): IssueEvalEvidence {
+  const base = createEmptyIssueEvidence();
+
+  return {
+    structured_artifacts: {
+      oracle: {
+        ...base.structured_artifacts.oracle,
+        ...(overrides.oracle ?? {}),
+      },
+      titan: {
+        ...base.structured_artifacts.titan,
+        ...(overrides.titan ?? {}),
+      },
+      sentinel: {
+        ...base.structured_artifacts.sentinel,
+        ...(overrides.sentinel ?? {}),
+      },
+      janus: {
+        ...base.structured_artifacts.janus,
+        ...(overrides.janus ?? {}),
+      },
+    },
+    clarification: {
+      ...base.clarification,
+      ...(overrides.clarification ?? {}),
+    },
+    merge_queue: {
+      ...base.merge_queue,
+      ...(overrides.merge_queue ?? {}),
+    },
+    restart_recovery: {
+      ...base.restart_recovery,
+      ...(overrides.restart_recovery ?? {}),
+    },
+  };
+}
 
 /** Typed helper for tests that need a real EvalRunResult. */
 function makeMinimalResult(): EvalRunResult {
@@ -43,6 +94,9 @@ function makeMinimalResult(): EvalRunResult {
     issue_types: { task: 1 },
     completion_outcomes: { "issue-1": "completed" },
     merge_outcomes: { "issue-1": "merged_clean" },
+    issue_evidence: {
+      "issue-1": makeIssueEvidence(),
+    },
     human_intervention_issue_ids: [],
     cost_totals: null,
     quota_totals: null,
@@ -67,6 +121,9 @@ function makeMinimalResultData(): Record<string, unknown> {
     issue_types: { task: 1 },
     completion_outcomes: { "issue-1": "completed" },
     merge_outcomes: { "issue-1": "merged_clean" },
+    issue_evidence: {
+      "issue-1": makeIssueEvidence(),
+    },
     human_intervention_issue_ids: [],
     cost_totals: null,
     quota_totals: null,
@@ -514,12 +571,25 @@ describe("computeScoreSummary", () => {
     result.issue_count = 10;
     const outcomes: Record<string, "completed"> = {};
     const merges: Record<string, "merged_clean" | "conflict_resolved_janus"> = {};
+    const issueEvidence: EvalRunResult["issue_evidence"] = {};
     for (let i = 1; i <= 10; i++) {
       outcomes[`issue-${i}`] = "completed";
       merges[`issue-${i}`] = i <= 4 ? "conflict_resolved_janus" : "merged_clean";
+      issueEvidence[`issue-${i}`] = makeIssueEvidence({
+        janus: {
+          expected: i <= 4,
+          compliant: i <= 4 ? true : null,
+          recommended_next_action: i <= 4 ? "requeue" : null,
+        },
+        merge_queue: {
+          janus_invoked: i <= 4,
+          janus_succeeded: i <= 4,
+        },
+      });
     }
     result.completion_outcomes = outcomes;
     result.merge_outcomes = merges;
+    result.issue_evidence = issueEvidence;
 
     const summary = computeScoreSummary(result);
 
@@ -536,6 +606,100 @@ describe("computeScoreSummary", () => {
     expect(summary.rework_loops_per_issue).toBe(0);
     expect(summary.messaging_token_overhead).toBeNull();
     expect(summary.restart_recovery_success_rate).toBeNull();
+  });
+
+  it("derives artifact, clarification, queue, Janus, and restart metrics from structured per-issue evidence", () => {
+    const result = makeMinimalResult();
+
+    result.scenario_id = "restart-during-implementation";
+    result.issue_count = 2;
+    result.completion_outcomes = {
+      "issue-1": "completed",
+      "issue-2": "completed",
+    };
+    result.merge_outcomes = {
+      "issue-1": "merged_after_rework",
+      "issue-2": "conflict_resolved_janus",
+    };
+    result.issue_evidence = {
+      "issue-1": makeIssueEvidence({
+        oracle: {
+          expected: true,
+          compliant: true,
+          assessment_ref: ".aegis/oracle/issue-1.json",
+        },
+        titan: {
+          expected: true,
+          compliant: true,
+          outcome: "success",
+        },
+        sentinel: {
+          expected: true,
+          compliant: true,
+          verdict_ref: ".aegis/sentinel/issue-1.json",
+        },
+        clarification: {
+          expected: true,
+          compliant: true,
+          clarification_issue_id: "clarify-001",
+        },
+        merge_queue: {
+          queued_at: "2026-04-04T18:00:00.000Z",
+          merged_at: "2026-04-04T18:00:02.000Z",
+          rework_count: 1,
+          conflict_count: 1,
+        },
+      }),
+      "issue-2": makeIssueEvidence({
+        oracle: {
+          expected: true,
+          compliant: true,
+          assessment_ref: ".aegis/oracle/issue-2.json",
+        },
+        titan: {
+          expected: true,
+          compliant: true,
+          outcome: "success",
+        },
+        sentinel: {
+          expected: true,
+          compliant: true,
+          verdict_ref: ".aegis/sentinel/issue-2.json",
+        },
+        janus: {
+          expected: true,
+          compliant: true,
+          recommended_next_action: "requeue",
+        },
+        merge_queue: {
+          queued_at: "2026-04-04T18:00:10.000Z",
+          merged_at: "2026-04-04T18:00:14.000Z",
+          janus_invoked: true,
+          janus_succeeded: true,
+          conflict_count: 1,
+        },
+        restart_recovery: {
+          expected: true,
+          recovered: true,
+          phase: "implementation",
+        },
+      }),
+    };
+
+    const summary = computeScoreSummary(result);
+
+    expect(summary.structured_artifact_compliance_rate).toBe(1);
+    expect(summary.clarification_compliance_rate).toBe(1);
+    expect(summary.merge_conflict_rate_per_titan).toBe(1);
+    expect(summary.merge_queue_latency_ms).toBe(3_000);
+    expect(summary.rework_loops_per_issue).toBe(0.5);
+    expect(summary.janus_invocation_rate_per_10_issues).toBe(5);
+    expect(summary.janus_success_rate).toBe(1);
+    expect(summary.restart_recovery_success_rate).toBe(1);
+    expect(summary.gates.structured_artifact_compliance_100pct).toBe(true);
+    expect(summary.gates.clarification_compliance_100pct).toBe(true);
+    expect(summary.gates.restart_recovery_100pct).toBe(true);
+    expect(summary.gates.no_direct_to_main_bypasses).toBe(true);
   });
 
   it("structured_artifact_compliance_100pct gate always true for MVP", () => {
@@ -720,6 +884,101 @@ describe("validateEvalRunResult", () => {
       const result = validateEvalRunResult(data);
       expect(result.valid).toBe(true);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateEvalRunResult — evidence parity
+// ---------------------------------------------------------------------------
+
+describe("validateEvalRunResult — evidence parity", () => {
+  it("rejects when issue_evidence has fewer entries than issue_count", () => {
+    const data = makeMinimalResultData();
+    data["issue_count"] = 2;
+    // issue_evidence still has only 1 entry
+
+    const result = validateEvalRunResult(data);
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) =>
+        e.includes("issue_evidence has 1 entries but issue_count is 2"),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects when issue_evidence has keys not in completion_outcomes", () => {
+    const data = makeMinimalResultData();
+    data["issue_evidence"] = {
+      "issue-1": makeIssueEvidence(),
+      "issue-2": makeIssueEvidence(),
+    };
+    data["issue_count"] = 2;
+    // completion_outcomes still has only "issue-1"
+
+    const result = validateEvalRunResult(data);
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) =>
+        e.includes('completion_outcomes missing key "issue-2" present in issue_evidence'),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects when completion_outcomes has keys not in issue_evidence", () => {
+    const data = makeMinimalResultData();
+    data["completion_outcomes"] = {
+      "issue-1": "completed",
+      "issue-2": "completed",
+    };
+    data["issue_count"] = 1;
+    // issue_evidence still has only "issue-1"
+
+    const result = validateEvalRunResult(data);
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) =>
+        e.includes('issue_evidence missing key "issue-2" present in completion_outcomes'),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects when merge_outcomes has keys not in issue_evidence", () => {
+    const data = makeMinimalResultData();
+    data["merge_outcomes"] = {
+      "issue-1": "merged_clean",
+      "issue-2": "merged_clean",
+    };
+    data["issue_count"] = 1;
+    // issue_evidence still has only "issue-1"
+
+    const result = validateEvalRunResult(data);
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) =>
+        e.includes('issue_evidence missing key "issue-2" present in merge_outcomes'),
+      ),
+    ).toBe(true);
+  });
+
+  it("passes when all parities match", () => {
+    const data = makeMinimalResultData();
+    data["issue_count"] = 2;
+    data["completion_outcomes"] = {
+      "issue-1": "completed",
+      "issue-2": "failed",
+    };
+    data["merge_outcomes"] = {
+      "issue-1": "merged_clean",
+      "issue-2": "not_attempted",
+    };
+    data["issue_evidence"] = {
+      "issue-1": makeIssueEvidence(),
+      "issue-2": makeIssueEvidence(),
+    };
+
+    const result = validateEvalRunResult(data);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
   });
 });
 

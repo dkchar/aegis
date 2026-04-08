@@ -71,6 +71,140 @@ export interface WallClockTiming {
 }
 
 // ---------------------------------------------------------------------------
+// Per-issue evidence used for SPECv2 §24.7 metrics
+// ---------------------------------------------------------------------------
+
+export type OracleEstimatedComplexity = "trivial" | "moderate" | "complex";
+export type TitanEvidenceOutcome = "success" | "clarification" | "failure";
+export type SentinelEvidenceVerdict = "pass" | "fail";
+export type JanusEvidenceNextAction = "requeue" | "manual_decision" | "fail";
+export type RestartRecoveryPhase = "implementation" | "merge";
+
+export interface OracleArtifactEvidence {
+  expected: boolean;
+  compliant: boolean | null;
+  assessment_ref: string | null;
+  estimated_complexity: OracleEstimatedComplexity | null;
+  ready: boolean | null;
+  derived_issue_ids: string[];
+}
+
+export interface TitanArtifactEvidence {
+  expected: boolean;
+  compliant: boolean | null;
+  outcome: TitanEvidenceOutcome | null;
+  files_changed: string[];
+  tests_and_checks_run: string[];
+  clarification_issue_id: string | null;
+}
+
+export interface SentinelArtifactEvidence {
+  expected: boolean;
+  compliant: boolean | null;
+  verdict_ref: string | null;
+  verdict: SentinelEvidenceVerdict | null;
+  created_fix_issue_ids: string[];
+}
+
+export interface JanusArtifactEvidence {
+  expected: boolean;
+  compliant: boolean | null;
+  artifact_ref: string | null;
+  recommended_next_action: JanusEvidenceNextAction | null;
+}
+
+export interface ClarificationEvidence {
+  expected: boolean;
+  compliant: boolean | null;
+  clarification_issue_id: string | null;
+  blocking_question: string | null;
+}
+
+export interface MergeQueueEvidence {
+  queued_at: string | null;
+  merged_at: string | null;
+  direct_to_main_bypass: boolean;
+  rework_count: number;
+  janus_invoked: boolean;
+  janus_succeeded: boolean;
+  conflict_count: number;
+}
+
+export interface RestartRecoveryEvidence {
+  expected: boolean;
+  recovered: boolean | null;
+  phase: RestartRecoveryPhase | null;
+}
+
+export interface IssueEvalEvidence {
+  structured_artifacts: {
+    oracle: OracleArtifactEvidence;
+    titan: TitanArtifactEvidence;
+    sentinel: SentinelArtifactEvidence;
+    janus: JanusArtifactEvidence;
+  };
+  clarification: ClarificationEvidence;
+  merge_queue: MergeQueueEvidence;
+  restart_recovery: RestartRecoveryEvidence;
+}
+
+export function createEmptyIssueEvidence(): IssueEvalEvidence {
+  return {
+    structured_artifacts: {
+      oracle: {
+        expected: false,
+        compliant: null,
+        assessment_ref: null,
+        estimated_complexity: null,
+        ready: null,
+        derived_issue_ids: [],
+      },
+      titan: {
+        expected: false,
+        compliant: null,
+        outcome: null,
+        files_changed: [],
+        tests_and_checks_run: [],
+        clarification_issue_id: null,
+      },
+      sentinel: {
+        expected: false,
+        compliant: null,
+        verdict_ref: null,
+        verdict: null,
+        created_fix_issue_ids: [],
+      },
+      janus: {
+        expected: false,
+        compliant: null,
+        artifact_ref: null,
+        recommended_next_action: null,
+      },
+    },
+    clarification: {
+      expected: false,
+      compliant: null,
+      clarification_issue_id: null,
+      blocking_question: null,
+    },
+    merge_queue: {
+      queued_at: null,
+      merged_at: null,
+      direct_to_main_bypass: false,
+      rework_count: 0,
+      janus_invoked: false,
+      janus_succeeded: false,
+      conflict_count: 0,
+    },
+    restart_recovery: {
+      expected: false,
+      recovered: null,
+      phase: null,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // EvalRunResult — the canonical per-scenario artifact (SPECv2 §24.5)
 // ---------------------------------------------------------------------------
 
@@ -104,6 +238,8 @@ export interface EvalRunResult {
   completion_outcomes: Record<string, CompletionOutcome>;
   /** Merge outcome for each issue, keyed by issue id. */
   merge_outcomes: Record<string, MergeOutcome>;
+  /** Structured per-issue evidence for SPECv2 §24.7 metric computation. */
+  issue_evidence: Record<string, IssueEvalEvidence>;
 
   // ── Human interventions ───────────────────────────────────────────────────
   /**
