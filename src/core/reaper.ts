@@ -86,6 +86,7 @@ export interface Reaper {
   verifyOracleArtifacts(issueId: string, events: AgentEvent[]): ArtifactVerification;
   verifyTitanArtifacts(issueId: string, events: AgentEvent[]): ArtifactVerification;
   verifySentinelArtifacts(issueId: string, events: AgentEvent[]): ArtifactVerification;
+  verifyJanusArtifacts(issueId: string, events: AgentEvent[]): ArtifactVerification;
 }
 
 // ---------------------------------------------------------------------------
@@ -111,6 +112,10 @@ export function computeNextStage(
       return sentinelVerdict === "pass"
         ? DispatchStage.Complete
         : DispatchStage.Failed;
+    case "janus":
+      // Janus success means the integration conflict was resolved;
+      // return to queued_for_merge for a fresh mechanical pass (SPECv2 §12.6 step 8)
+      return DispatchStage.QueuedForMerge;
     default:
       return DispatchStage.Failed;
   }
@@ -123,6 +128,19 @@ export function determineLaborCleanup(
 ): LaborCleanupInstruction | null {
   if (caste === "oracle" || caste === "sentinel") {
     return null;
+  }
+
+  if (caste === "janus") {
+    // Janus works inside the preserved conflict labor or dedicated integration labor.
+    // Always preserve for diagnostics regardless of outcome (SPECv2 §10.4).
+    return {
+      issueId,
+      removeWorktree: false,
+      deleteBranch: false,
+      reason: outcome === "success"
+        ? "janus_success_preserve_for_requeue"
+        : "janus_failure_preserve_for_diagnostics",
+    };
   }
 
   if (caste === "titan" && outcome === "success") {

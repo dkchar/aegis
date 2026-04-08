@@ -255,15 +255,18 @@ export function detectConflicts(mergeOutput: string): boolean {
  * @returns True if semantic ambiguity is detected.
  */
 export function detectSemanticAmbiguity(mergeOutput: string): boolean {
+  // Narrow indicators that suggest genuine semantic ambiguity in merge conflicts.
+  // Avoid matching routine TypeScript/compilation errors which appear in normal
+  // gate checks (tests, lint, build) during Tier 1/2 merge attempts.
+  //
+  // Per SPECv2 §10.4.1: semantic ambiguity means the conflict cannot be resolved
+  // mechanically because the intended integration is unclear.
   const semanticIndicators = [
-    "type error",
-    "duplicate",
-    "cannot find name",
-    "module not found",
-    "import error",
-    "undefined reference",
     "circular dependency",
     "incompatible types",
+    "both modified",      // Git conflict marker context suggesting ambiguous intent
+    "cannot merge",       // Explicit merge impossibility
+    "ambiguous",          // Direct ambiguity signals
   ];
 
   const lower = mergeOutput.toLowerCase();

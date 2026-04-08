@@ -30,11 +30,17 @@ import {
 } from "../events/merge-events.js";
 import {
   handleJanusResult,
+  janusRequeue,
 } from "./janus-integration.js";
 import {
   classifyConflictTier as classifyPolicyConflictTier,
   defaultJanusInvocationPolicy,
+  type JanusInvocationPolicy,
 } from "./tiered-conflict-policy.js";
+import type { AgentRuntime } from "../runtime/agent-runtime.js";
+import { loadDispatchState } from "../core/dispatch-state.js";
+import { runJanus } from "../core/run-janus.js";
+import { DEFAULT_AEGIS_CONFIG } from "../config/defaults.js";
 
 /** Configuration for the queue worker. */
 export interface QueueWorkerConfig {
@@ -54,7 +60,10 @@ export interface QueueWorkerConfig {
   targetBranch: string;
 
   /** Optional Janus invocation policy override. */
-  janusInvocationPolicy?: import("./tiered-conflict-policy.js").JanusInvocationPolicy;
+  janusInvocationPolicy?: JanusInvocationPolicy;
+
+  /** Runtime adapter for spawning Janus sessions. */
+  runtime?: AgentRuntime;
 }
 
 /** Result of a queue processing cycle. */
@@ -270,13 +279,14 @@ export async function processNextQueueItem(
       case "MERGE_FAILED":
         // Check tiered conflict policy for Janus escalation eligibility (S15B)
         const policy = config.janusInvocationPolicy ?? defaultJanusInvocationPolicy();
-        const hasConflictMarkers = mergeResult.detail
-          ? mergeResult.detail.includes("CONFLICT") || mergeResult.detail.includes("<<<<<<<")
-          : false;
+        const mergeDetail = mergeResult.detail ?? "";
+        // Count actual conflict markers for accurate tier classification
+        const conflictFileCount = (mergeDetail.match(/CONFLICT\s*\(/g) ?? []).length
+          || (mergeDetail.match(/<<<<<<<\s/g) ?? []).length;
         const classification = classifyPolicyConflictTier(
-          mergeResult.detail ?? "",
+          mergeDetail,
           1, // exit code non-zero since we're in MERGE_FAILED
-          hasConflictMarkers ? 1 : 0, // Approximate conflict file count
+          conflictFileCount,
           updatedItem.attemptCount,
           policy,
         );
@@ -370,15 +380,16 @@ export async function processNextQueueItem(
 /**
  * Process an item that requires Janus escalation.
  *
- * This handles the Janus dispatch flow:
- *   1. Emit Janus outcome artifact
- *   2. Handle the Janus result (requeue, manual_decision, or fail)
- *   3. Update queue state accordingly
+ * S15B implementation:
+ *   1. Transition dispatch state to resolving_integration
+ *   2. Invoke runJanus() to dispatch the Janus session
+ *   3. Handle the Janus result (requeue, manual_decision, or fail)
+ *   4. Update queue state accordingly
  *
- * Note: In a full implementation, this would invoke the Janus runtime
- * (run-janus.ts from Lane A) to actually perform the Janus session.
- * For Lane B, we handle the post-Janus outcome handling assuming the
- * Janus artifact is already available.
+ * Per SPECv2 §12.6 steps 7-9:
+ *   - transition dispatch state to resolving_integration and dispatch Janus
+ *   - on Janus success, update the candidate artifact and return to queue
+ *   - on Janus failure or unsafe ambiguity, create manual-decision artifacts
  *
  * @param state - Current merge queue state.
  * @param item - The queue item requiring Janus.
@@ -390,15 +401,7 @@ async function processJanusItem(
   item: QueueItem,
   config: QueueWorkerConfig,
 ): Promise<{ updatedState: MergeQueueState; result: QueueProcessingResult }> {
-  // In a full implementation, this would:
-  // 1. Invoke runJanus() from Lane A to get the JanusResolutionArtifact
-  // 2. Parse and validate the artifact
-  // 3. Call handleJanusResult() from janus-integration.ts
-
-  // For Lane B: we handle the scenario where a Janus artifact already exists
-  // or where Janus needs to be dispatched. Since run-janus.ts is Lane A's
-  // responsibility, we emit a JANUS_REQUIRED event and set appropriate status.
-
+  // Publish Janus escalation event (queue state change, independent of runtime availability)
   config.eventPublisher.publish({
     id: crypto.randomUUID(),
     type: "merge.janus_escalation",
@@ -412,28 +415,151 @@ async function processJanusItem(
     },
   });
 
-  // Update item status to reflect Janus processing
+  // Check we have the required dependencies for Janus dispatch
+  if (!config.runtime) {
+    return {
+      updatedState: state,
+      result: {
+        issueId: item.issueId,
+        success: false,
+        error: "Janus dispatch requires a runtime adapter",
+        newStatus: "janus_required",
+      },
+    };
+  }
+
+  // Load dispatch state to find the record for this issue
+  const dispatchState = loadDispatchState(config.projectRoot);
+  const record = Object.values(dispatchState.records).find(
+    (r) => r.issueId === item.issueId,
+  ) ?? null;
+
+  if (!record) {
+    // No dispatch record available — create a manual decision artifact
+    // and stop automatic processing
+    const updatedState: MergeQueueState = {
+      schemaVersion: state.schemaVersion,
+      items: state.items.map((queueItem) =>
+        queueItem.issueId === item.issueId
+          ? {
+              ...queueItem,
+              status: "manual_decision_required" as const,
+              lastError: "No dispatch record found for Janus escalation",
+              updatedAt: new Date().toISOString(),
+            }
+          : { ...queueItem },
+      ),
+      processedCount: state.processedCount + 1,
+    };
+
+    return {
+      updatedState,
+      result: {
+        issueId: item.issueId,
+        success: false,
+        error: "No dispatch record found for Janus escalation",
+        newStatus: "manual_decision_required",
+      },
+    };
+  }
+
+  // Build the labor path for Janus
+  const laborPath = resolveLaborPath(config.projectRoot, item.issueId);
+
+  // Invoke runJanus (Lane A) to actually dispatch the Janus session
+  const janusBudget = DEFAULT_AEGIS_CONFIG.budgets.janus;
+
+  let janusResult: Awaited<ReturnType<typeof runJanus>>;
+  try {
+    janusResult = await runJanus({
+      issueId: item.issueId,
+      queueItemId: item.issueId,
+      preservedLaborPath: laborPath,
+      conflictSummary: item.lastError ?? "Merge integration escalation",
+      filesInvolved: [],
+      previousMergeErrors: item.lastError ?? "",
+      conflictTier: 3,
+      record,
+      runtime: config.runtime,
+      budget: janusBudget,
+      projectRoot: config.projectRoot,
+    });
+  } catch (err) {
+    // Janus dispatch crashed — create manual decision artifact
+    const errorMessage = (err as Error).message;
+    const updatedState: MergeQueueState = {
+      schemaVersion: state.schemaVersion,
+      items: state.items.map((queueItem) =>
+        queueItem.issueId === item.issueId
+          ? {
+              ...queueItem,
+              status: "janus_failed" as const,
+              lastError: `Janus dispatch crash: ${errorMessage}`,
+              updatedAt: new Date().toISOString(),
+            }
+          : { ...queueItem },
+      ),
+      processedCount: state.processedCount,
+    };
+
+    return {
+      updatedState,
+      result: {
+        issueId: item.issueId,
+        success: false,
+        error: `Janus dispatch crash: ${errorMessage}`,
+        newStatus: "janus_failed",
+      },
+    };
+  }
+
+  // Handle the Janus result through the integration module (Lane B)
+  const janusOutcome = await handleJanusResult(
+    janusResult.resolutionArtifact!,
+    config.projectRoot,
+    state,
+    config.eventPublisher,
+  );
+
+  // Apply the Janus outcome to the queue state
+  if (janusOutcome.finalStatus === "queued") {
+    // Safe requeue: item returns to queue for fresh mechanical pass
+    const requeued = janusRequeue(state, item.issueId);
+    return {
+      updatedState: requeued,
+      result: {
+        issueId: item.issueId,
+        success: true,
+        newStatus: "queued",
+      },
+    };
+  }
+
+  const newStatus = janusOutcome.finalStatus;
+  const success = newStatus !== "janus_failed" && newStatus !== "manual_decision_required";
+
   const updatedState: MergeQueueState = {
     schemaVersion: state.schemaVersion,
     items: state.items.map((queueItem) =>
       queueItem.issueId === item.issueId
         ? {
             ...queueItem,
-            status: "janus_required" as const,
+            status: newStatus,
+            lastError: janusResult.failureReason ?? "Janus resolution failed",
             updatedAt: new Date().toISOString(),
           }
         : { ...queueItem },
     ),
-    processedCount: state.processedCount,
+    processedCount: state.processedCount + 1,
   };
 
   return {
     updatedState,
     result: {
       issueId: item.issueId,
-      success: false,
-      error: "Janus escalation required; dispatch Janus session to resolve",
-      newStatus: "janus_required",
+      success,
+      error: janusResult.failureReason ?? undefined,
+      newStatus,
     },
   };
 }

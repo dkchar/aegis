@@ -180,24 +180,36 @@ describe("Tiered conflict policy", () => {
   });
 
   describe("detectSemanticAmbiguity", () => {
-    it("detects type error indicator", () => {
-      expect(detectSemanticAmbiguity("error TS2345: type error in assignment")).toBe(true);
-    });
-
-    it("detects duplicate indicator", () => {
-      expect(detectSemanticAmbiguity("Duplicate function declaration 'processData'")).toBe(true);
-    });
-
-    it("detects module not found", () => {
-      expect(detectSemanticAmbiguity("Module not found: @aegis/core")).toBe(true);
-    });
-
-    it("detects circular dependency", () => {
+    it("detects circular dependency indicator", () => {
       expect(detectSemanticAmbiguity("Circular dependency detected: a -> b -> a")).toBe(true);
+    });
+
+    it("detects incompatible types indicator", () => {
+      expect(detectSemanticAmbiguity("Incompatible types in merged exports")).toBe(true);
+    });
+
+    it("detects both modified conflict marker", () => {
+      expect(detectSemanticAmbiguity("CONFLICT (content): both modified")).toBe(true);
+    });
+
+    it("detects cannot merge indicator", () => {
+      expect(detectSemanticAmbiguity("Cannot merge: incompatible strategies")).toBe(true);
+    });
+
+    it("detects ambiguous indicator", () => {
+      expect(detectSemanticAmbiguity("Ambiguous resolution: multiple candidates")).toBe(true);
     });
 
     it("returns false for normal merge output", () => {
       expect(detectSemanticAmbiguity("Merged 15 files successfully")).toBe(false);
+    });
+
+    it("returns false for routine TypeScript errors (not semantic ambiguity)", () => {
+      // These were previously matched but are routine compilation errors,
+      // not genuine semantic merge ambiguity per SPECv2 §10.4.1
+      expect(detectSemanticAmbiguity("error TS2345: type error in assignment")).toBe(false);
+      expect(detectSemanticAmbiguity("Duplicate function declaration")).toBe(false);
+      expect(detectSemanticAmbiguity("Module not found: @aegis/core")).toBe(false);
     });
   });
 
@@ -338,7 +350,7 @@ describe("Tiered conflict policy", () => {
 
     it("classifies semantic ambiguity as Tier 3", () => {
       const result = classifyConflictTier(
-        "error TS2345: type error in merged code",
+        "Circular dependency detected: a -> b -> a in merged code",
         1,
         1,
         1,
@@ -583,7 +595,7 @@ describe("Janus dispatch and escalation flow", () => {
   it("semantic ambiguity produces human-decision artifact not auto-resolution", () => {
     // Scenario: Janus encounters semantic ambiguity
     const classification = classifyConflictTier(
-      "error TS2345: type error in merged code after conflict resolution",
+      "Circular dependency detected between merged modules: a -> b -> a",
       1,
       1,
       1,

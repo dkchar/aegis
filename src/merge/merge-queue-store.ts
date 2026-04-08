@@ -264,6 +264,7 @@ export function isInQueue(state: MergeQueueState, issueId: string): boolean {
 export function isTerminalStatus(status: QueueItemStatus): boolean {
   return (
     status === "merged" ||
-    status === "manual_decision_required"
+    status === "manual_decision_required" ||
+    status === "janus_failed"
   );
 }
