@@ -1,0 +1,138 @@
+{
+  "$schema": "../../src/evals/result-schema.ts",
+  "$comment": "Executable MVP gate manifest for S16A/S16B. It intentionally mirrors the SPECv2 §24.6 benchmark set from core-suite.json so the scenario wiring and the later release gate run against the same canonical scenario IDs in a stable order.",
+  "scenarios": [
+    {
+      "id": "single-clean-issue",
+      "name": "Single clean issue with no blockers",
+      "description": "A single well-defined task issue with no scope overlap, no ambiguity, and no merge conflict. The happy-path baseline scenario. Aegis must dispatch, complete, and merge without any human intervention.",
+      "fixture_path": "single-clean-issue/fixture.json",
+      "expected_outcomes": {
+        "min_completion_rate": 1.0,
+        "expects_human_intervention": false,
+        "expects_janus": false,
+        "expects_restart_recovery": false
+      }
+    },
+    {
+      "id": "complex-pause",
+      "name": "Issue Oracle marks complex — system pauses correctly",
+      "description": "An issue that Oracle assesses as complex (complexity >= complex threshold). Aegis must pause the issue rather than dispatching Titan, and surface the pause to the operator. No autonomous continuation.",
+      "fixture_path": "complex-pause/fixture.json",
+      "expected_outcomes": {
+        "min_completion_rate": 0.0,
+        "expects_human_intervention": true,
+        "expects_janus": false,
+        "expects_restart_recovery": false
+      }
+    },
+    {
+      "id": "decomposition",
+      "name": "Issue requiring decomposition into child issues",
+      "description": "An issue that Oracle decomposes into multiple child issues. Aegis must create the derived child issues and process them independently. The parent issue resolves once children complete.",
+      "fixture_path": "decomposition/fixture.json",
+      "expected_outcomes": {
+        "min_completion_rate": 1.0,
+        "expects_human_intervention": false,
+        "expects_janus": false,
+        "expects_restart_recovery": false
+      }
+    },
+    {
+      "id": "clarification",
+      "name": "Titan ambiguity that must create a clarification issue",
+      "description": "An ambiguous issue where Titan cannot proceed safely. Aegis must create a clarification child issue linked to the original, preserve the labor for resumption, and leave an explicit handoff note. Titan must not improvise.",
+      "fixture_path": "clarification/fixture.json",
+      "expected_outcomes": {
+        "min_completion_rate": 0.0,
+        "expects_human_intervention": true,
+        "expects_janus": false,
+        "expects_restart_recovery": false
+      }
+    },
+    {
+      "id": "stale-branch-rework",
+      "name": "Stale-branch merge requiring rework",
+      "description": "A merge candidate whose base branch has diverged since Titan's labor began, triggering rework before the merge can land. Tests the rework loop path without Janus involvement.",
+      "fixture_path": "stale-branch-rework/fixture.json",
+      "expected_outcomes": {
+        "min_completion_rate": 1.0,
+        "expects_human_intervention": false,
+        "expects_janus": false,
+        "expects_restart_recovery": false
+      }
+    },
+    {
+      "id": "hard-merge-conflict",
+      "name": "Hard merge conflict with preserved labor",
+      "description": "A merge candidate that produces a conflict the deterministic queue cannot resolve. The labor must be preserved, a REWORK_REQUEST artifact emitted, and the issue surfaced for operator action.",
+      "fixture_path": "hard-merge-conflict/fixture.json",
+      "expected_outcomes": {
+        "min_completion_rate": 0.0,
+        "expects_human_intervention": true,
+        "expects_janus": false,
+        "expects_restart_recovery": false
+      }
+    },
+    {
+      "id": "janus-escalation",
+      "name": "Tier 3 integration escalation — Janus resolves and requeues",
+      "description": "A Tier 3 conflict where Janus is permitted. Janus must produce a structured integration-resolution artifact, prepare a refreshed candidate, and return control to the merge queue. Janus must not merge directly.",
+      "fixture_path": "janus-escalation/fixture.json",
+      "expected_outcomes": {
+        "min_completion_rate": 1.0,
+        "expects_human_intervention": false,
+        "expects_janus": true,
+        "expects_restart_recovery": false
+      }
+    },
+    {
+      "id": "janus-human-decision",
+      "name": "Janus semantic ambiguity — human-decision artifact required",
+      "description": "A Janus case where semantic ambiguity forces a human-decision artifact rather than unsafe auto-resolution. Janus must not bluff through the conflict; it must emit the human-decision artifact and stop.",
+      "fixture_path": "janus-human-decision/fixture.json",
+      "expected_outcomes": {
+        "min_completion_rate": 0.0,
+        "expects_human_intervention": true,
+        "expects_janus": true,
+        "expects_restart_recovery": false
+      }
+    },
+    {
+      "id": "restart-during-implementation",
+      "name": "Orchestrator restart during Titan implementation",
+      "description": "The orchestrator is restarted while Titan is actively implementing. On recovery, Aegis must reconcile the in-progress dispatch state and resume without losing work or creating duplicate issues.",
+      "fixture_path": "restart-during-implementation/fixture.json",
+      "expected_outcomes": {
+        "min_completion_rate": 1.0,
+        "expects_human_intervention": false,
+        "expects_janus": false,
+        "expects_restart_recovery": true
+      }
+    },
+    {
+      "id": "restart-during-merge",
+      "name": "Orchestrator restart during merge processing",
+      "description": "The orchestrator is restarted while the merge queue is processing a candidate. On recovery, the merge queue must reconcile its state and complete the merge safely without bypassing gates or duplicating the merge.",
+      "fixture_path": "restart-during-merge/fixture.json",
+      "expected_outcomes": {
+        "min_completion_rate": 1.0,
+        "expects_human_intervention": false,
+        "expects_janus": false,
+        "expects_restart_recovery": true
+      }
+    },
+    {
+      "id": "polling-only",
+      "name": "Hooks disabled — polling remains the correctness path",
+      "description": "All Beads webhook integrations are disabled. Aegis must operate correctly using polling alone: issue discovery, status updates, and merge queue progression must all work without hook-driven events.",
+      "fixture_path": "polling-only/fixture.json",
+      "expected_outcomes": {
+        "min_completion_rate": 1.0,
+        "expects_human_intervention": false,
+        "expects_janus": false,
+        "expects_restart_recovery": false
+      }
+    }
+  ]
+}
