@@ -22,6 +22,18 @@ Recommended worktree default until the repo standardizes one:
 
 - Use a global root such as `~/.config/superpowers/worktrees/aegis` so execution sessions do not depend on repo-local ignore churn.
 
+## Mock Run Seeder
+
+Use `npm run mock:seed` from `C:\dev\aegis` to recreate `aegis-mock-run\` from scratch with a deterministic todo-system issue graph.
+
+After the seed completes:
+
+- `cd aegis-mock-run`
+- `bd ready --json`
+- confirm only `foundation.contract` is ready
+- process or close that issue
+- run `bd ready --json` again and confirm both foundation lanes are now ready in parallel
+
 ## Two Modes
 
 ### Worker Mode
