@@ -37,6 +37,7 @@ import {
   readOnlyTools,
   type AgentSession,
 } from "@mariozechner/pi-coding-agent";
+import { getModels, getProviders, type KnownProvider } from "@mariozechner/pi-ai";
 
 // ---------------------------------------------------------------------------
 // Budget-warning threshold: warn when > 80% of a limit is consumed.
@@ -383,6 +384,37 @@ function applyToolRestrictions(tools: PiTool[], restrictions: string[]): PiTool[
   return tools.filter((t) => allowed.has(t.name));
 }
 
+function resolveSessionModel(modelReference?: string) {
+  if (!modelReference || modelReference === "pi:default") {
+    return undefined;
+  }
+
+  const separatorIndex = modelReference.indexOf(":");
+  if (separatorIndex === -1) {
+    throw new Error(
+      `Invalid Pi model reference "${modelReference}". Expected "<provider>:<model-id>" or "pi:default".`,
+    );
+  }
+
+  const provider = modelReference.slice(0, separatorIndex);
+  const modelId = modelReference.slice(separatorIndex + 1);
+  const resolvedProvider = provider === "pi" ? "google" : provider;
+
+  if (!getProviders().includes(resolvedProvider as KnownProvider)) {
+    throw new Error(`Unknown Pi model provider "${provider}" in "${modelReference}".`);
+  }
+
+  const model = getModels(resolvedProvider as KnownProvider).find(
+    (candidate) => candidate.id === modelId,
+  );
+
+  if (!model) {
+    throw new Error(`Unknown Pi model "${modelReference}".`);
+  }
+
+  return model;
+}
+
 // ---------------------------------------------------------------------------
 // PiRuntime
 // ---------------------------------------------------------------------------
@@ -410,6 +442,7 @@ export class PiRuntime implements AgentRuntime {
     const { session } = await createAgentSession({
       cwd: opts.workingDirectory,
       tools: filteredTools,
+      model: resolveSessionModel(opts.model),
     });
 
     return new PiAgentHandle(session, opts);

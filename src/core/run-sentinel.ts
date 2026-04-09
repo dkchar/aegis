@@ -25,6 +25,7 @@ import type {
   AgentEvent,
   AgentRuntime,
 } from "../runtime/agent-runtime.js";
+import { DEFAULT_AEGIS_CONFIG } from "../config/defaults.js";
 import type {
   AegisIssue,
   AegisIssue as CreatedIssue,
@@ -51,6 +52,7 @@ export interface RunSentinelInput {
   tracker: SentinelIssueCreator;
   budget: BudgetLimit;
   projectRoot: string;
+  model?: string;
 }
 
 export interface RunSentinelResult {
@@ -121,6 +123,7 @@ async function collectSentinelResponse(
   issueId: string,
   projectRoot: string,
   budget: BudgetLimit,
+  model: string,
   prompt: string,
 ): Promise<string> {
   const handle = await runtime.spawn({
@@ -128,6 +131,7 @@ async function collectSentinelResponse(
     issueId,
     workingDirectory: projectRoot,
     toolRestrictions: ["read", "read-only shell", "tracker commands"],
+    model,
     budget,
   });
 
@@ -253,6 +257,7 @@ export async function runSentinel(input: RunSentinelInput): Promise<RunSentinelR
       input.issue.id,
       input.projectRoot,
       input.budget,
+      input.model ?? DEFAULT_AEGIS_CONFIG.models.sentinel,
       prompt,
     );
 

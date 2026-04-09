@@ -16,6 +16,7 @@ import {
   TITAN_RUN_LIFECYCLE_RULES,
   createTitanRunContract,
 } from "../../../src/core/run-titan.js";
+import { DEFAULT_AEGIS_CONFIG } from "../../../src/config/defaults.js";
 import { DispatchStage } from "../../../src/core/stage-transition.js";
 import type { DispatchRecord } from "../../../src/core/dispatch-state.js";
 import type { AegisIssue } from "../../../src/tracker/issue-model.js";
@@ -322,6 +323,7 @@ describe("S09 Titan contract seed", () => {
       workingDirectory: path.join(DEFAULT_PROJECT_ROOT, ".aegis", "labors", "labor-aegis-fjm.10.3"),
       toolRestrictions: [],
       budget,
+      model: DEFAULT_AEGIS_CONFIG.models.titan,
     });
     expect(result.outcome).toBe("success");
     expect(result.updatedRecord.stage).toBe(DispatchStage.Implemented);

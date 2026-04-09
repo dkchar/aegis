@@ -39,6 +39,11 @@ import {
   buildScopeVisibilitySummary,
 } from "../core/overlap-visibility.js";
 import type { ScopeAllocation } from "../core/scope-allocator.js";
+import type {
+  CommandExecutionContext,
+  CommandExecutionResult,
+  CommandExecutor,
+} from "../core/command-executor.js";
 import { handleAppendLearning, resolveMnemosynePath } from "./learning-route.js";
 import { loadConfig } from "../config/load-config.js";
 
@@ -52,6 +57,12 @@ export interface HttpServerContract {
 
 export interface HttpServerBindings {
   eventPublisher?: LiveEventPublisher;
+  executeCommand?: (
+    commandText: string,
+    context: CommandExecutionContext,
+    executor: CommandExecutor,
+  ) => CommandExecutionResult | Promise<CommandExecutionResult>;
+  onOperatingModeStateChange?: (state: OperatingModeState) => void;
 }
 
 export interface HttpServerStartOptions {
@@ -245,6 +256,45 @@ export function createHttpServerController(
     return operatingModeState.mode;
   }
 
+  function updateOperatingModeState(
+    nextOperatingModeState: OperatingModeState,
+    nextAutoLoopState: AutoLoopState,
+  ) {
+    operatingModeState = nextOperatingModeState;
+    autoLoopState = nextAutoLoopState;
+    bindings.onOperatingModeStateChange?.({ ...operatingModeState });
+    publishOrchestratorStateEvent();
+  }
+
+  function setOperatingMode(mode: "conversational" | "auto") {
+    if (mode === "auto") {
+      updateOperatingModeState(
+        enableAutoMode(operatingModeState),
+        enableAutoLoop(new Date().toISOString()),
+      );
+      return;
+    }
+
+    updateOperatingModeState(
+      disableAutoMode(operatingModeState),
+      disableAutoLoop(),
+    );
+  }
+
+  function pause() {
+    updateOperatingModeState(
+      pauseOperatingMode(operatingModeState),
+      { ...autoLoopState },
+    );
+  }
+
+  function resume() {
+    updateOperatingModeState(
+      resumeOperatingMode(operatingModeState),
+      { ...autoLoopState },
+    );
+  }
+
   function publishScopeSuppressionEvent(allocation: ScopeAllocation) {
     const summary = buildScopeVisibilitySummary(allocation);
     publishEvent(
@@ -335,23 +385,15 @@ export function createHttpServerController(
       publishOrchestratorStateEvent();
     },
     eventsTransport: sseTransport,
+    executeCommand: bindings.executeCommand,
     setOperatingMode: async (mode: "conversational" | "auto") => {
-      if (mode === "auto") {
-        operatingModeState = enableAutoMode(operatingModeState);
-        autoLoopState = enableAutoLoop(new Date().toISOString());
-      } else {
-        operatingModeState = disableAutoMode(operatingModeState);
-        autoLoopState = disableAutoLoop();
-      }
-      publishOrchestratorStateEvent();
+      setOperatingMode(mode);
     },
     pause: async () => {
-      operatingModeState = pauseOperatingMode(operatingModeState);
-      publishOrchestratorStateEvent();
+      pause();
     },
     resume: async () => {
-      operatingModeState = resumeOperatingMode(operatingModeState);
-      publishOrchestratorStateEvent();
+      resume();
     },
     getOperatingMode: () => getCurrentMode(),
     getCommandContext: () => ({
@@ -549,22 +591,13 @@ export function createHttpServerController(
       return lifecycleState;
     },
     setOperatingMode(mode: "conversational" | "auto") {
-      if (mode === "auto") {
-        operatingModeState = enableAutoMode(operatingModeState);
-        autoLoopState = enableAutoLoop(new Date().toISOString());
-      } else {
-        operatingModeState = disableAutoMode(operatingModeState);
-        autoLoopState = disableAutoLoop();
-      }
-      publishOrchestratorStateEvent();
+      setOperatingMode(mode);
     },
     pause() {
-      operatingModeState = pauseOperatingMode(operatingModeState);
-      publishOrchestratorStateEvent();
+      pause();
     },
     resume() {
-      operatingModeState = resumeOperatingMode(operatingModeState);
-      publishOrchestratorStateEvent();
+      resume();
     },
   };
 }

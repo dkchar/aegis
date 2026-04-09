@@ -13,6 +13,7 @@
 
 import { spawnSync } from "node:child_process";
 
+import { DEFAULT_AEGIS_CONFIG } from "../config/defaults.js";
 import type { BudgetLimit } from "../config/schema.js";
 import type { LaborCreationPlan, LaborGitCommand } from "../labor/create-labor.js";
 import { planLaborCreation } from "../labor/create-labor.js";
@@ -193,6 +194,8 @@ export interface SpawnForCasteInput {
   record: DispatchRecord;
   /** Optional override for tool restrictions. */
   toolRestrictions?: string[];
+  /** Optional override for the runtime model reference. */
+  model?: string;
 }
 
 /**
@@ -209,7 +212,7 @@ export interface SpawnForCasteInput {
  * @returns SpawnResult with the handle, labor info, and updated record.
  */
 export async function spawnForCaste(input: SpawnForCasteInput): Promise<SpawnResult> {
-  const { issue, caste, runtime, budget, projectRoot, record, toolRestrictions } = input;
+  const { issue, caste, runtime, budget, projectRoot, record, toolRestrictions, model } = input;
 
   // Step 1 & 2: Create labor worktree for titan only.
   let laborPlan: LaborCreationPlan | null = null;
@@ -228,6 +231,7 @@ export async function spawnForCaste(input: SpawnForCasteInput): Promise<SpawnRes
     issueId: issue.id,
     workingDirectory,
     toolRestrictions: effectiveToolRestrictions,
+    model: model ?? DEFAULT_AEGIS_CONFIG.models[caste],
     budget,
   };
 

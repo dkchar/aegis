@@ -12,6 +12,7 @@ import {
   runOracle,
   type OracleIssueCreator,
 } from "../../../src/core/run-oracle.js";
+import { DEFAULT_AEGIS_CONFIG } from "../../../src/config/defaults.js";
 import { DispatchStage } from "../../../src/core/stage-transition.js";
 import type {
   AgentEvent,
@@ -360,6 +361,7 @@ describe("runOracle", () => {
       workingDirectory: projectRoot,
       toolRestrictions: [],
       budget,
+      model: DEFAULT_AEGIS_CONFIG.models.oracle,
     });
     expect(result.updatedRecord.stage).toBe(DispatchStage.Scouted);
     expect(result.updatedRecord.runningAgent).toBeNull();

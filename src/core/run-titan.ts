@@ -104,6 +104,7 @@ export interface RunTitanInput {
   budget: BudgetLimit;
   projectRoot: string;
   mnemosyne?: { prompt_token_budget: number };
+  model?: string;
 }
 
 export interface RunTitanResult {
@@ -289,6 +290,7 @@ async function collectTitanResponse(
   issueId: string,
   workingDirectory: string,
   budget: BudgetLimit,
+  model: string,
   prompt: string,
 ): Promise<string> {
   const handle = await runtime.spawn({
@@ -296,6 +298,7 @@ async function collectTitanResponse(
     issueId,
     workingDirectory,
     toolRestrictions: [],
+    model,
     budget,
   });
 
@@ -362,6 +365,7 @@ export async function runTitan(input: RunTitanInput): Promise<RunTitanResult> {
       input.issue.id,
       input.labor.laborPath,
       input.budget,
+      input.model ?? DEFAULT_AEGIS_CONFIG.models.titan,
       prompt,
     );
     const payload = parseTitanExecutionPayload(raw);
