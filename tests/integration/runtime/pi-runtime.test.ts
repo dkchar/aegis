@@ -94,7 +94,7 @@ function makeFakeSession() {
 
   const session = {
     sessionId: "test-session-id",
-    state: { error: undefined as string | undefined },
+    state: { errorMessage: undefined as string | undefined },
     subscribe: vi.fn((fn: SdkEventListener) => {
       subscribers.push(fn);
       return () => {
@@ -459,8 +459,8 @@ describe("PiRuntime — event subscription", () => {
     });
   });
 
-  it("agent_end Pi event with state.error → error event (fatal=true) then session_ended", () => {
-    fakeSession.state.error = "Something went wrong";
+  it("agent_end Pi event with state.errorMessage → error event (fatal=true) then session_ended", () => {
+    fakeSession.state.errorMessage = "Something went wrong";
 
     const events: AgentEvent[] = [];
     handle.subscribe((e) => events.push(e));
@@ -481,7 +481,7 @@ describe("PiRuntime — event subscription", () => {
   });
 
   it("error events with fatal=true are followed by session_ended", () => {
-    fakeSession.state.error = "Fatal error";
+    fakeSession.state.errorMessage = "Fatal error";
     const events: AgentEvent[] = [];
     handle.subscribe((e) => events.push(e));
 

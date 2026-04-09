@@ -11,6 +11,7 @@
 .aegis/labors/
 .aegis/oracle/
 .aegis-cli-*
+aegis-mock-run/
 dist/
 node_modules/
 

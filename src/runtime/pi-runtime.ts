@@ -218,13 +218,13 @@ export class PiAgentHandle implements AgentHandle {
         if (this._aborted) break;
 
         const state = this._session.state;
-        const hasError = Boolean(state.error);
+        const hasError = Boolean(state.errorMessage);
 
         if (hasError) {
           this._emit({
             ...base,
             type: "error",
-            message: state.error ?? "Agent ended with unknown error",
+            message: state.errorMessage ?? "Agent ended with unknown error",
             fatal: true,
           });
         }
