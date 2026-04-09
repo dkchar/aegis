@@ -33,10 +33,9 @@ describe("S07 state snapshot returns correct mode", () => {
 
     const router = routesModule.createRestApiRouter({
       getStateSnapshot: () => ({
-        orchestrator: { server_state: "running", mode: "conversational", uptime_ms: 1000 },
-        agents: { active: 0 },
-        queue: { depth: 0 },
-        issues: { ready: [], active: [] },
+        status: { mode: "conversational", isRunning: true, uptimeSeconds: 1000, activeAgents: 0, queueDepth: 0 },
+        spend: { metering: "unknown", totalInputTokens: 0, totalOutputTokens: 0 },
+        agents: [],
       }),
       executeControlAction: async (request) => ({
         ok: true,
@@ -58,8 +57,8 @@ describe("S07 state snapshot returns correct mode", () => {
 
     expect(response?.status).toBe(200);
     const body = response?.body as Record<string, unknown>;
-    const orchestrator = body.orchestrator as Record<string, unknown>;
-    expect(orchestrator.mode).toBe("conversational");
+    const status = body.status as Record<string, unknown>;
+    expect(status.mode).toBe("conversational");
   });
 
   it("returns auto mode when enabled", async () => {
@@ -89,10 +88,9 @@ describe("S07 state snapshot returns correct mode", () => {
 
     const router = routesModule.createRestApiRouter({
       getStateSnapshot: () => ({
-        orchestrator: { server_state: "running", mode: "auto", uptime_ms: 2000 },
-        agents: { active: 1 },
-        queue: { depth: 3 },
-        issues: { ready: ["aegis-fjm.8.3"], active: ["aegis-fjm.8.2"] },
+        status: { mode: "auto", isRunning: true, uptimeSeconds: 2000, activeAgents: 1, queueDepth: 3 },
+        spend: { metering: "unknown", totalInputTokens: 0, totalOutputTokens: 0 },
+        agents: [],
       }),
       executeControlAction: async (request) => ({
         ok: true,
@@ -114,11 +112,11 @@ describe("S07 state snapshot returns correct mode", () => {
 
     expect(response?.status).toBe(200);
     const body = response?.body as Record<string, unknown>;
-    const orchestrator = body.orchestrator as Record<string, unknown>;
-    expect(orchestrator.mode).toBe("auto");
+    const status = body.status as Record<string, unknown>;
+    expect(status.mode).toBe("auto");
   });
 
-  it("includes paused flag in state snapshot", async () => {
+  it("includes isRunning flag in state snapshot", async () => {
     const routesModule = (await import(
       pathToFileURL(path.join(repoRoot, "src", "server", "routes.ts")).href
     )) as {
@@ -145,10 +143,9 @@ describe("S07 state snapshot returns correct mode", () => {
 
     const router = routesModule.createRestApiRouter({
       getStateSnapshot: () => ({
-        orchestrator: { server_state: "running", mode: "auto", paused: true, uptime_ms: 3000 },
-        agents: { active: 0 },
-        queue: { depth: 0 },
-        issues: { ready: [], active: [] },
+        status: { mode: "auto", isRunning: true, uptimeSeconds: 3000, activeAgents: 0, queueDepth: 0 },
+        spend: { metering: "unknown", totalInputTokens: 0, totalOutputTokens: 0 },
+        agents: [],
       }),
       executeControlAction: async (request) => ({
         ok: true,
@@ -170,7 +167,7 @@ describe("S07 state snapshot returns correct mode", () => {
 
     expect(response?.status).toBe(200);
     const body = response?.body as Record<string, unknown>;
-    const orchestrator = body.orchestrator as Record<string, unknown>;
-    expect(orchestrator.paused).toBe(true);
+    const status = body.status as Record<string, unknown>;
+    expect(status.isRunning).toBe(true);
   });
 });

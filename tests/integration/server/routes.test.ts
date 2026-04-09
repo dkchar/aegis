@@ -131,21 +131,19 @@ describe("S06 HTTP and SSE contract seed", () => {
     };
 
     const stateSnapshot = {
-      orchestrator: {
-        server_state: "running",
+      status: {
         mode: "conversational",
-        uptime_ms: 1_234,
+        isRunning: true,
+        uptimeSeconds: 1_234,
+        activeAgents: 2,
+        queueDepth: 3,
       },
-      agents: {
-        active: 2,
+      spend: {
+        metering: "unknown",
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
       },
-      queue: {
-        depth: 3,
-      },
-      issues: {
-        ready: ["aegis-fjm.7.3"],
-        active: ["aegis-fjm.7.2"],
-      },
+      agents: [],
     };
 
     const receivedSteerPayloads: unknown[] = [];
@@ -277,10 +275,9 @@ describe("S06 HTTP and SSE contract seed", () => {
       timestamp: "2026-04-04T00:00:00.000Z",
       sequence: 1,
       payload: {
-        server_state: "starting",
-        mode: "conversational",
-        uptime_ms: 100,
-        queue_depth: 0,
+        status: { mode: "conversational", isRunning: true, uptimeSeconds: 100, activeAgents: 0, queueDepth: 0 },
+        spend: { metering: "unknown", totalInputTokens: 0, totalOutputTokens: 0 },
+        agents: [],
       },
     });
     const eventTwo = eventBusModule.createLiveEvent({

@@ -150,10 +150,10 @@ export async function isAegisOwned(
     }
 
     const body = (await response.json()) as {
-      orchestrator?: { server_token?: string };
+      server_token?: string;
     };
 
-    return body.orchestrator?.server_token === record.server_token;
+    return body.server_token === record.server_token;
   } catch {
     return false;
   }

@@ -380,3 +380,21 @@
   - lane_b: aegis-fjm.20.3 [closed] updated 2026-04-08T19:29:10Z
   - gate: aegis-fjm.20.4 [closed] updated 2026-04-08T20:26:45Z
 
+### S-SMK - Olympus API/SSE Contract Alignment (aegis-smk)
+
+- Status: closed
+- Updated: 2026-04-09T21:36:30Z
+- Depends on: S12 (Olympus MVP Shell), S06 (HTTP Server, SSE Bus)
+- Outcome: GET /api/state and SSE orchestrator.state events now return the DashboardState shape `{ status, spend, agents }` matching the client contract. The `paused` field is preserved. CLI ownership validation works via top-level `server_token`. Generated .aegis files are properly gitignored.
+- Automated gate: npm run test; npm run build; npm run lint
+- Manual gate: Olympus dashboard receives and renders state correctly on first run.
+- Automated evidence: passed: npm run test (1321 tests, 0 failures); npm run build; npm run lint on 2026-04-09
+- Manual evidence: PR #57 to main. 2-reviewer consensus with findings addressed: server_token path fixed, paused field restored, runtime-ownership test mock updated.
+- Evidence notes: S-SMK closed after consensus review. 3 categories fixed: API response shape, SSE event shape, .gitignore gaps. server_token moved to top-level. paused field restored to OrchestratorStatus. All 16 changed files consistent.
+- Evidence updated: 2026-04-09T21:36:30Z
+- Children:
+  - contract: aegis-smk.1 [closed] updated 2026-04-09T21:36:25Z
+  - lane_a: aegis-smk.2 [closed] updated 2026-04-09T21:36:27Z
+  - lane_b: aegis-smk.3 [closed] updated 2026-04-09T21:36:28Z
+  - gate: aegis-smk [closed] updated 2026-04-09T21:36:30Z
+

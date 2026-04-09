@@ -15,6 +15,7 @@ export interface OrchestratorStatus {
   uptimeSeconds: number;
   activeAgents: number;
   queueDepth: number;
+  paused: boolean;
 }
 
 /** Budget/spend observation — matches SPECv2 metering capabilities. */

@@ -679,15 +679,15 @@ describe("S06 launch lifecycle contract seed", () => {
 
       const stateResponse = await fetch(`http://127.0.0.1:${port}/api/state`);
       const statePayload = await stateResponse.json() as {
-        orchestrator: {
-          server_state: string;
+        status: {
           mode: string;
+          isRunning: boolean;
         };
       };
 
       expect(stateResponse.status).toBe(200);
-      expect(statePayload.orchestrator.server_state).toBe("running");
-      expect(statePayload.orchestrator.mode).toBe("conversational");
+      expect(statePayload.status.isRunning).toBe(true);
+      expect(statePayload.status.mode).toBe("conversational");
 
       const eventsResponse = await fetch(`http://127.0.0.1:${port}/api/events`);
       expect(eventsResponse.status).toBe(200);

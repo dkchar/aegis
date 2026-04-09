@@ -29,6 +29,8 @@ export const DEFAULT_GITIGNORE_ENTRIES = [
   AEGIS_CONFIG_PATH,
   ".aegis/dispatch-state.json",
   ".aegis/merge-queue.json",
+  ".aegis/mnemosyne.jsonl",
+  ".aegis/runtime-state.json",
   ".aegis/labors/",
   ".aegis/evals/",
 ] as const;

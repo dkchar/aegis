@@ -10,10 +10,9 @@
     {
       "type": "orchestrator.state",
       "requiredPayloadFields": [
-        "server_state",
-        "mode",
-        "uptime_ms",
-        "queue_depth"
+        "status",
+        "spend",
+        "agents"
       ]
     },
     {

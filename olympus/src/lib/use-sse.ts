@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { SseEvent, OrchestratorStateEvent, CommandResultEvent } from "../types/sse-events";
+import type { SseEvent, OrchestratorStateEvent, CommandResultEvent, ServerLiveEventEnvelope } from "../types/sse-events";
 import type { DashboardState, SpendObservation, ActiveAgentInfo } from "../types/dashboard-state";
 
 /** Options for the useSse hook. */
@@ -147,18 +147,20 @@ export function useSse(options: UseSseOptions = {}): UseSseReturn {
       es.addEventListener("orchestrator.state", (rawEvent) => {
         const message = (rawEvent as MessageEvent).data;
         try {
-          const parsed: OrchestratorStateEvent = JSON.parse(message);
+          // Server sends the full LiveEventEnvelope: { id, type, timestamp, sequence, payload }
+          const envelope: ServerLiveEventEnvelope<DashboardState> = JSON.parse(message);
+          const payload = envelope.payload;
           // Cast SSE string fields to their constrained union types
-          const agents: DashboardState["agents"] = parsed.data.agents.map((a) => ({
+          const agents: DashboardState["agents"] = (payload.agents ?? []).map((a) => ({
             ...a,
             caste: a.caste as ActiveAgentInfo["caste"],
           }));
           const spend: DashboardState["spend"] = {
-            ...parsed.data.spend,
-            metering: parsed.data.spend.metering as SpendObservation["metering"],
+            ...(payload.spend ?? {}),
+            metering: (payload.spend?.metering ?? "unknown") as SpendObservation["metering"],
           };
           setState({
-            status: parsed.data.status,
+            status: payload.status,
             spend,
             agents,
           });
@@ -172,8 +174,12 @@ export function useSse(options: UseSseOptions = {}): UseSseReturn {
       es.addEventListener("control.command", (rawEvent) => {
         const message = (rawEvent as MessageEvent).data;
         try {
-          const parsed: CommandResultEvent = JSON.parse(message);
-          onEvent?.(parsed);
+          const envelope: ServerLiveEventEnvelope = JSON.parse(message);
+          onEvent?.({
+            type: "control.command",
+            data: envelope.payload,
+            id: envelope.id,
+          });
         } catch {
           // Malformed event — skip silently
         }

@@ -37,10 +37,9 @@ describe("S07 pause/resume through REST API", () => {
     let pauseCalled = false;
     const router = routesModule.createRestApiRouter({
       getStateSnapshot: () => ({
-        orchestrator: { server_state: "running", mode: "auto", paused: true, uptime_ms: 0 },
-        agents: { active: 0 },
-        queue: { depth: 0 },
-        issues: { ready: [], active: [] },
+        status: { mode: "auto", isRunning: true, uptimeSeconds: 0, activeAgents: 0, queueDepth: 0 },
+        spend: { metering: "unknown", totalInputTokens: 0, totalOutputTokens: 0 },
+        agents: [],
       }),
       executeControlAction: async (request) => ({
         ok: true,
@@ -108,10 +107,9 @@ describe("S07 pause/resume through REST API", () => {
     let resumeCalled = false;
     const router = routesModule.createRestApiRouter({
       getStateSnapshot: () => ({
-        orchestrator: { server_state: "running", mode: "auto", paused: false, uptime_ms: 0 },
-        agents: { active: 0 },
-        queue: { depth: 0 },
-        issues: { ready: [], active: [] },
+        status: { mode: "auto", isRunning: true, uptimeSeconds: 0, activeAgents: 0, queueDepth: 0 },
+        spend: { metering: "unknown", totalInputTokens: 0, totalOutputTokens: 0 },
+        agents: [],
       }),
       executeControlAction: async (request) => ({
         ok: true,

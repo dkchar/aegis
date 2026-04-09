@@ -31,10 +31,21 @@ export const LIVE_EVENT_TYPES = [
 export type LiveEventType = (typeof LIVE_EVENT_TYPES)[number];
 
 export interface OrchestratorStateEventPayload {
-  server_state: ServerLifecycleState;
-  mode: OrchestrationMode;
-  uptime_ms: number;
-  queue_depth: number;
+  status: {
+    mode: OrchestrationMode;
+    isRunning: boolean;
+    uptimeSeconds: number;
+    activeAgents: number;
+    queueDepth: number;
+    paused: boolean;
+  };
+  spend: {
+    metering: string;
+    costUsd?: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+  };
+  agents: Array<Record<string, unknown>>;
 }
 
 export interface LaunchSequenceEventPayload {
@@ -85,7 +96,7 @@ export type AegisLiveEvent = {
 const LIVE_EVENT_PAYLOAD_FIELDS: {
   [K in LiveEventType]: readonly (keyof LiveEventPayloadMap[K])[];
 } = {
-  "orchestrator.state": ["server_state", "mode", "uptime_ms", "queue_depth"],
+  "orchestrator.state": ["status", "spend", "agents"],
   "launch.sequence": ["phase", "step", "status", "detail"],
   "control.command": ["action", "request_id", "status", "detail"],
   "scope.suppression": ["dispatchable", "suppressed", "hasOverlap", "evaluatedAt"],
