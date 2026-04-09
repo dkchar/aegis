@@ -5,9 +5,10 @@ import { tmpdir } from "node:os";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { seedMockRun } from "../../../src/mock-run/seed-mock-run.js";
+import { getMockRunBdSupport, seedMockRun } from "../../../src/mock-run/seed-mock-run.js";
 
 const tempRoots: string[] = [];
+const bdSupport = getMockRunBdSupport();
 
 afterEach(() => {
   for (const root of tempRoots.splice(0)) {
@@ -15,7 +16,7 @@ afterEach(() => {
   }
 });
 
-describe("seedMockRun", () => {
+describe.skipIf(!bdSupport.supported)("seedMockRun", () => {
   it("recreates the repo and verifies foundation.contract is the only initial ready issue", async () => {
     const sandboxRoot = mkdtempSync(path.join(tmpdir(), "aegis-mock-run-"));
     tempRoots.push(sandboxRoot);

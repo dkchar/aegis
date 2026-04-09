@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -23,6 +23,11 @@ export interface SeedMockRunResult {
   manifestPath: string;
 }
 
+export interface MockRunBdSupport {
+  supported: boolean;
+  reason: string;
+}
+
 interface MockRunManifestFile {
   repoRoot: string;
   databaseName: string;
@@ -37,6 +42,12 @@ interface BdIssueRecord {
   title: string;
 }
 
+interface BdInitHelpProbeResult {
+  found: boolean;
+  status: number | null;
+  output: string;
+}
+
 function run(command: string, args: string[], cwd: string): string {
   return execFileSync(command, args, {
     cwd,
@@ -48,6 +59,67 @@ function run(command: string, args: string[], cwd: string): string {
 
 function runGlobalBd(args: string[]): string {
   return run("bd", args, process.cwd());
+}
+
+function defaultBdInitHelpProbe(): BdInitHelpProbeResult {
+  const result = spawnSync("bd", ["init", "--help"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
+
+  const errorCode =
+    result.error && "code" in result.error ? String(result.error.code) : null;
+
+  if (errorCode === "ENOENT") {
+    return {
+      found: false,
+      status: null,
+      output: "",
+    };
+  }
+
+  return {
+    found: !result.error,
+    status: result.status ?? null,
+    output: `${result.stdout ?? ""}${result.stderr ?? ""}`,
+  };
+}
+
+export function getMockRunBdSupport(
+  probe: () => BdInitHelpProbeResult = defaultBdInitHelpProbe,
+): MockRunBdSupport {
+  const result = probe();
+
+  if (!result.found) {
+    return {
+      supported: false,
+      reason: "bd CLI not found on PATH",
+    };
+  }
+
+  if (result.status !== 0) {
+    return {
+      supported: false,
+      reason: "bd init --help failed",
+    };
+  }
+
+  const missingFlags = ["--shared-server", "--skip-agents"].filter(
+    (flag) => !result.output.includes(flag),
+  );
+
+  if (missingFlags.length > 0) {
+    return {
+      supported: false,
+      reason: `bd CLI is missing required init flags: ${missingFlags.join(", ")}`,
+    };
+  }
+
+  return {
+    supported: true,
+    reason: "compatible",
+  };
 }
 
 function parseBdIssue(raw: string): BdIssueRecord {
@@ -150,6 +222,13 @@ function createIssue(
 }
 
 export async function seedMockRun(options: SeedMockRunOptions = {}): Promise<SeedMockRunResult> {
+  const bdSupport = getMockRunBdSupport();
+  if (!bdSupport.supported) {
+    throw new Error(
+      `seedMockRun requires a compatible bd CLI with --shared-server and --skip-agents support: ${bdSupport.reason}`,
+    );
+  }
+
   const workspaceRoot = path.resolve(options.workspaceRoot ?? process.cwd());
   const repoName = options.repoName ?? TODO_MOCK_RUN_MANIFEST.repoName;
   const beadsPrefix = options.beadsPrefix ?? TODO_MOCK_RUN_MANIFEST.beadsPrefix;
