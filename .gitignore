@@ -7,6 +7,8 @@
 .aegis/config.json
 .aegis/dispatch-state.json
 .aegis/merge-queue.json
+.aegis/mnemosyne.jsonl
+.aegis/runtime-state.json
 .aegis/evals/
 .aegis/labors/
 .aegis/oracle/
@@ -19,14 +21,16 @@ node_modules/
 olympus/dist/
 olympus/node_modules/
 
-# Coding agents
+# Coding agents (agent scratch dirs and working copies in subdirs/worktrees)
+# The repo-root .claude/CLAUDE.md and AGENTS.md are intentional repo files.
 .claude/
+!.claude/CLAUDE.md
 .ant-colony/
 .codex/
 .agent/
 .worktrees/
 CLAUDE.md
-AGENTS.md
+!AGENTS.md
 
 # Planning artifacts
 
