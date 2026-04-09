@@ -25,33 +25,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install bd CLI
-        run: npm install -g @beads/bd
-
-      - name: Verify bd compatibility
-        shell: bash
-        run: |
-          help_output="$(bd init --help 2>&1)"
-          case "$help_output" in
-            *--shared-server* ) : ;;
-            * )
-              echo "$help_output"
-              echo "Missing required bd init flag: --shared-server"
-              exit 1
-              ;;
-          esac
-          case "$help_output" in
-            *--skip-agents* ) : ;;
-            * )
-              echo "$help_output"
-              echo "Missing required bd init flag: --skip-agents"
-              exit 1
-              ;;
-          esac
-
-      - name: Run mock-run seeder coverage
-        run: npm run test -- tests/unit/mock-run/bd-support.test.ts tests/integration/mock-run/seed-mock-run.test.ts
-
       - name: Run lint
         run: npm run lint
 

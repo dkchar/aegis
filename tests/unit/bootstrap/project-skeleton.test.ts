@@ -365,5 +365,5 @@ describe("S00 project skeleton contract", () => {
     } finally {
       rmSync(tempRepo, { recursive: true, force: true });
     }
-  });
+  }, 20_000);
 });

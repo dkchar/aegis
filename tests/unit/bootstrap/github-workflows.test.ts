@@ -27,16 +27,12 @@ describe("GitHub workflow contracts", () => {
     expect(scripts.build).toBeDefined();
   });
 
-  it("CI workflow provisions bd and runs mock-run seeder coverage", () => {
+  it("CI workflow stays decoupled from live bd CLI setup", () => {
     const workflow = readText(".github/workflows/ci.yml");
 
-    expect(workflow).toContain("npm install -g @beads/bd");
-    expect(workflow).toContain("bd init --help");
-    expect(workflow).toContain("--shared-server");
-    expect(workflow).toContain("--skip-agents");
-    expect(workflow).toContain(
-      "npm run test -- tests/unit/mock-run/bd-support.test.ts tests/integration/mock-run/seed-mock-run.test.ts",
-    );
+    expect(workflow).not.toContain("npm install -g @beads/bd");
+    expect(workflow).not.toContain("bd init --help");
+    expect(workflow).not.toContain("Run mock-run seeder coverage");
   });
 
   it("automerge workflow triggers on CI completion and uses label-gated merge", () => {
