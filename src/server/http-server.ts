@@ -321,10 +321,20 @@ export function createHttpServerController(
         timestamp: new Date().toISOString(),
         sequence: nextEventSequence++,
         payload: {
-          server_state: lifecycleState,
-          mode: getCurrentMode(),
-          uptime_ms: startedAt === null ? 0 : Math.max(0, Date.now() - startedAt),
-          queue_depth: 0,
+          status: {
+            mode: getCurrentMode(),
+            isRunning: lifecycleState === "running",
+            uptimeSeconds: startedAt === null ? 0 : Math.floor((Date.now() - startedAt) / 1000),
+            activeAgents: 0,
+            queueDepth: 0,
+            paused: operatingModeState.paused,
+          },
+          spend: {
+            metering: "unknown" as const,
+            totalInputTokens: 0,
+            totalOutputTokens: 0,
+          },
+          agents: [],
         },
       }),
     );
@@ -332,23 +342,21 @@ export function createHttpServerController(
 
   const router = createRestApiRouter({
     getStateSnapshot: () => ({
-      orchestrator: {
-        server_state: lifecycleState,
+      status: {
         mode: getCurrentMode(),
+        isRunning: lifecycleState === "running",
+        uptimeSeconds: startedAt === null ? 0 : Math.floor((Date.now() - startedAt) / 1000),
+        activeAgents: 0,
+        queueDepth: 0,
         paused: operatingModeState.paused,
-        uptime_ms: startedAt === null ? 0 : Math.max(0, Date.now() - startedAt),
-        ...(serverToken ? { server_token: serverToken } : {}),
       },
-      agents: {
-        active: 0,
+      spend: {
+        metering: "unknown" as const,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
       },
-      queue: {
-        depth: 0,
-      },
-      issues: {
-        ready: [],
-        active: [],
-      },
+      agents: [],
+      ...(serverToken ? { server_token: serverToken } : {}),
     }),
     executeControlAction: async (request) => {
       publishEvent(

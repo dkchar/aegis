@@ -37,10 +37,9 @@ describe("S07 operating mode steer routes", () => {
     let capturedMode: string | null = null;
     const router = routesModule.createRestApiRouter({
       getStateSnapshot: () => ({
-        orchestrator: { server_state: "running", mode: "conversational", uptime_ms: 0 },
-        agents: { active: 0 },
-        queue: { depth: 0 },
-        issues: { ready: [], active: [] },
+        status: { mode: "conversational", isRunning: true, uptimeSeconds: 0, activeAgents: 0, queueDepth: 0 },
+        spend: { metering: "unknown", totalInputTokens: 0, totalOutputTokens: 0 },
+        agents: [],
       }),
       executeControlAction: async (request) => ({
         ok: true,
@@ -109,10 +108,9 @@ describe("S07 operating mode steer routes", () => {
     let capturedMode: string | null = null;
     const router = routesModule.createRestApiRouter({
       getStateSnapshot: () => ({
-        orchestrator: { server_state: "running", mode: "auto", uptime_ms: 0 },
-        agents: { active: 0 },
-        queue: { depth: 0 },
-        issues: { ready: [], active: [] },
+        status: { mode: "auto", isRunning: true, uptimeSeconds: 0, activeAgents: 0, queueDepth: 0 },
+        spend: { metering: "unknown", totalInputTokens: 0, totalOutputTokens: 0 },
+        agents: [],
       }),
       executeControlAction: async (request) => ({
         ok: true,
@@ -181,10 +179,9 @@ describe("S07 operating mode steer routes", () => {
     let receivedAction: string | null = null;
     const router = routesModule.createRestApiRouter({
       getStateSnapshot: () => ({
-        orchestrator: { server_state: "running", mode: "conversational", uptime_ms: 0 },
-        agents: { active: 0 },
-        queue: { depth: 0 },
-        issues: { ready: [], active: [] },
+        status: { mode: "conversational", isRunning: true, uptimeSeconds: 0, activeAgents: 0, queueDepth: 0 },
+        spend: { metering: "unknown", totalInputTokens: 0, totalOutputTokens: 0 },
+        agents: [],
       }),
       executeControlAction: async (request) => {
         receivedAction = request.action as string;
@@ -248,10 +245,9 @@ describe("S07 operating mode steer routes", () => {
     let modeWasCalled = false;
     const router = routesModule.createRestApiRouter({
       getStateSnapshot: () => ({
-        orchestrator: { server_state: "running", mode: "conversational", uptime_ms: 0 },
-        agents: { active: 0 },
-        queue: { depth: 0 },
-        issues: { ready: [], active: [] },
+        status: { mode: "conversational", isRunning: true, uptimeSeconds: 0, activeAgents: 0, queueDepth: 0 },
+        spend: { metering: "unknown", totalInputTokens: 0, totalOutputTokens: 0 },
+        agents: [],
       }),
       executeControlAction: async () => ({
         ok: true,

@@ -30,7 +30,10 @@ async function startStubServer(token: string): Promise<number> {
     stubServer = createServer((_, res) => {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
-        orchestrator: { server_state: "running", mode: "conversational", server_token: token },
+        status: { mode: "conversational", isRunning: true, uptimeSeconds: 0, activeAgents: 0, queueDepth: 0 },
+        spend: { metering: "unknown", totalInputTokens: 0, totalOutputTokens: 0 },
+        agents: [],
+        server_token: token,
       }));
     });
 

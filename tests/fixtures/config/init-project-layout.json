@@ -14,6 +14,8 @@
     ".aegis/config.json",
     ".aegis/dispatch-state.json",
     ".aegis/merge-queue.json",
+    ".aegis/mnemosyne.jsonl",
+    ".aegis/runtime-state.json",
     ".aegis/labors/",
     ".aegis/evals/"
   ]

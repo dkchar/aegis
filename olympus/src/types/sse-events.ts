@@ -10,7 +10,16 @@ export type SseEventType =
   | "control.command"
   | "scope.suppression";
 
-/** Base SSE event envelope. */
+/** Server-side live event envelope — matches src/events/event-bus.ts LiveEventEnvelope. */
+export interface ServerLiveEventEnvelope<TPayload = Record<string, unknown>> {
+  id: string;
+  type: SseEventType;
+  timestamp: string;
+  sequence: number;
+  payload: TPayload;
+}
+
+/** Base SSE event envelope exposed to the UI. */
 export interface SseEvent<T = unknown> {
   type: SseEventType;
   data: T;
@@ -27,6 +36,7 @@ export interface OrchestratorStateEvent extends SseEvent {
       uptimeSeconds: number;
       activeAgents: number;
       queueDepth: number;
+      paused: boolean;
     };
     spend: {
       metering: string;
