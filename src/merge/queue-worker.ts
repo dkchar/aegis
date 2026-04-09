@@ -38,10 +38,86 @@ import {
   type JanusInvocationPolicy,
 } from "./tiered-conflict-policy.js";
 import type { AgentRuntime } from "../runtime/agent-runtime.js";
-import { loadDispatchState, saveDispatchState } from "../core/dispatch-state.js";
+import {
+  loadDispatchState,
+  saveDispatchState,
+  type DispatchRecord,
+  type DispatchState,
+} from "../core/dispatch-state.js";
 import { DispatchStage, transitionStage } from "../core/stage-transition.js";
 import { runJanus } from "../core/run-janus.js";
 import { DEFAULT_AEGIS_CONFIG } from "../config/defaults.js";
+
+function persistDispatchRecord(
+  projectRoot: string,
+  state: DispatchState,
+  record: DispatchRecord,
+): DispatchState {
+  const nextState: DispatchState = {
+    schemaVersion: state.schemaVersion,
+    records: {
+      ...state.records,
+      [record.issueId]: record,
+    },
+  };
+  saveDispatchState(projectRoot, nextState);
+  return nextState;
+}
+
+function toJanusDispatchRecord(record: DispatchRecord): DispatchRecord {
+  if (record.stage === DispatchStage.ResolvingIntegration) {
+    return record;
+  }
+
+  if (record.stage === DispatchStage.QueuedForMerge) {
+    return transitionStage(
+      transitionStage(record, DispatchStage.Merging),
+      DispatchStage.ResolvingIntegration,
+    );
+  }
+
+  if (record.stage === DispatchStage.Merging) {
+    return transitionStage(record, DispatchStage.ResolvingIntegration);
+  }
+
+  throw new Error(
+    `Cannot dispatch Janus for ${record.issueId} from stage=${record.stage}.`,
+  );
+}
+
+function publishJanusFailureEvents(
+  item: QueueItem,
+  state: MergeQueueState,
+  eventPublisher: LiveEventPublisher,
+  detail: string,
+) {
+  eventPublisher.publish({
+    id: crypto.randomUUID(),
+    type: "merge.queue_state",
+    timestamp: new Date().toISOString(),
+    sequence: state.items.length + 2,
+    payload: createMergeQueueStateEvent(
+      item.issueId,
+      "janus_failed",
+      item.attemptCount,
+      detail,
+    ),
+  });
+
+  eventPublisher.publish({
+    id: crypto.randomUUID(),
+    type: "merge.outcome",
+    timestamp: new Date().toISOString(),
+    sequence: state.items.length + 3,
+    payload: createMergeOutcomeEvent(
+      item.issueId,
+      "JANUS_FAILED",
+      item.candidateBranch,
+      item.targetBranch,
+      detail,
+    ),
+  });
+}
 
 /** Configuration for the queue worker. */
 export interface QueueWorkerConfig {
@@ -65,6 +141,9 @@ export interface QueueWorkerConfig {
 
   /** Runtime adapter for spawning Janus sessions. */
   runtime?: AgentRuntime;
+
+  /** Optional override for the Janus runtime model reference. */
+  janusModel?: string;
 }
 
 /** Result of a queue processing cycle. */
@@ -446,7 +525,7 @@ async function processJanusItem(
   }
 
   // Load dispatch state to find the record for this issue
-  const dispatchState = loadDispatchState(config.projectRoot);
+  let dispatchState = loadDispatchState(config.projectRoot);
   const record = Object.values(dispatchState.records).find(
     (r) => r.issueId === item.issueId,
   ) ?? null;
@@ -484,9 +563,12 @@ async function processJanusItem(
   const laborPath = resolveLaborPath(config.projectRoot, item.issueId);
 
   // Transition dispatch state to resolving_integration per SPECv2 §12.6 step 7
-  const updatedRecord = transitionStage(record, DispatchStage.ResolvingIntegration);
-  dispatchState.records[item.issueId] = updatedRecord;
-  saveDispatchState(config.projectRoot, dispatchState);
+  const janusDispatchRecord = toJanusDispatchRecord(record);
+  dispatchState = persistDispatchRecord(
+    config.projectRoot,
+    dispatchState,
+    janusDispatchRecord,
+  );
 
   // Invoke runJanus (Lane A) to actually dispatch the Janus session
   const janusBudget = DEFAULT_AEGIS_CONFIG.budgets.janus;
@@ -501,14 +583,22 @@ async function processJanusItem(
       filesInvolved: [],
       previousMergeErrors: item.lastError ?? "",
       conflictTier: 3,
-      record: updatedRecord,
+      record: janusDispatchRecord,
       runtime: config.runtime,
       budget: janusBudget,
       projectRoot: config.projectRoot,
+      model: config.janusModel ?? DEFAULT_AEGIS_CONFIG.models.janus,
     });
   } catch (err) {
     // Janus dispatch crashed — increment processedCount and mark as failed
     const errorMessage = (err as Error).message;
+    const failureDetail = `Janus dispatch crash: ${errorMessage}`;
+    dispatchState = persistDispatchRecord(
+      config.projectRoot,
+      dispatchState,
+      transitionStage(janusDispatchRecord, DispatchStage.Failed),
+    );
+    publishJanusFailureEvents(item, state, config.eventPublisher, failureDetail);
     const updatedState: MergeQueueState = {
       schemaVersion: state.schemaVersion,
       items: state.items.map((queueItem) =>
@@ -516,7 +606,7 @@ async function processJanusItem(
           ? {
               ...queueItem,
               status: "janus_failed" as const,
-              lastError: `Janus dispatch crash: ${errorMessage}`,
+              lastError: failureDetail,
               updatedAt: new Date().toISOString(),
             }
           : { ...queueItem },
@@ -529,7 +619,43 @@ async function processJanusItem(
       result: {
         issueId: item.issueId,
         success: false,
-        error: `Janus dispatch crash: ${errorMessage}`,
+        error: failureDetail,
+        newStatus: "janus_failed",
+      },
+    };
+  }
+
+  dispatchState = persistDispatchRecord(
+    config.projectRoot,
+    dispatchState,
+    janusResult.updatedRecord,
+  );
+
+  if (!janusResult.resolutionArtifact) {
+    const failureDetail = janusResult.failureReason ?? "Janus resolution failed";
+    publishJanusFailureEvents(item, state, config.eventPublisher, failureDetail);
+
+    const updatedState: MergeQueueState = {
+      schemaVersion: state.schemaVersion,
+      items: state.items.map((queueItem) =>
+        queueItem.issueId === item.issueId
+          ? {
+              ...queueItem,
+              status: "janus_failed" as const,
+              lastError: failureDetail,
+              updatedAt: new Date().toISOString(),
+            }
+          : { ...queueItem },
+      ),
+      processedCount: state.processedCount + 1,
+    };
+
+    return {
+      updatedState,
+      result: {
+        issueId: item.issueId,
+        success: false,
+        error: failureDetail,
         newStatus: "janus_failed",
       },
     };
@@ -537,7 +663,7 @@ async function processJanusItem(
 
   // Handle the Janus result through the integration module (Lane B)
   const janusOutcome = await handleJanusResult(
-    janusResult.resolutionArtifact!,
+    janusResult.resolutionArtifact,
     config.projectRoot,
     state,
     config.eventPublisher,

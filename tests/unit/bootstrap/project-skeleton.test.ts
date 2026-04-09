@@ -14,6 +14,28 @@ import { describe, expect, it, vi } from "vitest";
 
 const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
 
+function resolveNodeModuleBinary(startDirectory: string, relativePath: string) {
+  let current = startDirectory;
+
+  while (true) {
+    const candidate = path.join(current, ...relativePath.split("/"));
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) {
+      throw new Error(`Unable to resolve ${relativePath} from this worktree.`);
+    }
+    current = parent;
+  }
+}
+
+const typescriptCliPath = resolveNodeModuleBinary(
+  repoRoot,
+  "node_modules/typescript/bin/tsc",
+);
+
 interface RootPackageJson {
   main: string;
   bin: Record<string, string>;
@@ -140,7 +162,7 @@ describe("S00 project skeleton contract", () => {
     const buildRun = spawnSync(
       process.execPath,
       [
-        path.join(repoRoot, "node_modules", "typescript", "bin", "tsc"),
+        typescriptCliPath,
         "--project",
         "tsconfig.json",
       ],
@@ -315,7 +337,7 @@ describe("S00 project skeleton contract", () => {
     const buildRun = spawnSync(
       process.execPath,
       [
-        path.join(repoRoot, "node_modules", "typescript", "bin", "tsc"),
+        typescriptCliPath,
         "--project",
         "tsconfig.json",
       ],

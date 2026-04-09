@@ -31,9 +31,27 @@ interface LaunchSequenceFixture {
 }
 
 const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
-const tsxCliPath = path.join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
 const entrypointPath = path.join(repoRoot, "src", "index.ts");
 const temporaryRoots: string[] = [];
+
+function resolveTsxCliPath(startDirectory: string) {
+  let current = startDirectory;
+
+  while (true) {
+    const candidate = path.join(current, "node_modules", "tsx", "dist", "cli.mjs");
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) {
+      throw new Error("Unable to resolve tsx CLI from this worktree.");
+    }
+    current = parent;
+  }
+}
+
+const tsxCliPath = resolveTsxCliPath(repoRoot);
 
 function readJsonFixture<T>(fixtureName: string) {
   return JSON.parse(
@@ -117,6 +135,40 @@ function initializeGitRepo(root: string) {
   });
 
   expect(gitInit.status, gitInit.stderr).toBe(0);
+}
+
+function initializeBeadsRepo(root: string) {
+  const doltStart = spawnSync("bd", ["dolt", "start"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  expect(doltStart.status, doltStart.stderr || doltStart.stdout).toBe(0);
+
+  const databaseName = `aegiss06${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const initResult = spawnSync(
+    "bd",
+    [
+      "init",
+      "-p",
+      "aegiss06",
+      "--server",
+      "--shared-server",
+      "--server-port",
+      "3308",
+      "--database",
+      databaseName,
+      "--skip-hooks",
+      "--skip-agents",
+    ],
+    {
+      cwd: root,
+      encoding: "utf8",
+      windowsHide: true,
+    },
+  );
+
+  expect(initResult.status, initResult.stderr || initResult.stdout).toBe(0);
 }
 
 function runCliCommand(root: string, commandArgs: string[]): CliRunResult {
@@ -535,11 +587,44 @@ describe("S06 launch lifecycle contract seed", () => {
     ).rejects.toThrow(/dispatch-state|records/i);
   });
 
+  it.skipIf(!isBeadsCliAvailable())("fails startup clearly when Beads is not initialized in the target repo", async () => {
+    const tempRepo = createTempRepo();
+    const port = await reservePort();
+    initProject(tempRepo);
+    initializeGitRepo(tempRepo);
+
+    const startModule = (await import(
+      pathToFileURL(path.join(repoRoot, "src", "cli", "start.ts")).href
+    )) as {
+      startAegis: (
+        root?: string,
+        overrides?: {
+          port?: number;
+          noBrowser?: boolean;
+        },
+        options?: {
+          registerSignalHandlers?: boolean;
+        },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      startModule.startAegis(
+        tempRepo,
+        { port, noBrowser: true },
+        {
+          registerSignalHandlers: false,
+        },
+      ),
+    ).rejects.toThrow(/Beads|bd init|tracker/i);
+  });
+
   it.skipIf(!isBeadsCliAvailable())("runs start, status, and stop commands with graceful shutdown semantics", { timeout: 30_000 }, async () => {
     const tempRepo = createTempRepo();
     const port = await reservePort();
     initProject(tempRepo);
     initializeGitRepo(tempRepo);
+    initializeBeadsRepo(tempRepo);
 
     const configPath = path.join(tempRepo, ".aegis", "config.json");
     const existingConfig = JSON.parse(readFileSync(configPath, "utf8")) as {

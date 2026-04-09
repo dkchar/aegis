@@ -19,6 +19,7 @@ import type {
   SpawnOptions,
 } from "../../../src/runtime/agent-runtime.js";
 import type { BudgetLimit } from "../../../src/config/schema.js";
+import { DEFAULT_AEGIS_CONFIG } from "../../../src/config/defaults.js";
 
 const DEFAULT_PROJECT_ROOT = path.resolve("C:/dev/aegis");
 
@@ -205,6 +206,24 @@ describe("runJanus - success path (requeue)", () => {
     expect(result.recommendedNextAction).toBe("requeue");
     expect(result.resolutionArtifact).not.toBeNull();
     expect(result.resolutionArtifact!.recommendedNextAction).toBe("requeue");
+  });
+
+  it("propagates the configured Janus model into runtime.spawn", async () => {
+    const spawn = vi.fn(makeJanusRuntime(validJanusOutput("requeue")).spawn);
+    const runtime: AgentRuntime = { spawn };
+    const input = makeJanusInput({
+      runtime,
+      projectRoot: tempDir,
+    });
+
+    await runJanus(input);
+
+    expect(spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        caste: "janus",
+        model: DEFAULT_AEGIS_CONFIG.models.janus,
+      }),
+    );
   });
 
   it("persists the Janus resolution artifact to disk", async () => {

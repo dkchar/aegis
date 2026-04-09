@@ -54,6 +54,7 @@ export interface RunOracleInput {
   operatingMode: OperatingMode;
   allowComplexAutoDispatch: boolean;
   mnemosyne?: { prompt_token_budget: number };
+  model?: string;
 }
 
 export interface RunOracleResult {
@@ -175,6 +176,7 @@ async function collectOracleResponse(
   issueId: string,
   projectRoot: string,
   budget: BudgetLimit,
+  model: string,
   prompt: string,
 ): Promise<string> {
   const handle = await runtime.spawn({
@@ -182,6 +184,7 @@ async function collectOracleResponse(
     issueId,
     workingDirectory: projectRoot,
     toolRestrictions: [],
+    model,
     budget,
   });
 
@@ -520,6 +523,7 @@ export async function runOracle(input: RunOracleInput): Promise<RunOracleResult>
       input.issue.id,
       input.projectRoot,
       input.budget,
+      input.model ?? DEFAULT_AEGIS_CONFIG.models.oracle,
       prompt,
     );
     assessment = parseOracleAssessment(raw);

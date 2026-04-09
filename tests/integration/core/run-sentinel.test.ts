@@ -26,6 +26,7 @@ import {
   buildSentinelPrompt,
 } from "../../../src/castes/sentinel/sentinel-prompt.js";
 import { createFixIssueInputs } from "../../../src/tracker/create-fix-issue.js";
+import { DEFAULT_AEGIS_CONFIG } from "../../../src/config/defaults.js";
 import type {
   AgentEvent,
   AgentHandle,
@@ -297,6 +298,7 @@ describe("runSentinel", () => {
       workingDirectory: projectRoot,
       toolRestrictions: ["read", "read-only shell", "tracker commands"],
       budget,
+      model: DEFAULT_AEGIS_CONFIG.models.sentinel,
     });
     expect(result.verdict).not.toBeNull();
     expect(result.verdict?.verdict).toBe("pass");

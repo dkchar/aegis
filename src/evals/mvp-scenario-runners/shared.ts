@@ -28,6 +28,7 @@ import type {
   AegisIssue,
   CreateIssueInput,
   ReadyIssue,
+  UpdateIssueInput,
 } from "../../tracker/issue-model.js";
 import type { Fixture } from "../fixture-schema.js";
 import type {
@@ -309,6 +310,32 @@ export class InMemoryScenarioTracker {
     }
 
     return cloneIssue(createdIssue);
+  }
+
+  async updateIssue(id: string, input: UpdateIssueInput): Promise<AegisIssue> {
+    const issue = this.issueStore.get(id);
+    if (!issue) {
+      throw new Error(`Issue not found: ${id}`);
+    }
+
+    if (input.title !== undefined) {
+      issue.title = input.title;
+    }
+    if (input.description !== undefined) {
+      issue.description = input.description;
+    }
+    if (input.status !== undefined) {
+      issue.status = input.status;
+    }
+    if (input.priority !== undefined) {
+      issue.priority = input.priority;
+    }
+    if (input.labels !== undefined) {
+      issue.labels = [...input.labels];
+    }
+    issue.updatedAt = nowIso();
+
+    return cloneIssue(issue);
   }
 
   async linkIssue(parentId: string, childId: string): Promise<void> {

@@ -85,6 +85,9 @@ export interface RunJanusInput {
 
   /** Absolute path to the project root. */
   projectRoot: string;
+
+  /** Optional override for the runtime model reference. */
+  model?: string;
 }
 
 /** Result returned by runJanus after execution completes. */
@@ -175,6 +178,7 @@ async function collectJanusResponse(
   issueId: string,
   workingDirectory: string,
   budget: BudgetLimit,
+  model: string,
   prompt: string,
 ): Promise<string> {
   const handle = await runtime.spawn({
@@ -187,6 +191,7 @@ async function collectJanusResponse(
       "shell",
       "tracker commands",
     ],
+    model,
     budget,
   });
 
@@ -351,6 +356,7 @@ export async function runJanus(input: RunJanusInput): Promise<RunJanusResult> {
       input.issueId,
       input.preservedLaborPath,
       janusBudget,
+      input.model ?? DEFAULT_AEGIS_CONFIG.models.janus,
       prompt,
     );
 

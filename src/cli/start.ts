@@ -1,15 +1,25 @@
-import { spawn, spawnSync } from "node:child_process";
+import { execFile, spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import { loadConfig } from "../config/load-config.js";
 import {
+  createNoopEventPublisher,
+  executeProjectDirectCommand,
+} from "../core/direct-command-runner.js";
+import {
   loadDispatchState,
   reconcileDispatchState,
   saveDispatchState,
 } from "../core/dispatch-state.js";
-import { createHttpServerController } from "../server/http-server.js";
+import {
+  createHttpServerController,
+  type HttpServerBindings,
+} from "../server/http-server.js";
 import type { OrchestrationMode } from "../server/routes.js";
+import { PiRuntime } from "../runtime/pi-runtime.js";
+import { BeadsCliClient } from "../tracker/beads-client.js";
+import { parseCommand } from "./parse-command.js";
 import { STOP_COMMAND_REASONS } from "./stop.js";
 import {
   clearStopRequest,
@@ -90,11 +100,21 @@ export interface StartResult {
 }
 
 export interface StartCommandOptions {
-  verifyTracker?: () => void;
+  verifyTracker?: (root: string) => void;
   verifyGitRepo?: () => void;
   openBrowser?: (url: string) => boolean;
   registerSignalHandlers?: boolean;
+  httpServerBindings?: HttpServerBindings;
 }
+
+export interface TrackerProbeResult {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  error?: NodeJS.ErrnoException | null;
+}
+
+export type TrackerProbe = (root: string) => TrackerProbeResult;
 
 function spawnDetachedBrowser(command: string, args: string[], options: {
   windowsHide?: boolean;
@@ -146,11 +166,39 @@ export function parseStartOverrides(argv: readonly string[]): StartCommandOverri
   return overrides;
 }
 
-function verifyTrackerCliAvailability() {
-  const trackerProbe = spawnSync("bd", ["--help"], { stdio: "ignore" });
+function runTrackerProbe(root: string): TrackerProbeResult {
+  const trackerProbe = spawnSync("bd", ["ready", "--json"], {
+    cwd: root,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+
+  return {
+    status: trackerProbe.status,
+    stdout: trackerProbe.stdout ?? "",
+    stderr: trackerProbe.stderr ?? "",
+    error: trackerProbe.error ?? null,
+  };
+}
+
+export function verifyTrackerRepository(root: string, probe: TrackerProbe = runTrackerProbe) {
+  const trackerProbe = probe(root);
+  const errorCode =
+    trackerProbe.error && "code" in trackerProbe.error
+      ? String(trackerProbe.error.code)
+      : null;
+
+  if (errorCode === "ENOENT") {
+    throw new Error("Beads CLI was not found. Install or fix `bd` before starting Aegis.");
+  }
 
   if (trackerProbe.status !== 0) {
-    throw new Error("Beads CLI was not found. Install or fix `bd` before starting Aegis.");
+    const detail = (trackerProbe.stderr || trackerProbe.stdout).trim();
+    const suffix = detail.length > 0 ? ` Details: ${detail}` : "";
+    throw new Error(
+      "Beads tracker is not initialized or healthy for this repository. Run `bd init` (or `bd onboard`) before starting Aegis."
+      + suffix,
+    );
   }
 }
 
@@ -163,6 +211,37 @@ function verifyGitRepository(root: string) {
   if (gitProbe.status !== 0 || gitProbe.stdout.trim() !== "true") {
     throw new Error("Aegis start requires a git repository root.");
   }
+}
+
+function execBdInRepository(root: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "bd",
+      args,
+      {
+        cwd: root,
+        encoding: "utf8",
+        maxBuffer: 10 * 1024 * 1024,
+        windowsHide: true,
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          const detail = stderr?.trim() ? ` — ${stderr.trim()}` : "";
+          reject(new Error(`bd ${args[0]} failed: ${error.message}${detail}`));
+          return;
+        }
+        resolve(stdout);
+      },
+    );
+  });
+}
+
+function createRuntimeForConfig(runtime: string) {
+  if (runtime === "pi") {
+    return new PiRuntime();
+  }
+
+  throw new Error(`Unsupported runtime adapter: ${runtime}`);
 }
 
 function toRunningRuntimeState(
@@ -260,14 +339,14 @@ export async function startAegis(
   options: StartCommandOptions = {},
 ): Promise<StartResult> {
   const repoRoot = path.resolve(root);
-  const verifyTracker = options.verifyTracker ?? verifyTrackerCliAvailability;
+  const verifyTracker = options.verifyTracker ?? verifyTrackerRepository;
   const verifyGitRepo = options.verifyGitRepo ?? (() => {
     verifyGitRepository(repoRoot);
   });
   const openBrowser = options.openBrowser ?? openBrowserUrl;
 
   const config = loadConfig(repoRoot);
-  verifyTracker();
+  verifyTracker(repoRoot);
   verifyGitRepo();
 
   const recoveredState = readRuntimeState(repoRoot);
@@ -291,7 +370,33 @@ export async function startAegis(
   saveDispatchState(repoRoot, recoveredDispatchState);
 
   const token = randomUUID();
-  const controller = createHttpServerController();
+  const runtimeAdapter = createRuntimeForConfig(config.runtime);
+  const tracker = new BeadsCliClient((args) => execBdInRepository(repoRoot, args));
+  let runningState: RuntimeStateRecord | null = null;
+  const httpServerBindings: HttpServerBindings = {
+    ...options.httpServerBindings,
+    executeCommand: options.httpServerBindings?.executeCommand ?? (async (commandText) => (
+      executeProjectDirectCommand(parseCommand(commandText), {
+        projectRoot: repoRoot,
+        config,
+        tracker,
+        runtime: runtimeAdapter,
+        eventPublisher: options.httpServerBindings?.eventPublisher ?? createNoopEventPublisher(),
+      })
+    )),
+    onOperatingModeStateChange: (state) => {
+      if (runningState) {
+        runningState = {
+          ...runningState,
+          mode: state.mode,
+        };
+        writeRuntimeState(runningState, repoRoot);
+      }
+
+      options.httpServerBindings?.onOperatingModeStateChange?.(state);
+    },
+  };
+  const controller = createHttpServerController(httpServerBindings);
   const requestedPort = overrides.port ?? config.olympus.port;
   const server = await controller.start({
     root: repoRoot,
@@ -301,7 +406,7 @@ export async function startAegis(
   });
   const shouldOpenBrowser = !overrides.noBrowser && config.olympus.open_browser;
   const openedBrowser = shouldOpenBrowser ? openBrowser(server.url) : false;
-  const runningState = toRunningRuntimeState(
+  runningState = toRunningRuntimeState(
     process.pid,
     server.host,
     server.port,
@@ -327,7 +432,7 @@ export async function startAegis(
       }
       await controller.stop();
       clearStopRequest(repoRoot);
-      writeRuntimeState(toStoppedRuntimeState(runningState, reason), repoRoot);
+      writeRuntimeState(toStoppedRuntimeState(runningState!, reason), repoRoot);
     },
   };
 

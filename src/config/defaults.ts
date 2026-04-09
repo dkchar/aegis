@@ -11,9 +11,9 @@ export const DEFAULT_AEGIS_CONFIG: AegisConfig = {
     oracle: "pi:default",
     titan: "pi:default",
     sentinel: "pi:default",
-    janus: "anthropic:claude-sonnet",
-    metis: "anthropic:claude-haiku",
-    prometheus: "anthropic:claude-sonnet",
+    janus: "anthropic:claude-sonnet-4-6",
+    metis: "anthropic:claude-haiku-4-5",
+    prometheus: "anthropic:claude-sonnet-4-6",
   },
   concurrency: {
     max_agents: 3,

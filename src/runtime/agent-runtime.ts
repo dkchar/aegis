@@ -39,6 +39,9 @@ export interface SpawnOptions {
    */
   toolRestrictions: string[];
 
+  /** Optional explicit model reference for the session, e.g. pi:gemma-4-31b-it. */
+  model?: string;
+
   /** Budget hard limits for this session. */
   budget: BudgetLimit;
 }

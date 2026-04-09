@@ -22,6 +22,7 @@ import type {
   AgentRuntime,
   SpawnOptions,
 } from "../../../src/runtime/agent-runtime.js";
+import { DEFAULT_AEGIS_CONFIG } from "../../../src/config/defaults.js";
 import { DispatchStage } from "../../../src/core/stage-transition.js";
 import type { ReadyIssue } from "../../../src/tracker/issue-model.js";
 
@@ -356,6 +357,7 @@ describe("S09 spawner — spawnForCaste", () => {
         workingDirectory: LABOR_PATH,
         toolRestrictions: [],
         budget: makeBudgetLimit(),
+        model: DEFAULT_AEGIS_CONFIG.models.titan,
       }),
     );
 
@@ -390,6 +392,7 @@ describe("S09 spawner — spawnForCaste", () => {
         issueId: ISSUE_ID,
         workingDirectory: PROJECT_ROOT,
         toolRestrictions: [],
+        model: DEFAULT_AEGIS_CONFIG.models.oracle,
       }),
     );
 
@@ -418,6 +421,7 @@ describe("S09 spawner — spawnForCaste", () => {
         caste: "sentinel",
         issueId: ISSUE_ID,
         workingDirectory: PROJECT_ROOT,
+        model: DEFAULT_AEGIS_CONFIG.models.sentinel,
       }),
     );
 
@@ -491,6 +495,7 @@ describe("S09 spawner — oracle is read-only (adapter-level contract)", () => {
     // caste="oracle" to readOnlyTools per SPECv2 §8.4.
     expect(spawnCall.caste).toBe("oracle");
     expect(spawnCall.toolRestrictions).toEqual([]);
+    expect(spawnCall.model).toBe(DEFAULT_AEGIS_CONFIG.models.oracle);
     // Oracle works on the project root, not a labor worktree.
     expect(spawnCall.workingDirectory).toBe(PROJECT_ROOT);
   });
@@ -513,6 +518,7 @@ describe("S09 spawner — oracle is read-only (adapter-level contract)", () => {
 
     expect(spawnCall.caste).toBe("titan");
     expect(spawnCall.toolRestrictions).toEqual([]);
+    expect(spawnCall.model).toBe(DEFAULT_AEGIS_CONFIG.models.titan);
     // Titan works in the labor worktree.
     expect(spawnCall.workingDirectory).toBe(LABOR_PATH);
   });
@@ -535,6 +541,7 @@ describe("S09 spawner — oracle is read-only (adapter-level contract)", () => {
 
     expect(spawnCall.caste).toBe("sentinel");
     expect(spawnCall.toolRestrictions).toEqual([]);
+    expect(spawnCall.model).toBe(DEFAULT_AEGIS_CONFIG.models.sentinel);
     // Sentinel reviews merged code at project root.
     expect(spawnCall.workingDirectory).toBe(PROJECT_ROOT);
   });

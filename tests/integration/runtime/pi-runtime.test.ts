@@ -81,6 +81,7 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
 import { PiRuntime, PiAgentHandle } from "../../../src/runtime/pi-runtime.js";
 import type { AgentRuntime, SpawnOptions } from "../../../src/runtime/agent-runtime.js";
 import type { AgentEvent } from "../../../src/runtime/agent-events.js";
+import { getModel } from "@mariozechner/pi-ai";
 
 // ---------------------------------------------------------------------------
 // Fake session factory
@@ -194,6 +195,35 @@ describe("PiRuntime — session spawn", () => {
     expect(mockCreateAgentSession).toHaveBeenCalledWith(
       expect.objectContaining({ cwd: "C:/dev/my-project" })
     );
+  });
+
+  it("spawn() resolves a Gemma model reference before creating the session", async () => {
+    const runtime = new PiRuntime();
+    await runtime.spawn(makeOpts({ model: "pi:gemma-4-31b-it" }));
+
+    expect(mockCreateAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: getModel("google", "gemma-4-31b-it"),
+      }),
+    );
+  });
+
+  it("spawn() omits the explicit model when the reference is pi:default", async () => {
+    const runtime = new PiRuntime();
+    await runtime.spawn(makeOpts({ model: "pi:default" }));
+
+    expect(mockCreateAgentSession).toHaveBeenCalledWith(
+      expect.not.objectContaining({ model: expect.anything() }),
+    );
+  });
+
+  it("spawn() rejects unknown model references instead of silently falling back", async () => {
+    const runtime = new PiRuntime();
+
+    await expect(runtime.spawn(makeOpts({ model: "anthropic:claude-sonnet" }))).rejects.toThrow(
+      'Unknown Pi model "anthropic:claude-sonnet"',
+    );
+    expect(mockCreateAgentSession).not.toHaveBeenCalled();
   });
 
   it("titan caste receives codingTools (read + write access)", async () => {

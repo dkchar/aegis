@@ -54,12 +54,24 @@ import {
   serializeJanusOutcomeArtifact,
   parseJanusOutcomeArtifact,
 } from "../../../src/merge/janus-outcome-artifact.js";
+import {
+  loadDispatchState,
+  saveDispatchState,
+  type DispatchRecord,
+} from "../../../src/core/dispatch-state.js";
+import { DispatchStage } from "../../../src/core/stage-transition.js";
 
 import type {
   MergeQueueState,
   QueueItem,
 } from "../../../src/merge/merge-queue-store.js";
 import type { AegisLiveEvent } from "../../../src/events/event-bus.js";
+import type {
+  AgentEvent,
+  AgentHandle,
+  AgentRuntime,
+  SpawnOptions,
+} from "../../../src/runtime/agent-runtime.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -93,6 +105,24 @@ function makeQueueState(overrides: Partial<MergeQueueState> = {}): MergeQueueSta
   };
 }
 
+function makeDispatchRecord(stage: DispatchStage): DispatchRecord {
+  return {
+    issueId: "aegis-fjm.5",
+    stage,
+    runningAgent: null,
+    oracleAssessmentRef: null,
+    sentinelVerdictRef: null,
+    fileScope: null,
+    failureCount: 0,
+    consecutiveFailures: 0,
+    failureWindowStartMs: null,
+    cooldownUntil: null,
+    cumulativeSpendUsd: null,
+    sessionProvenanceId: "test-session",
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 function makeJanusArtifact(overrides: Record<string, unknown> = {}): string {
   const base = {
     originatingIssueId: "aegis-fjm.5",
@@ -107,6 +137,74 @@ function makeJanusArtifact(overrides: Record<string, unknown> = {}): string {
     ...overrides,
   };
   return JSON.stringify(base);
+}
+
+function makeJanusRuntime(rawResponse: string | string[], options: {
+  crash?: boolean;
+} = {}): AgentRuntime {
+  const responses = Array.isArray(rawResponse) ? rawResponse : [rawResponse];
+
+  return {
+    async spawn(_opts: SpawnOptions): Promise<AgentHandle> {
+      let listener: ((event: AgentEvent) => void) | null = null;
+
+      return {
+        async prompt(): Promise<void> {
+          if (options.crash) {
+            listener?.({
+              type: "error",
+              timestamp: new Date().toISOString(),
+              issueId: "aegis-fjm.5",
+              caste: "janus",
+              message: "Runtime crashed unexpectedly",
+              fatal: true,
+            });
+            return;
+          }
+
+          for (const response of responses) {
+            listener?.({
+              type: "message",
+              timestamp: new Date().toISOString(),
+              issueId: "aegis-fjm.5",
+              caste: "janus",
+              text: response,
+            });
+          }
+
+          listener?.({
+            type: "session_ended",
+            timestamp: new Date().toISOString(),
+            issueId: "aegis-fjm.5",
+            caste: "janus",
+            reason: "completed",
+            stats: {
+              input_tokens: 10,
+              output_tokens: 20,
+              session_turns: 1,
+              wall_time_sec: 1,
+            },
+          });
+        },
+        async steer(): Promise<void> {},
+        async abort(): Promise<void> {},
+        subscribe(next): () => void {
+          listener = next;
+          return () => {
+            listener = null;
+          };
+        },
+        getStats() {
+          return {
+            input_tokens: 10,
+            output_tokens: 20,
+            session_turns: 1,
+            wall_time_sec: 1,
+          };
+        },
+      };
+    },
+  };
 }
 
 // Minimal event publisher for testing
@@ -997,6 +1095,75 @@ describe("Integration with merge queue worker Janus flow", () => {
     expect(result!.result.newStatus).toBe("manual_decision_required");
     // Should emit janus_escalation event
     expect(publisher.events.some((e) => e.type === "merge.janus_escalation")).toBe(true);
+  });
+
+  it("persists the Janus-updated dispatch record before requeueing work", async () => {
+    const { processNextQueueItem } = await import("../../../src/merge/queue-worker.js");
+
+    saveDispatchState(projectRoot, {
+      schemaVersion: 1,
+      records: {
+        "aegis-fjm.5": makeDispatchRecord(DispatchStage.QueuedForMerge),
+      },
+    });
+
+    const item = makeQueueItem({
+      status: "janus_required",
+      attemptCount: 3,
+    });
+    const state = makeQueueState({ items: [item] });
+    const publisher = makeEventPublisher();
+
+    const result = await processNextQueueItem(state, {
+      projectRoot,
+      eventPublisher: publisher,
+      janusEnabled: true,
+      maxRetryAttempts: 2,
+      targetBranch: "main",
+      runtime: makeJanusRuntime(makeJanusArtifact({ recommendedNextAction: "requeue" })),
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.result.newStatus).toBe("queued");
+
+    const persistedRecord = loadDispatchState(projectRoot).records["aegis-fjm.5"];
+    expect(persistedRecord.stage).toBe(DispatchStage.QueuedForMerge);
+    expect(persistedRecord.runningAgent).toBeNull();
+  });
+
+  it("fails closed when Janus returns no resolution artifact and persists failed dispatch state", async () => {
+    const { processNextQueueItem } = await import("../../../src/merge/queue-worker.js");
+
+    saveDispatchState(projectRoot, {
+      schemaVersion: 1,
+      records: {
+        "aegis-fjm.5": makeDispatchRecord(DispatchStage.QueuedForMerge),
+      },
+    });
+
+    const item = makeQueueItem({
+      status: "janus_required",
+      attemptCount: 3,
+    });
+    const state = makeQueueState({ items: [item] });
+    const publisher = makeEventPublisher();
+
+    const result = await processNextQueueItem(state, {
+      projectRoot,
+      eventPublisher: publisher,
+      janusEnabled: true,
+      maxRetryAttempts: 2,
+      targetBranch: "main",
+      runtime: makeJanusRuntime("", { crash: true }),
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.result.newStatus).toBe("janus_failed");
+    expect(loadDispatchState(projectRoot).records["aegis-fjm.5"].stage).toBe(DispatchStage.Failed);
+
+    const outcomeEvent = publisher.events.find((event) => event.type === "merge.outcome");
+    expect(outcomeEvent).toBeDefined();
+    expect((outcomeEvent!.payload as Record<string, unknown>).outcome).toBe("JANUS_FAILED");
   });
 
   it("queue worker escalates to Janus when Tier 3 and policy allows", async () => {

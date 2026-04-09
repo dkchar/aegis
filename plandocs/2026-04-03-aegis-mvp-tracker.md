@@ -1,6 +1,6 @@
 # Aegis MVP Tracker
 
-- Refreshed: 2026-04-08T19:11:41+01:00
+- Refreshed: 2026-04-09T18:00:11+01:00
 - Source spec: SPECv2.md
 - Design doc: docs/superpowers/specs/2026-04-03-aegis-mvp-slicing-design.md
 - Plan doc: docs/superpowers/plans/2026-04-03-aegis-mvp-slice-plan.md
@@ -9,6 +9,18 @@
 - Program updated: 2026-04-08T14:33:48Z
 - Operational queue: use `bd ready`; slice and program epics stay `blocked` as coordination units because Beads cannot model task-to-epic blockers.
 - Planning view: `bd swarm validate` still reports epic-level waves and is advisory, not the executable queue.
+
+## 2026-04-09 Follow-up Parity
+
+- Closed non-epic black-box follow-ups: `aegis-xfk`, `aegis-9yr`, `aegis-p2n`, `aegis-7pg`, and `aegis-09n`.
+- Scope of the follow-up fixes:
+  - `aegis-xfk`: `aegis start` now validates Beads repository readiness instead of only probing CLI availability.
+  - `aegis-9yr`: live `scout`/`implement`/`review`/`process` commands now execute the landed Oracle/Titan/merge/Sentinel pipeline.
+  - `aegis-p2n`: CLI direct commands now forward to the running server, mutate live operating mode, and keep `.aegis/runtime-state.json` in sync.
+  - `aegis-7pg`: configured per-caste model refs now flow through runtime spawn calls, including the Janus merge-worker path, and Pi resolves explicit model refs before session creation.
+  - `aegis-09n`: CI now installs a compatible `bd` CLI, verifies required `bd init` flags, and runs mock-run seeder coverage.
+- Verification on 2026-04-09: `npm run lint`; `npm run build`; `npm run test` all passed in the worktree after these fixes.
+- Queue parity on 2026-04-09: `bd ready --json` returned `[]`; only coordination epics remain outside the executable queue.
 
 ## Slice Epics
 
