@@ -2,6 +2,20 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import type { SseEvent, OrchestratorStateEvent, CommandResultEvent, ServerLiveEventEnvelope } from "../types/sse-events";
 import type { DashboardState, SpendObservation, ActiveAgentInfo } from "../types/dashboard-state";
 
+/** Known control actions that map directly to server lifecycle actions. */
+const CONTROL_ACTIONS = new Set(["start", "stop", "status", "auto_on", "auto_off", "pause", "resume"]);
+
+/** Parsed response from a steer command. */
+export interface SteerResult {
+  ok: boolean;
+  message: string;
+  mode?: string;
+  serverState?: string;
+  requestId?: string;
+  /** Raw response for commands that return additional fields. */
+  raw: Record<string, unknown>;
+}
+
 /** Options for the useSse hook. */
 export interface UseSseOptions {
   /** Base URL for the SSE endpoint. Defaults to "/api/events". */
@@ -22,8 +36,8 @@ export interface UseSseReturn {
   error: string | null;
   /** Manually reconnect. */
   reconnect: () => void;
-  /** Send a command to the control API. */
-  sendCommand: (command: string, payload?: Record<string, unknown>) => Promise<Response>;
+  /** Send a command to the control API. Returns parsed result. */
+  sendCommand: (command: string, payload?: Record<string, unknown>) => Promise<SteerResult>;
 }
 
 const DEFAULT_SSE_URL = "/api/events";
@@ -163,6 +177,7 @@ export function useSse(options: UseSseOptions = {}): UseSseReturn {
             status: payload.status,
             spend,
             agents,
+            config: payload.config ?? null,
           });
           setError(null);
         } catch {
@@ -216,13 +231,51 @@ export function useSse(options: UseSseOptions = {}): UseSseReturn {
     }, 200);
   }, [closeConnection, connect]);
 
-  /** Send a command to the control API. */
+  /** Send a command to the control API. Wraps the command in a proper ControlApiRequest envelope. */
   const sendCommand = useCallback(
-    async (command: string, payload?: Record<string, unknown>): Promise<Response> => {
+    async (command: string, payload?: Record<string, unknown>): Promise<SteerResult> => {
+      const requestId = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const issuedAt = new Date().toISOString();
+
+      // For commands that need additional parameters (like scout <issueId>),
+      // concatenate payload values into the command string when appropriate
+      let effectiveCommand = command;
+      const argsForEnvelope: Record<string, unknown> = { ...(payload ?? {}) };
+
+      // Commands that expect an issueId as part of the command text
+      if (payload?.issueId && typeof payload.issueId === "string") {
+        const commandsNeedingIssueId = new Set(["scout", "implement", "review", "focus"]);
+        if (commandsNeedingIssueId.has(command)) {
+          effectiveCommand = `${command} ${payload.issueId}`;
+          delete argsForEnvelope.issueId;
+        }
+      }
+
+      let body: Record<string, unknown>;
+      if (CONTROL_ACTIONS.has(effectiveCommand)) {
+        // Control action: { action, request_id, issued_at, source }
+        body = {
+          action: effectiveCommand,
+          request_id: requestId,
+          issued_at: issuedAt,
+          source: "olympus",
+          ...argsForEnvelope,
+        };
+      } else {
+        // Generic command: { action: "command", args: { command, ... }, request_id, issued_at, source }
+        body = {
+          action: "command",
+          request_id: requestId,
+          issued_at: issuedAt,
+          source: "olympus",
+          args: { command: effectiveCommand, ...argsForEnvelope },
+        };
+      }
+
       const res = await fetch(STEER_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command, ...payload }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const text = await res.text();
@@ -230,7 +283,15 @@ export function useSse(options: UseSseOptions = {}): UseSseReturn {
         setError(err.message);
         throw err;
       }
-      return res;
+      const data: Record<string, unknown> = await res.json();
+      return {
+        ok: !!data.ok,
+        message: (data.message as string) ?? "",
+        mode: data.mode as string | undefined,
+        serverState: data.server_state as string | undefined,
+        requestId: data.request_id as string | undefined,
+        raw: data,
+      };
     },
     [],
   );

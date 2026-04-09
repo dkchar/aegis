@@ -20,3 +20,6 @@ export type { StatusBarProps } from "./status-bar";
 
 export { MetricDisplay } from "./metric-display";
 export type { MetricDisplayProps } from "./metric-display";
+
+export { StartRunDialog } from "./start-run-dialog";
+export type { StartRunDialogProps, ScoutResult } from "./start-run-dialog";

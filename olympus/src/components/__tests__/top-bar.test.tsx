@@ -18,6 +18,7 @@ describe("TopBar", () => {
     isConnected: true,
     onAutoToggle: vi.fn(),
     onSettingsOpen: vi.fn(),
+    onStartRun: vi.fn(),
   };
 
   beforeEach(() => {

@@ -341,23 +341,35 @@ export function createHttpServerController(
   }
 
   const router = createRestApiRouter({
-    getStateSnapshot: () => ({
-      status: {
-        mode: getCurrentMode(),
-        isRunning: lifecycleState === "running",
-        uptimeSeconds: startedAt === null ? 0 : Math.floor((Date.now() - startedAt) / 1000),
-        activeAgents: 0,
-        queueDepth: 0,
-        paused: operatingModeState.paused,
-      },
-      spend: {
-        metering: "unknown" as const,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-      },
-      agents: [],
-      ...(serverToken ? { server_token: serverToken } : {}),
-    }),
+    getStateSnapshot: () => {
+      const cfg = loadConfig(projectRoot);
+      const dailyHardStop = cfg.economics?.daily_hard_stop_usd ?? null;
+      return {
+        status: {
+          mode: getCurrentMode(),
+          isRunning: lifecycleState === "running",
+          uptimeSeconds: startedAt === null ? 0 : Math.floor((Date.now() - startedAt) / 1000),
+          activeAgents: 0,
+          queueDepth: 0,
+          paused: operatingModeState.paused,
+        },
+        spend: {
+          metering: "unknown" as const,
+          totalInputTokens: 0,
+          totalOutputTokens: 0,
+        },
+        agents: [],
+        config: {
+          runtime: cfg.runtime ?? "pi",
+          pollIntervalSec: cfg.thresholds?.poll_interval_seconds ?? 10,
+          maxConcurrency: cfg.concurrency?.max_agents ?? 2,
+          budgetLimitUsd: dailyHardStop,
+          coerceReview: true,
+          meteringFallback: cfg.economics?.metering_fallback ?? "unknown",
+        },
+        ...(serverToken ? { server_token: serverToken } : {}),
+      };
+    },
     executeControlAction: async (request) => {
       publishEvent(
         createLiveEvent({

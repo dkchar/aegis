@@ -44,9 +44,21 @@ export interface ActiveAgentInfo {
   spendUsd?: number;
 }
 
+/** Olympus-visible configuration values from the server. */
+export interface OlympusConfig {
+  runtime: string;
+  pollIntervalSec: number;
+  maxConcurrency: number;
+  budgetLimitUsd: number | null;
+  coerceReview: boolean;
+  meteringFallback: string;
+}
+
 /** Top-level state payload returned by GET /api/state. */
 export interface DashboardState {
   status: OrchestratorStatus;
   spend: SpendObservation;
   agents: ActiveAgentInfo[];
+  /** Server configuration values (optional — absent in early slices). */
+  config?: OlympusConfig | null;
 }

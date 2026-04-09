@@ -8,24 +8,35 @@
  */
 
 import type { JSX } from "react";
+import type { OlympusConfig } from "../types/dashboard-state";
 
 export interface SettingsPanelProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Config values from the server. Falls back to defaults if absent. */
+  config?: OlympusConfig | null;
 }
 
-/** Default config values shown in the settings panel. */
-const DEFAULT_CONFIG = {
+/** Default config values used when the server hasn't supplied any. */
+const FALLBACK_CONFIG: OlympusConfig = {
   runtime: "pi",
   maxConcurrency: 2,
   pollIntervalSec: 10,
   budgetLimitUsd: 10,
-  autoMode: false,
   coerceReview: true,
+  meteringFallback: "unknown",
 };
 
+/** Resolve effective config: server values first, then fallback defaults. */
+function effectiveConfig(server?: OlympusConfig | null): OlympusConfig {
+  if (server) return server;
+  return FALLBACK_CONFIG;
+}
+
 export function SettingsPanel(props: SettingsPanelProps): JSX.Element {
-  const { isOpen, onClose } = props;
+  const { isOpen, onClose, config: serverConfig } = props;
+  const cfg = effectiveConfig(serverConfig);
+  const fromServer = !!serverConfig;
 
   if (!isOpen) return <div data-testid="settings-panel" />;
 
@@ -56,6 +67,21 @@ export function SettingsPanel(props: SettingsPanelProps): JSX.Element {
             </button>
           </div>
 
+          {/* Source indicator */}
+          <div style={{
+            fontSize: "11px",
+            textTransform: "uppercase",
+            letterSpacing: "0.5px",
+            color: fromServer ? "#2ec4b6" : "#f4a261",
+            marginBottom: "16px",
+            padding: "4px 8px",
+            borderRadius: "4px",
+            backgroundColor: fromServer ? "rgba(46,196,182,0.1)" : "rgba(244,162,97,0.1)",
+            display: "inline-block",
+          }}>
+            {fromServer ? "Live from server" : "Default values (server not connected)"}
+          </div>
+
           {/* Runtime section */}
           <section style={{ marginBottom: "24px" }}>
             <h3 style={{
@@ -68,8 +94,9 @@ export function SettingsPanel(props: SettingsPanelProps): JSX.Element {
               Runtime
             </h3>
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              <ConfigRow label="Adapter" value={DEFAULT_CONFIG.runtime} />
-              <ConfigRow label="Poll Interval" value={`${DEFAULT_CONFIG.pollIntervalSec}s`} />
+              <ConfigRow label="Adapter" value={cfg.runtime} />
+              <ConfigRow label="Poll Interval" value={`${cfg.pollIntervalSec}s`} />
+              <ConfigRow label="Metering Fallback" value={cfg.meteringFallback} />
             </div>
           </section>
 
@@ -85,7 +112,7 @@ export function SettingsPanel(props: SettingsPanelProps): JSX.Element {
               Concurrency
             </h3>
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              <ConfigRow label="Max Concurrent Agents" value={String(DEFAULT_CONFIG.maxConcurrency)} />
+              <ConfigRow label="Max Concurrent Agents" value={String(cfg.maxConcurrency)} />
             </div>
           </section>
 
@@ -101,8 +128,11 @@ export function SettingsPanel(props: SettingsPanelProps): JSX.Element {
               Budget
             </h3>
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              <ConfigRow label="Budget Limit" value={`$${DEFAULT_CONFIG.budgetLimitUsd}`} />
-              <ConfigRow label="Coerce Review" value={DEFAULT_CONFIG.coerceReview ? "Yes" : "No"} />
+              <ConfigRow
+                label="Daily Hard Stop"
+                value={cfg.budgetLimitUsd != null ? `$${cfg.budgetLimitUsd}` : "Not set"}
+              />
+              <ConfigRow label="Coerce Review" value={cfg.coerceReview ? "Yes" : "No"} />
             </div>
           </section>
 

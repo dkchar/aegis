@@ -41,7 +41,7 @@ describe("useSse", () => {
   });
 
   it("sendCommand calls fetch with correct method and body", async () => {
-    mockFetch.mockResolvedValue({ ok: true });
+    mockFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ ok: true, message: "OK" }) });
     const { result } = renderHook(() => useSse({ enabled: false }));
 
     await result.current.sendCommand("status");
@@ -49,9 +49,14 @@ describe("useSse", () => {
     expect(mockFetch).toHaveBeenCalledWith("/api/steer", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ command: "status" }),
-      signal: undefined,
+      body: expect.stringMatching(/"action":"status"/),
     });
+    // Verify the envelope has required fields
+    const callBody = JSON.parse((mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(callBody.action).toBe("status");
+    expect(callBody.request_id).toBeDefined();
+    expect(callBody.issued_at).toBeDefined();
+    expect(callBody.source).toBe("olympus");
   });
 
   it("sendCommand throws on non-ok response", async () => {
@@ -64,7 +69,7 @@ describe("useSse", () => {
   });
 
   it("sendCommand includes payload in body", async () => {
-    mockFetch.mockResolvedValue({ ok: true });
+    mockFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ ok: true, message: "OK" }) });
     const { result } = renderHook(() => useSse({ enabled: false }));
 
     await result.current.sendCommand("kill", { agentId: "test-agent" });
@@ -72,18 +77,29 @@ describe("useSse", () => {
     expect(mockFetch).toHaveBeenCalledWith(
       "/api/steer",
       expect.objectContaining({
-        body: JSON.stringify({ command: "kill", agentId: "test-agent" }),
+        body: expect.stringMatching(/"action":"command"/),
       }),
     );
+    // Generic commands are wrapped in the command action envelope
+    const callBody = JSON.parse((mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(callBody.action).toBe("command");
+    expect(callBody.args.command).toBe("kill");
+    expect(callBody.args.agentId).toBe("test-agent");
+    expect(callBody.source).toBe("olympus");
   });
 
-  it("sendCommand returns the Response on success", async () => {
-    const mockResponse = { ok: true, status: 200 };
+  it("sendCommand returns parsed SteerResult on success", async () => {
+    const mockResponse = {
+      ok: true,
+      json: () => Promise.resolve({ ok: true, message: "Auto mode enabled", mode: "auto" }),
+    };
     mockFetch.mockResolvedValue(mockResponse);
     const { result } = renderHook(() => useSse({ enabled: false }));
 
-    const res = await result.current.sendCommand("status");
-    expect(res).toBe(mockResponse);
+    const res = await result.current.sendCommand("auto_on");
+    expect(res.ok).toBe(true);
+    expect(res.message).toBe("Auto mode enabled");
+    expect(res.mode).toBe("auto");
   });
 
   it("reconnect resets backoff and triggers reconnection", () => {

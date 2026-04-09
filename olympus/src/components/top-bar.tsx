@@ -6,9 +6,11 @@
  * auto mode toggle, and settings access button.
  */
 
+import { useEffect, useState } from "react";
 import type { JSX } from "react";
 import type { DashboardState } from "../types/dashboard-state";
 import { MetricDisplay } from "./metric-display";
+import { colors } from "../theme/tokens";
 
 /** Format seconds into HH:MM:SS string. */
 export function formatUptime(seconds: number): string {
@@ -19,11 +21,36 @@ export function formatUptime(seconds: number): string {
   return `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
+/**
+ * Hook that provides a live-updating uptime value.
+ * Takes the last-known uptimeSeconds from SSE and increments it locally
+ * every second so the display stays fresh between SSE events.
+ */
+export function useLiveUptime(uptimeSeconds: number, isRunning: boolean): number {
+  const [liveUptime, setLiveUptime] = useState(uptimeSeconds);
+
+  useEffect(() => {
+    // Reset to the server-provided value whenever it changes
+    setLiveUptime(uptimeSeconds);
+  }, [uptimeSeconds]);
+
+  useEffect(() => {
+    if (!isRunning) return;
+    const interval = setInterval(() => {
+      setLiveUptime((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isRunning]);
+
+  return liveUptime;
+}
+
 export interface TopBarProps {
   state: DashboardState | null;
   isConnected: boolean;
   onAutoToggle: (enabled: boolean) => void;
   onSettingsOpen: () => void;
+  onStartRun: () => void;
 }
 
 type SpendVariant = "default" | "success" | "warning" | "danger" | "info";
@@ -81,7 +108,7 @@ function formatSpend(state: DashboardState | null): { value: string; unit?: stri
 }
 
 export function TopBar(props: TopBarProps): JSX.Element {
-  const { state, isConnected, onAutoToggle, onSettingsOpen } = props;
+  const { state, isConnected, onAutoToggle, onSettingsOpen, onStartRun } = props;
 
   const isRunning = state?.status.isRunning ?? false;
   const mode = state?.status.mode ?? null;
@@ -90,14 +117,18 @@ export function TopBar(props: TopBarProps): JSX.Element {
   const uptimeSeconds = state?.status.uptimeSeconds ?? 0;
   const isAutoMode = mode === "auto";
 
+  // Live uptime counter that ticks every second between SSE updates
+  const liveUptime = useLiveUptime(uptimeSeconds, isRunning);
+
   const spendInfo = formatSpend(state);
 
   return (
     <header data-testid="top-bar" role="banner" className="top-bar">
-      {/* Left section: branding + status */}
+      {/* Left section: branding + consolidated status + mode badge */}
       <div className="top-bar-section">
         <span className="top-bar-title">Olympus</span>
 
+        {/* Single consolidated status indicator */}
         <span className="status-indicator">
           <span
             className={`status-dot ${isRunning ? "running" : "stopped"} ${isRunning ? "pulse" : ""}`}
@@ -106,12 +137,48 @@ export function TopBar(props: TopBarProps): JSX.Element {
           {isRunning ? "Running" : "Stopped"}
         </span>
 
-        {/* Connection status dot */}
-        <span className="status-indicator">
+        {/* SSE connection status dot (small, unobtrusive) */}
+        <span
+          className="connection-dot"
+          title={isConnected ? "Connected to server" : "Disconnected"}
+          aria-label={isConnected ? "Connected" : "Disconnected"}
+        >
           <span
-            className={`status-dot ${isConnected ? "connected" : "disconnected"} ${!isConnected ? "pulse" : ""}`}
+            className={`status-dot ${isConnected ? "connected" : "disconnected"}`}
             aria-hidden="true"
           />
+        </span>
+
+        {/* Explicit mode badge */}
+        <span
+          className="mode-badge"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "4px",
+            padding: "2px 10px",
+            borderRadius: "12px",
+            fontSize: "12px",
+            fontWeight: 700,
+            letterSpacing: "0.5px",
+            textTransform: "uppercase",
+            backgroundColor: isAutoMode ? colors.success + "22" : "#3a4a5e",
+            color: isAutoMode ? colors.success : "#a0b4cc",
+            border: `1px solid ${isAutoMode ? colors.success + "44" : "#4a5a6e"}`,
+          }}
+        >
+          <span
+            className="status-dot"
+            style={{
+              width: "6px",
+              height: "6px",
+              borderRadius: "50%",
+              backgroundColor: isAutoMode ? colors.success : "#a0b4cc",
+              display: "inline-block",
+            }}
+            aria-hidden="true"
+          />
+          {isAutoMode ? "Auto" : "Conversational"}
         </span>
       </div>
 
@@ -142,10 +209,10 @@ export function TopBar(props: TopBarProps): JSX.Element {
           tooltip={spendInfo.tooltip}
         />
 
-        {/* Uptime */}
+        {/* Uptime — uses live ticking value */}
         <MetricDisplay
           label="Uptime"
-          value={formatUptime(uptimeSeconds)}
+          value={formatUptime(liveUptime)}
           variant="info"
           tooltip="Orchestrator uptime (HH:MM:SS)"
         />
@@ -153,6 +220,28 @@ export function TopBar(props: TopBarProps): JSX.Element {
 
       {/* Right section: controls */}
       <div className="top-bar-section">
+        {/* Start Run button */}
+        <button
+          className="start-run-btn"
+          onClick={onStartRun}
+          aria-label="Start Run"
+          title="Start Run — Scout and implement a Beads issue"
+          style={{
+            padding: "4px 14px",
+            borderRadius: "6px",
+            fontSize: "12px",
+            fontWeight: 700,
+            letterSpacing: "0.5px",
+            textTransform: "uppercase",
+            backgroundColor: colors.primary,
+            color: colors.bgPrimary,
+            border: "none",
+            cursor: "pointer",
+          }}
+        >
+          Start Run
+        </button>
+
         {/* Auto mode toggle */}
         <div className="auto-toggle">
           <span className="auto-toggle-label">Auto</span>

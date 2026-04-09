@@ -228,6 +228,18 @@ a:hover {
   animation: pulse 2s ease-in-out infinite;
 }
 
+/* Small connection dot — less prominent than main status */
+.connection-dot {
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.6;
+}
+
+.connection-dot .status-dot {
+  width: 6px;
+  height: 6px;
+}
+
 /* ── Metrics ────────────────────────────────────────────── */
 
 .metrics-row {
