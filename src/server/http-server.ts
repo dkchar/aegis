@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
@@ -46,6 +47,8 @@ import type {
 } from "../core/command-executor.js";
 import { handleAppendLearning, resolveMnemosynePath } from "./learning-route.js";
 import { loadConfig } from "../config/load-config.js";
+import { updateConfig as updateProjectConfig } from "../config/save-config.js";
+import { mapBdIssueToReady } from "../tracker/beads-client.js";
 
 export const HTTP_SERVER_INITIAL_STATE: ServerLifecycleState = "stopped";
 
@@ -145,6 +148,41 @@ function getContentType(filePath: string) {
     default:
       return "application/octet-stream";
   }
+}
+
+function parseBdJsonArray(raw: string): Record<string, unknown>[] {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0 || trimmed === "null") {
+    return [];
+  }
+
+  const parsed = JSON.parse(trimmed) as unknown;
+  return Array.isArray(parsed)
+    ? parsed as Record<string, unknown>[]
+    : [parsed as Record<string, unknown>];
+}
+
+function execBdInRepository(root: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "bd",
+      args,
+      {
+        cwd: root,
+        encoding: "utf8",
+        maxBuffer: 10 * 1024 * 1024,
+        windowsHide: true,
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          const detail = stderr?.trim() ? ` — ${stderr.trim()}` : "";
+          reject(new Error(`bd ${args[0]} failed: ${error.message}${detail}`));
+          return;
+        }
+        resolve(stdout);
+      },
+    );
+  });
 }
 
 function writeJsonResponse(
@@ -379,6 +417,20 @@ export function createHttpServerController(
 
   const router = createRestApiRouter({
     getStateSnapshot: () => buildDashboardStateSnapshot(),
+    getReadyIssues: async () => {
+      const raw = await execBdInRepository(projectRoot, ["ready", "--json"]);
+      return parseBdJsonArray(raw).map(mapBdIssueToReady);
+    },
+    getConfigSnapshot: () => loadConfig(projectRoot),
+    updateConfig: async (payload) => {
+      const config = updateProjectConfig(projectRoot, payload);
+      publishOrchestratorStateEvent();
+      return {
+        ok: true,
+        message: "Config updated",
+        config,
+      };
+    },
     executeControlAction: async (request) => {
       const detail = request.action === "status"
         ? buildStatusSummaryMessage()

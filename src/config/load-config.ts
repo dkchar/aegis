@@ -128,7 +128,7 @@ function validateKnownKeys(
   }
 }
 
-function validatePartialConfig(config: unknown): asserts config is PartialConfig {
+export function validatePartialConfig(config: unknown): asserts config is PartialConfig {
   assertRecord(config, "config");
   validateKnownKeys(config, "config", CONFIG_TOP_LEVEL_KEYS);
 
@@ -332,7 +332,7 @@ function validatePartialConfig(config: unknown): asserts config is PartialConfig
   }
 }
 
-function mergeConfig(config: PartialConfig): AegisConfig {
+export function mergeConfig(config: PartialConfig): AegisConfig {
   return {
     ...DEFAULT_AEGIS_CONFIG,
     ...config,
@@ -395,6 +395,79 @@ function mergeConfig(config: PartialConfig): AegisConfig {
     evals: {
       ...DEFAULT_AEGIS_CONFIG.evals,
       ...config.evals,
+    },
+  };
+}
+
+export function applyConfigPatch(
+  current: AegisConfig,
+  patch: unknown,
+): AegisConfig {
+  validatePartialConfig(patch);
+  const partial = patch as PartialConfig;
+
+  return {
+    ...current,
+    ...partial,
+    auth: {
+      ...current.auth,
+      ...partial.auth,
+    },
+    models: {
+      ...current.models,
+      ...partial.models,
+    },
+    concurrency: {
+      ...current.concurrency,
+      ...partial.concurrency,
+    },
+    budgets: {
+      ...current.budgets,
+      ...partial.budgets,
+      oracle: {
+        ...current.budgets.oracle,
+        ...partial.budgets?.oracle,
+      },
+      titan: {
+        ...current.budgets.titan,
+        ...partial.budgets?.titan,
+      },
+      sentinel: {
+        ...current.budgets.sentinel,
+        ...partial.budgets?.sentinel,
+      },
+      janus: {
+        ...current.budgets.janus,
+        ...partial.budgets?.janus,
+      },
+    },
+    thresholds: {
+      ...current.thresholds,
+      ...partial.thresholds,
+    },
+    economics: {
+      ...current.economics,
+      ...partial.economics,
+    },
+    janus: {
+      ...current.janus,
+      ...partial.janus,
+    },
+    mnemosyne: {
+      ...current.mnemosyne,
+      ...partial.mnemosyne,
+    },
+    labor: {
+      ...current.labor,
+      ...partial.labor,
+    },
+    olympus: {
+      ...current.olympus,
+      ...partial.olympus,
+    },
+    evals: {
+      ...current.evals,
+      ...partial.evals,
     },
   };
 }

@@ -2,6 +2,8 @@
   "routes": {
     "root": "/",
     "state": "/api/state",
+    "readyIssues": "/api/issues/ready",
+    "config": "/api/config",
     "steer": "/api/steer",
     "learning": "/api/learning",
     "events": "/api/events",

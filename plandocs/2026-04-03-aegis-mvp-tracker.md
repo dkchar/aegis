@@ -1,6 +1,6 @@
 # Aegis MVP Tracker
 
-- Refreshed: 2026-04-10T14:52:27+01:00
+- Refreshed: 2026-04-10T16:42:20+01:00
 - Source spec: SPECv2.md
 - Design doc: docs/superpowers/specs/2026-04-03-aegis-mvp-slicing-design.md
 - Plan doc: docs/superpowers/plans/2026-04-03-aegis-mvp-slice-plan.md
@@ -43,6 +43,18 @@
   - `aegis-vzn`: `initProject()` and the mock-run baseline `.gitignore` now ignore `.aegis/oracle/`, so successful scout runs do not dirty the disposable mock repo.
 - Verification on 2026-04-10: `npm run lint`; `npm run build`; `npm run test`; `bd dolt pull`; `bd dolt push`; `npm run mock:seed`; seeded mock-run scout via `executeProjectDirectCommand` returned `handled` with `ready for implementation`; `git status -sb` in `aegis-mock-run` stayed clean after the scout.
 - Queue parity on 2026-04-10: `bd ready --json` returned `[]`.
+
+## 2026-04-10 Olympus Delivery Parity
+
+- Closed remaining non-epic follow-ups in this batch: `aegis-8lq`, `aegis-hnl`, `aegis-9y0`, `aegis-8po`, and `aegis-bmb`.
+- Scope of the delivery work:
+  - `aegis-8lq`: Olympus Start Run now loads the Beads ready queue from the server, lets the operator pick a ready issue, runs `scout`, shows the Oracle assessment, and only then exposes Proceed to Implement.
+  - `aegis-hnl`: the remaining Olympus control-room UX issues were closed out in the delivered surface, including structured command submission, editable settings backed by real config reads and writes, and a real Start Run path instead of a read-only shell.
+  - `aegis-9y0`: Olympus settings now edits persisted concurrency and per-caste budget limits through `/api/config`, including a one-click mock-run observation profile.
+  - `aegis-8po`: the command bar is now a structured command composer with explicit issue and agent targeting, and the dashboard clearly states that natural-language Ask mode is not part of the MVP path.
+  - `aegis-bmb`: the repo now ships `npm start` as the standard launch path for `dist/index.js`, including forwarded CLI args via `npm start -- ...`.
+- Verification on 2026-04-10: focused server and Olympus tests for the new routes and controls passed; adjacent touched-surface tests passed; `npm run lint`; `npm run build`; `npm run test` all passed; mock-run sanity passed for `init`, `status`, `start`, `GET /`, `GET /api/state`, `GET /api/issues/ready`, `GET /api/config`, `POST /api/config`, `GET /api/events`, `stop`, and clean `git status -sb` in `aegis-mock-run`.
+- Queue parity on 2026-04-10: `bd ready --json` returned `[]`; after this batch only the coordination epic `aegis-0yq` remains in progress.
 
 ## Slice Epics
 

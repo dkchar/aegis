@@ -86,6 +86,7 @@ describe("S00 project skeleton contract", () => {
     expect(scripts.build).toContain("build:olympus");
     expect(scripts["build:node"]).toContain("tsc --project tsconfig.json");
     expect(scripts.dev).toBe("tsx src/index.ts");
+    expect(scripts.start).toBe("node dist/index.js");
     expect(scripts.test).toBe("vitest run --config vitest.config.ts");
     expect(scripts.lint).toContain("tsconfig.tests.json");
     expect(scripts.lint).toContain("lint --workspace olympus");

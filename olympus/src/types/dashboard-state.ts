@@ -1,14 +1,5 @@
-/**
- * Canonical dashboard state model for Olympus MVP.
- *
- * These types define the server payload contract that the UI consumes.
- * They mirror what the orchestrator's GET /api/state endpoint returns.
- */
-
-/** Current operating mode of the orchestrator. */
 export type OrchestratorMode = "conversational" | "auto";
 
-/** High-level orchestr status. */
 export interface OrchestratorStatus {
   mode: OrchestratorMode;
   isRunning: boolean;
@@ -18,7 +9,6 @@ export interface OrchestratorStatus {
   paused: boolean;
 }
 
-/** Budget/spend observation — matches SPECv2 metering capabilities. */
 export interface SpendObservation {
   metering: "exact_usd" | "credits" | "quota" | "stats_only" | "unknown";
   costUsd?: number;
@@ -30,7 +20,6 @@ export interface SpendObservation {
   totalOutputTokens: number;
 }
 
-/** A running agent as seen by the orchestrator. */
 export interface ActiveAgentInfo {
   agentId: string;
   caste: "oracle" | "titan" | "sentinel" | "janus";
@@ -44,7 +33,6 @@ export interface ActiveAgentInfo {
   spendUsd?: number;
 }
 
-/** Olympus-visible configuration values from the server. */
 export interface OlympusConfig {
   runtime: string;
   pollIntervalSec: number;
@@ -54,11 +42,54 @@ export interface OlympusConfig {
   meteringFallback: string;
 }
 
-/** Top-level state payload returned by GET /api/state. */
+export interface ReadyIssueSummary {
+  id: string;
+  title: string;
+  priority: number;
+  issueClass?: string;
+}
+
+export interface EditableConcurrencyConfig {
+  max_agents: number;
+  max_oracles: number;
+  max_titans: number;
+  max_sentinels: number;
+  max_janus: number;
+}
+
+export interface EditableBudgetLimit {
+  turns: number;
+  tokens: number;
+}
+
+export interface EditableBudgetsConfig {
+  oracle: EditableBudgetLimit;
+  titan: EditableBudgetLimit;
+  sentinel: EditableBudgetLimit;
+  janus: EditableBudgetLimit;
+}
+
+export interface EditableOlympusConfig {
+  runtime: string;
+  thresholds: {
+    poll_interval_seconds: number;
+  };
+  economics: {
+    metering_fallback: string;
+    daily_hard_stop_usd: number | null;
+  };
+  concurrency: EditableConcurrencyConfig;
+  budgets: EditableBudgetsConfig;
+}
+
+export interface EditableOlympusConfigPatch {
+  concurrency: EditableConcurrencyConfig;
+  budgets: EditableBudgetsConfig;
+}
+
 export interface DashboardState {
   status: OrchestratorStatus;
   spend: SpendObservation;
   agents: ActiveAgentInfo[];
-  /** Server configuration values (optional — absent in early slices). */
   config?: OlympusConfig | null;
 }

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { App } from "../../App";
+import * as apiClient from "../../lib/api-client";
 import * as useSseModule from "../../lib/use-sse";
 
 // Mock the useSse hook
@@ -14,6 +15,9 @@ vi.mock("../../lib/api-client", () => ({
   killAgent: vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) }),
   toggleAutoMode: vi.fn().mockResolvedValue({ ok: true }),
   fetchState: vi.fn().mockResolvedValue({}),
+  fetchReadyIssues: vi.fn().mockResolvedValue([]),
+  fetchEditableConfig: vi.fn().mockResolvedValue({}),
+  saveEditableConfig: vi.fn().mockResolvedValue({ ok: true, message: "Config updated" }),
   submitLearning: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
@@ -33,9 +37,16 @@ function setMockUseSse(overrides: Record<string, unknown> = {}) {
   });
 }
 
+function setMockReadyIssues(issueIds: string[]) {
+  vi.mocked(apiClient.fetchReadyIssues).mockResolvedValue(
+    issueIds.map((id) => ({ id, title: `${id} title`, priority: 1 })),
+  );
+}
+
 describe("App", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    setMockReadyIssues([]);
   });
 
   afterEach(() => {
@@ -65,9 +76,7 @@ describe("App", () => {
   it("renders the command bar", () => {
     setMockUseSse();
     render(<App />);
-    const regions = screen.getAllByRole("region");
-    const hasCommandBar = regions.some((el) => el.getAttribute("aria-label") === "Command Bar");
-    expect(hasCommandBar).toBe(true);
+    expect(screen.getByTestId("command-bar")).toBeTruthy();
   });
 
   it("shows error banner when useSse returns an error", () => {
@@ -126,9 +135,6 @@ describe("App", () => {
 
     render(<App />);
 
-    fireEvent.change(screen.getByLabelText("Command input"), {
-      target: { value: "status" },
-    });
     fireEvent.click(screen.getByLabelText("Submit command"));
 
     await waitFor(() => {
@@ -142,6 +148,7 @@ describe("App", () => {
   });
 
   it("keeps Start Run in an error state when scout is declined", async () => {
+    setMockReadyIssues(["aegis-aru"]);
     const sendCommand = vi.fn().mockResolvedValue({
       ok: true,
       status: "declined",
@@ -158,7 +165,10 @@ describe("App", () => {
     render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: "Start Run" }));
-    fireEvent.change(screen.getByLabelText("Beads issue ID"), {
+    await waitFor(() => {
+      expect(apiClient.fetchReadyIssues).toHaveBeenCalledOnce();
+    });
+    fireEvent.change(screen.getByLabelText("Ready issue"), {
       target: { value: "aegis-aru" },
     });
     fireEvent.click(screen.getByLabelText("Scout issue"));
@@ -172,6 +182,7 @@ describe("App", () => {
   });
 
   it("keeps Start Run open and shows the backend error when implement is declined", async () => {
+    setMockReadyIssues(["aegis-cgm"]);
     const sendCommand = vi.fn(async (command: string) => {
       if (command === "scout") {
         return {
@@ -200,7 +211,10 @@ describe("App", () => {
     render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: "Start Run" }));
-    fireEvent.change(screen.getByLabelText("Beads issue ID"), {
+    await waitFor(() => {
+      expect(apiClient.fetchReadyIssues).toHaveBeenCalledOnce();
+    });
+    fireEvent.change(screen.getByLabelText("Ready issue"), {
       target: { value: "aegis-cgm" },
     });
     fireEvent.click(screen.getByLabelText("Scout issue"));

@@ -5,6 +5,8 @@ import { parseCommand } from "../cli/parse-command.js";
 export const HTTP_ROUTE_PATHS = {
   root: "/",
   state: "/api/state",
+  readyIssues: "/api/issues/ready",
+  config: "/api/config",
   steer: "/api/steer",
   learning: "/api/learning",
   events: "/api/events",
@@ -90,6 +92,21 @@ export const HTTP_ROUTE_CONTRACT: readonly HttpRouteDefinition[] = [
     contract: "Return current orchestrator, agent, queue, and issue snapshot.",
   },
   {
+    method: "GET",
+    path: HTTP_ROUTE_PATHS.readyIssues,
+    contract: "Return the current Beads ready queue for Olympus issue pickers.",
+  },
+  {
+    method: "GET",
+    path: HTTP_ROUTE_PATHS.config,
+    contract: "Return the editable project config used by Olympus settings.",
+  },
+  {
+    method: "POST",
+    path: HTTP_ROUTE_PATHS.config,
+    contract: "Persist editable project config changes from Olympus settings.",
+  },
+  {
     method: "POST",
     path: HTTP_ROUTE_PATHS.steer,
     contract: "Accept control-plane actions.",
@@ -133,6 +150,9 @@ type MaybePromise<T> = T | Promise<T>;
 
 export interface RestApiRouterBindings {
   getStateSnapshot: () => MaybePromise<unknown>;
+  getReadyIssues?: () => MaybePromise<unknown>;
+  getConfigSnapshot?: () => MaybePromise<unknown>;
+  updateConfig?: (payload: Record<string, unknown>) => MaybePromise<unknown>;
   executeControlAction: (
     request: ControlApiRequest,
   ) => MaybePromise<ControlApiResponse>;
@@ -297,6 +317,46 @@ export function createRestApiRouter(bindings: RestApiRouterBindings): RestApiRou
 
       if (method === "GET" && request.path === HTTP_ROUTE_PATHS.state) {
         return toJsonResponse(200, await bindings.getStateSnapshot());
+      }
+
+      if (method === "GET" && request.path === HTTP_ROUTE_PATHS.readyIssues) {
+        if (!bindings.getReadyIssues) {
+          return toJsonResponse(503, {
+            ok: false,
+            error: "Ready issue lookup is not configured.",
+          });
+        }
+
+        return toJsonResponse(200, await bindings.getReadyIssues());
+      }
+
+      if (method === "GET" && request.path === HTTP_ROUTE_PATHS.config) {
+        if (!bindings.getConfigSnapshot) {
+          return toJsonResponse(503, {
+            ok: false,
+            error: "Config snapshot is not configured.",
+          });
+        }
+
+        return toJsonResponse(200, await bindings.getConfigSnapshot());
+      }
+
+      if (method === "POST" && request.path === HTTP_ROUTE_PATHS.config) {
+        if (!bindings.updateConfig) {
+          return toJsonResponse(503, {
+            ok: false,
+            error: "Config updates are not configured.",
+          });
+        }
+
+        if (!isRecord(request.body)) {
+          return toJsonResponse(400, {
+            ok: false,
+            error: "Config payload must be a JSON object.",
+          });
+        }
+
+        return toJsonResponse(200, await bindings.updateConfig(request.body));
       }
 
       if (method === "GET" && request.path === HTTP_ROUTE_PATHS.scopeStatus) {

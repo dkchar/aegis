@@ -1,25 +1,21 @@
-/**
- * HTTP API client for Olympus.
- * Wraps calls to the Aegis REST endpoints.
- * Kept for future dedicated API client layer expansion.
- */
+import type {
+  EditableOlympusConfig,
+  EditableOlympusConfigPatch,
+  ReadyIssueSummary,
+} from "../types/dashboard-state";
 
 const STEER_URL = "/api/steer";
 const STATE_URL = "/api/state";
+const READY_ISSUES_URL = "/api/issues/ready";
+const CONFIG_URL = "/api/config";
 const LEARNING_URL = "/api/learning";
 
-/** Known control actions that map directly to server lifecycle actions. */
 const CONTROL_ACTIONS = new Set(["start", "stop", "status", "auto_on", "auto_off", "pause", "resume"]);
 
-/**
- * Build a proper ControlApiRequest envelope for the steer endpoint.
- */
 function buildSteerBody(command: string, payload?: Record<string, unknown>): Record<string, unknown> {
   const requestId = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const issuedAt = new Date().toISOString();
 
-  // For commands that need additional parameters (like scout <issueId>),
-  // concatenate payload values into the command string when appropriate
   let effectiveCommand = command;
   const argsForEnvelope: Record<string, unknown> = { ...(payload ?? {}) };
 
@@ -50,9 +46,6 @@ function buildSteerBody(command: string, payload?: Record<string, unknown>): Rec
   };
 }
 
-/**
- * Send a control command to the orchestrator.
- */
 export async function sendCommand(
   command: string,
   payload?: Record<string, unknown>,
@@ -64,34 +57,52 @@ export async function sendCommand(
   });
 }
 
-/**
- * Kill a running agent by ID.
- */
 export async function killAgent(agentId: string): Promise<Response> {
   return sendCommand("kill", { agentId });
 }
 
-/**
- * Toggle auto mode on or off.
- */
 export async function toggleAutoMode(enabled: boolean): Promise<Response> {
   return sendCommand(enabled ? "auto_on" : "auto_off");
 }
 
-/**
- * Fetch the current orchestrator state snapshot.
- */
 export async function fetchState() {
-  const res = await fetch(STATE_URL);
-  if (!res.ok) {
-    throw new Error(`State fetch failed: ${res.status}`);
+  const response = await fetch(STATE_URL);
+  if (!response.ok) {
+    throw new Error(`State fetch failed: ${response.status}`);
   }
-  return res.json();
+  return response.json();
 }
 
-/**
- * Submit a learning record to Mnemosyne.
- */
+export async function fetchReadyIssues(): Promise<ReadyIssueSummary[]> {
+  const response = await fetch(READY_ISSUES_URL);
+  if (!response.ok) {
+    throw new Error(`Ready issue fetch failed: ${response.status}`);
+  }
+  return response.json() as Promise<ReadyIssueSummary[]>;
+}
+
+export async function fetchEditableConfig(): Promise<EditableOlympusConfig> {
+  const response = await fetch(CONFIG_URL);
+  if (!response.ok) {
+    throw new Error(`Config fetch failed: ${response.status}`);
+  }
+  return response.json() as Promise<EditableOlympusConfig>;
+}
+
+export async function saveEditableConfig(
+  payload: EditableOlympusConfigPatch,
+): Promise<{ ok: boolean; message: string; config?: EditableOlympusConfig }> {
+  const response = await fetch(CONFIG_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(`Config update failed: ${response.status}`);
+  }
+  return response.json() as Promise<{ ok: boolean; message: string; config?: EditableOlympusConfig }>;
+}
+
 export async function submitLearning(record: {
   category: string;
   domain: string;

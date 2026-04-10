@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { CommandBar } from "../command-bar";
 
 describe("CommandBar", () => {
@@ -13,9 +13,13 @@ describe("CommandBar", () => {
     vi.clearAllMocks();
   });
 
-  it("renders the command input", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("renders the structured command selector", () => {
     const { container } = render(<CommandBar {...defaultProps} />);
-    expect(container.querySelector(".command-bar-input")).toBeTruthy();
+    expect(screen.getByLabelText("Structured command")).toBeTruthy();
   });
 
   it("renders the submit button", () => {
@@ -23,20 +27,25 @@ describe("CommandBar", () => {
     expect(container.querySelector(".command-bar-submit")).toBeTruthy();
   });
 
-  it("renders the quick kill input", () => {
-    const { container } = render(<CommandBar {...defaultProps} />);
-    const inputs = container.querySelectorAll(".command-bar-input");
-    expect(inputs.length).toBeGreaterThanOrEqual(2);
+  it("keeps structured commands separate from natural-language chat", () => {
+    render(<CommandBar {...defaultProps} />);
+    expect(screen.getByText("Ask Aegis")).toBeTruthy();
+    expect(screen.getByText(/Natural-language Ask mode is not available/i)).toBeTruthy();
   });
 
-  it("renders the quick kill button", () => {
-    const { container } = render(<CommandBar {...defaultProps} />);
-    expect(container.querySelector(".kill-btn")).toBeTruthy();
+  it("renders an issue id field for issue-scoped commands", () => {
+    render(<CommandBar {...defaultProps} />);
+
+    fireEvent.change(screen.getByLabelText("Structured command"), {
+      target: { value: "scout" },
+    });
+
+    expect(screen.getByLabelText("Issue ID")).toBeTruthy();
   });
 
   it("disables input when disabled prop is true", () => {
-    const { container } = render(<CommandBar {...defaultProps} disabled />);
-    expect((container.querySelector(".command-bar-input") as HTMLInputElement).disabled).toBe(true);
+    render(<CommandBar {...defaultProps} disabled />);
+    expect((screen.getByLabelText("Structured command") as HTMLSelectElement).disabled).toBe(true);
   });
 
   it("disables submit button when disabled prop is true", () => {
@@ -46,10 +55,9 @@ describe("CommandBar", () => {
 
   it("submits command on Enter key", async () => {
     const onCommand = vi.fn().mockResolvedValue(undefined);
-    const { container } = render(<CommandBar {...defaultProps} onCommand={onCommand} />);
-    const input = container.querySelector(".command-bar-input") as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "status" } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    render(<CommandBar {...defaultProps} onCommand={onCommand} />);
+    const fieldset = screen.getByLabelText("Structured command");
+    fireEvent.keyDown(fieldset, { key: "Enter" });
 
     await waitFor(() => {
       expect(onCommand).toHaveBeenCalledWith("status", undefined);
@@ -58,10 +66,8 @@ describe("CommandBar", () => {
 
   it("submits command on button click", async () => {
     const onCommand = vi.fn().mockResolvedValue(undefined);
-    const { container } = render(<CommandBar {...defaultProps} onCommand={onCommand} />);
-    const input = container.querySelector(".command-bar-input") as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "status" } });
-    fireEvent.click(container.querySelector(".command-bar-submit")!);
+    render(<CommandBar {...defaultProps} onCommand={onCommand} />);
+    fireEvent.click(screen.getByLabelText("Submit command"));
 
     await waitFor(() => {
       expect(onCommand).toHaveBeenCalledWith("status", undefined);
@@ -70,9 +76,7 @@ describe("CommandBar", () => {
 
   it("delegates command execution without rendering a local results panel", async () => {
     const { container } = render(<CommandBar {...defaultProps} />);
-    const input = container.querySelector(".command-bar-input") as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "status" } });
-    fireEvent.click(container.querySelector(".command-bar-submit")!);
+    fireEvent.click(screen.getByLabelText("Submit command"));
 
     await waitFor(() => {
       expect(defaultProps.onCommand).toHaveBeenCalledWith("status", undefined);
@@ -82,29 +86,35 @@ describe("CommandBar", () => {
   });
 
   it("calls onKill when kill command is sent", async () => {
-    const onKill = vi.fn();
-    const { container } = render(<CommandBar {...defaultProps} onKill={onKill} />);
-    const input = container.querySelector(".command-bar-input") as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "kill agent-123" } });
-    fireEvent.click(container.querySelector(".command-bar-submit")!);
+    const onCommand = vi.fn().mockResolvedValue(undefined);
+    render(<CommandBar {...defaultProps} onCommand={onCommand} />);
+
+    fireEvent.change(screen.getByLabelText("Structured command"), {
+      target: { value: "kill" },
+    });
+    fireEvent.change(screen.getByLabelText("Agent ID"), {
+      target: { value: "agent-123" },
+    });
+    fireEvent.click(screen.getByLabelText("Submit command"));
 
     await waitFor(() => {
-      expect(onKill).toHaveBeenCalledWith("agent-123");
+      expect(onCommand).toHaveBeenCalledWith("kill", { agentId: "agent-123" });
     });
   });
 
   it("does not submit when input is empty", () => {
     const onCommand = vi.fn();
-    const { container } = render(<CommandBar {...defaultProps} onCommand={onCommand} />);
-    fireEvent.click(container.querySelector(".command-bar-submit")!);
+    render(<CommandBar {...defaultProps} onCommand={onCommand} />);
+    fireEvent.change(screen.getByLabelText("Structured command"), {
+      target: { value: "kill" },
+    });
+    expect((screen.getByLabelText("Submit command") as HTMLButtonElement).disabled).toBe(true);
     expect(onCommand).not.toHaveBeenCalled();
   });
 
   it("does not render a clear button because results are owned by the app shell", async () => {
     const { container } = render(<CommandBar {...defaultProps} />);
-    const input = container.querySelector(".command-bar-input") as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "status" } });
-    fireEvent.click(container.querySelector(".command-bar-submit")!);
+    fireEvent.click(screen.getByLabelText("Submit command"));
 
     await waitFor(() => {
       expect(defaultProps.onCommand).toHaveBeenCalledWith("status", undefined);
