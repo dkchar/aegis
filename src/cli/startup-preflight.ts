@@ -1,3 +1,5 @@
+import type { AegisConfig } from "../config/schema.js";
+
 export type StartupPreflightCheckId =
   | "git_repo"
   | "beads_cli"
@@ -10,11 +12,6 @@ export type StartupPreflightCheckId =
 
 export type StartupPreflightCheckStatus = "pass" | "fail" | "skipped";
 export type StartupPreflightOverallStatus = "ready" | "blocked";
-
-export interface StartupPreflightConfig {
-  runtime: string;
-  models: Record<string, string>;
-}
 
 export interface StartupPreflightProbeResult {
   ok: boolean;
@@ -40,15 +37,15 @@ export interface StartupPreflightDependencies {
   verifyGitRepo: () => void;
   probeBeadsCli: () => StartupPreflightProbeResult;
   probeBeadsRepo: () => StartupPreflightProbeResult;
-  loadConfig: () => StartupPreflightConfig;
+  loadConfig: () => AegisConfig;
   verifyRuntimeAdapter: (
-    config: StartupPreflightConfig,
+    config: AegisConfig,
   ) => StartupPreflightProbeResult;
   verifyRuntimeLocalConfig: (
-    config: StartupPreflightConfig,
+    config: AegisConfig,
   ) => StartupPreflightProbeResult;
   verifyModelRefs: (
-    config: StartupPreflightConfig,
+    config: AegisConfig,
   ) => StartupPreflightProbeResult;
   verifyRuntimeStatePaths: (repoRoot: string) => StartupPreflightProbeResult;
 }
@@ -188,7 +185,7 @@ export function runStartupPreflight(
     return blockFrom(repoRoot, checks, "aegis_config");
   }
 
-  let config: StartupPreflightConfig;
+  let config: AegisConfig;
 
   try {
     config = deps.loadConfig();
