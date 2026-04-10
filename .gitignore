@@ -11,6 +11,7 @@
 .aegis/runtime-state.json
 .aegis/evals/
 .aegis/labors/
+.aegis/mock-run-manifest.json
 .aegis/oracle/
 .aegis-cli-*
 aegis-mock-run/

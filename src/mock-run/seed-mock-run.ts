@@ -29,6 +29,7 @@ export interface MockRunBdSupport {
 }
 
 interface MockRunManifestFile {
+  /** Relative path from the manifest file to the repo root (always "..") */
   repoRoot: string;
   databaseName: string;
   generatedAt: string;
@@ -316,7 +317,7 @@ export async function seedMockRun(options: SeedMockRunOptions = {}): Promise<See
   });
   assertExpectedReadyQueue(initialReadyKeys, TODO_MOCK_RUN_MANIFEST.expectedInitialReadyKeys);
   const manifestPath = writeMockRunManifest(repoRoot, {
-    repoRoot,
+    repoRoot: "..",
     databaseName,
     generatedAt: new Date().toISOString(),
     issueIdByKey,

@@ -35,10 +35,12 @@ describe.skipIf(!bdSupport.supported)("seedMockRun", () => {
     const manifest = JSON.parse(
       readFileSync(path.join(result.repoRoot, ".aegis", "mock-run-manifest.json"), "utf8"),
     ) as {
+      repoRoot: string;
       initialReadyKeys: string[];
       configuredModels: Record<string, string>;
     };
 
+    expect(manifest.repoRoot).toBe("..");
     expect(manifest.initialReadyKeys).toEqual(["foundation.contract"]);
     expect(manifest.configuredModels.oracle).toBe("pi:gemma-4-31b-it");
     expect(manifest.configuredModels.titan).toBe("pi:gemma-4-31b-it");

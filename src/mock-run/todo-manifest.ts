@@ -1,6 +1,19 @@
 import type { MockRunManifest } from "./types.js";
 
 export const TODO_BASELINE_FILES: Record<string, string> = {
+  ".gitignore": `# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.aegis/config.json
+.aegis/dispatch-state.json
+.aegis/merge-queue.json
+.aegis/mnemosyne.jsonl
+.aegis/runtime-state.json
+.aegis/labors/
+.aegis/evals/
+.aegis/mock-run-manifest.json
+`,
   "README.md": `# Todo System Mock Run
 
 Deterministic todo project seeded by Aegis for black-box orchestrator runs.
