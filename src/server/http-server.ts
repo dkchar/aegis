@@ -340,37 +340,49 @@ export function createHttpServerController(
     );
   }
 
+  function buildDashboardStateSnapshot() {
+    const cfg = loadConfig(projectRoot);
+    const dailyHardStop = cfg.economics?.daily_hard_stop_usd ?? null;
+
+    return {
+      status: {
+        mode: getCurrentMode(),
+        isRunning: lifecycleState === "running",
+        uptimeSeconds: startedAt === null ? 0 : Math.floor((Date.now() - startedAt) / 1000),
+        activeAgents: 0,
+        queueDepth: 0,
+        paused: operatingModeState.paused,
+      },
+      spend: {
+        metering: "unknown" as const,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+      },
+      agents: [],
+      config: {
+        runtime: cfg.runtime ?? "pi",
+        pollIntervalSec: cfg.thresholds?.poll_interval_seconds ?? 10,
+        maxConcurrency: cfg.concurrency?.max_agents ?? 2,
+        budgetLimitUsd: dailyHardStop,
+        coerceReview: true,
+        meteringFallback: cfg.economics?.metering_fallback ?? "unknown",
+      },
+      ...(serverToken ? { server_token: serverToken } : {}),
+    };
+  }
+
+  function buildStatusSummaryMessage() {
+    const snapshot = buildDashboardStateSnapshot();
+    const serverState = snapshot.status.isRunning ? "running" : lifecycleState;
+    return `Status: ${serverState}, mode ${snapshot.status.mode}, ${snapshot.status.activeAgents} active agents, queue depth ${snapshot.status.queueDepth}.`;
+  }
+
   const router = createRestApiRouter({
-    getStateSnapshot: () => {
-      const cfg = loadConfig(projectRoot);
-      const dailyHardStop = cfg.economics?.daily_hard_stop_usd ?? null;
-      return {
-        status: {
-          mode: getCurrentMode(),
-          isRunning: lifecycleState === "running",
-          uptimeSeconds: startedAt === null ? 0 : Math.floor((Date.now() - startedAt) / 1000),
-          activeAgents: 0,
-          queueDepth: 0,
-          paused: operatingModeState.paused,
-        },
-        spend: {
-          metering: "unknown" as const,
-          totalInputTokens: 0,
-          totalOutputTokens: 0,
-        },
-        agents: [],
-        config: {
-          runtime: cfg.runtime ?? "pi",
-          pollIntervalSec: cfg.thresholds?.poll_interval_seconds ?? 10,
-          maxConcurrency: cfg.concurrency?.max_agents ?? 2,
-          budgetLimitUsd: dailyHardStop,
-          coerceReview: true,
-          meteringFallback: cfg.economics?.metering_fallback ?? "unknown",
-        },
-        ...(serverToken ? { server_token: serverToken } : {}),
-      };
-    },
+    getStateSnapshot: () => buildDashboardStateSnapshot(),
     executeControlAction: async (request) => {
+      const detail = request.action === "status"
+        ? buildStatusSummaryMessage()
+        : `${request.action} accepted by the S06 control API scaffold.`;
       publishEvent(
         createLiveEvent({
           id: `evt-${nextEventSequence}`,
@@ -381,7 +393,7 @@ export function createHttpServerController(
             action: request.action,
             request_id: request.request_id,
             status: "completed",
-            detail: `${request.action} accepted by the S06 control API scaffold.`,
+            detail,
           },
         }),
       );
@@ -393,7 +405,9 @@ export function createHttpServerController(
         acknowledged_at: new Date().toISOString(),
         server_state: lifecycleState,
         mode: getCurrentMode(),
-        message: `${request.action} accepted`,
+        message: request.action === "status"
+          ? detail
+          : `${request.action} accepted`,
       };
     },
     appendLearningRecord: async (entry) => {

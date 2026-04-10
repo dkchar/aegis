@@ -68,15 +68,17 @@ describe("CommandBar", () => {
     });
   });
 
-  it("shows results after command execution", async () => {
+  it("delegates command execution without rendering a local results panel", async () => {
     const { container } = render(<CommandBar {...defaultProps} />);
     const input = container.querySelector(".command-bar-input") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "status" } });
     fireEvent.click(container.querySelector(".command-bar-submit")!);
 
     await waitFor(() => {
-      expect(container.textContent).toContain("status");
+      expect(defaultProps.onCommand).toHaveBeenCalledWith("status", undefined);
     });
+
+    expect(container.querySelector(".command-results")).toBeNull();
   });
 
   it("calls onKill when kill command is sent", async () => {
@@ -98,23 +100,17 @@ describe("CommandBar", () => {
     expect(onCommand).not.toHaveBeenCalled();
   });
 
-  it("clear button removes all results", async () => {
+  it("does not render a clear button because results are owned by the app shell", async () => {
     const { container } = render(<CommandBar {...defaultProps} />);
     const input = container.querySelector(".command-bar-input") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "status" } });
     fireEvent.click(container.querySelector(".command-bar-submit")!);
 
     await waitFor(() => {
-      expect(container.textContent).toContain("status");
+      expect(defaultProps.onCommand).toHaveBeenCalledWith("status", undefined);
     });
 
-    const clearBtn = container.querySelector("button");
-    // Find the clear button — it's the one with "Clear" text
-    const buttons = container.querySelectorAll("button");
-    const clearButton = Array.from(buttons).find((b) => b.textContent === "Clear");
-    if (clearButton) {
-      fireEvent.click(clearButton);
-      expect(container.textContent).not.toContain("status");
-    }
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(buttons.some((button) => button.textContent === "Clear")).toBe(false);
   });
 });

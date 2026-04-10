@@ -68,6 +68,22 @@ describe("useSse", () => {
     );
   });
 
+  it("sendCommand throws when the backend declines a command", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        ok: true,
+        status: "declined",
+        message: "Scout failed for aegis-aru",
+      }),
+    });
+    const { result } = renderHook(() => useSse({ enabled: false }));
+
+    await expect(result.current.sendCommand("scout", { issueId: "aegis-aru" })).rejects.toThrow(
+      "Scout failed for aegis-aru",
+    );
+  });
+
   it("sendCommand includes payload in body", async () => {
     mockFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ ok: true, message: "OK" }) });
     const { result } = renderHook(() => useSse({ enabled: false }));

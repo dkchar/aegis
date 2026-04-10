@@ -22,6 +22,17 @@
 - Verification on 2026-04-09: `npm run lint`; `npm run build`; `npm run test` all passed in the worktree after these fixes.
 - Queue parity on 2026-04-09: `bd ready --json` returned `[]`; only coordination epics remain outside the executable queue.
 
+## 2026-04-10 Olympus Bugfix Parity
+
+- Closed non-epic follow-ups in this batch: `aegis-2c5`, `aegis-cgm`, `aegis-3by`, and `aegis-5ji`.
+- Scope of the bugfixes:
+  - `aegis-2c5`: Start Run now treats declined `scout` responses as errors and keeps the implement affordance hidden.
+  - `aegis-cgm`: Proceed to Implement now surfaces declined `implement` responses as errors and keeps the dialog open.
+  - `aegis-3by`: Olympus `status` now returns a meaningful live status summary instead of the generic scaffold acknowledgement.
+  - `aegis-5ji`: Olympus now renders a single command-result surface and uses backend result text instead of duplicate placeholder success messaging.
+- Deferred follow-up: `aegis-aru` remains open. Live mock-run sanity still reproduced the Google Gemma thinking-budget failure after investigation, so that runtime fix was not included in this batch.
+- Verification on 2026-04-10: `npm run lint`; `npm run build`; `npm run test` all passed in the worktree. Mock-run sanity also passed for `init`, `status`, `start`, `GET /`, `GET /api/state`, `POST /api/steer` with `action=status`, `GET /api/events`, `stop`, and clean `git status -sb` after cleanup.
+
 ## Slice Epics
 
 ### S00 - Project Skeleton and Toolchain (aegis-fjm.1)

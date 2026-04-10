@@ -17,6 +17,24 @@ injectGlobalStyles();
 /** Auto-dismiss delay for error result cards (ms). */
 const ERROR_DISMISS_MS = 5000;
 
+function readCommandStatus(result: SteerResult): string | undefined {
+  if (typeof result.status === "string") {
+    return result.status;
+  }
+
+  const rawStatus = result.raw?.status;
+  return typeof rawStatus === "string" ? rawStatus : undefined;
+}
+
+function isHandledResult(result: SteerResult): boolean {
+  const status = readCommandStatus(result);
+  return result.ok && (status === undefined || status === "handled");
+}
+
+function resultMessageOrFallback(result: SteerResult, fallback: string): string {
+  return result.message?.trim() ? result.message : fallback;
+}
+
 export function App(): JSX.Element {
   const { state, isConnected, error, sendCommand } = useSse();
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -55,10 +73,15 @@ export function App(): JSX.Element {
   const handleKill = useCallback(
     async (agentId: string) => {
       try {
-        await sendCommand("kill", { agentId });
+        const result = await sendCommand("kill", { agentId });
         setCommandResults((prev) => [
           ...prev,
-          { command: `kill ${agentId}`, success: true, result: "Agent killed", timestamp: Date.now() },
+          {
+            command: `kill ${agentId}`,
+            success: true,
+            result: resultMessageOrFallback(result, `Agent ${agentId} kill signal sent`),
+            timestamp: Date.now(),
+          },
         ]);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
@@ -75,9 +98,17 @@ export function App(): JSX.Element {
     async (command: string, payload?: Record<string, unknown>) => {
       try {
         const result: SteerResult = await sendCommand(command, payload);
+        if (!isHandledResult(result)) {
+          throw new Error(resultMessageOrFallback(result, `Command "${command}" was not accepted.`));
+        }
         setCommandResults((prev) => [
           ...prev,
-          { command, success: true, result: result.message || "OK", timestamp: Date.now() },
+          {
+            command,
+            success: true,
+            result: resultMessageOrFallback(result, "OK"),
+            timestamp: Date.now(),
+          },
         ]);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
@@ -94,9 +125,16 @@ export function App(): JSX.Element {
     async (issueId: string): Promise<ScoutResult> => {
       try {
         const result: SteerResult = await sendCommand("scout", { issueId });
+        if (!isHandledResult(result)) {
+          return {
+            ok: false,
+            message: resultMessageOrFallback(result, `Scout failed for ${issueId}.`),
+            raw: result.raw,
+          };
+        }
         return {
-          ok: result.ok,
-          message: result.message,
+          ok: true,
+          message: resultMessageOrFallback(result, `Scouted ${issueId}.`),
           assessment: (result.raw?.assessment as string) ?? undefined,
           raw: result.raw,
         };
@@ -110,10 +148,18 @@ export function App(): JSX.Element {
 
   const handleImplement = useCallback(
     async (issueId: string): Promise<void> => {
-      await sendCommand("implement", { issueId });
+      const result = await sendCommand("implement", { issueId });
+      if (!isHandledResult(result)) {
+        throw new Error(resultMessageOrFallback(result, `Implementation failed for ${issueId}.`));
+      }
       setCommandResults((prev) => [
         ...prev,
-        { command: `implement ${issueId}`, success: true, result: "Implementation started", timestamp: Date.now() },
+        {
+          command: `implement ${issueId}`,
+          success: true,
+          result: resultMessageOrFallback(result, `Implementation started for ${issueId}`),
+          timestamp: Date.now(),
+        },
       ]);
     },
     [sendCommand],

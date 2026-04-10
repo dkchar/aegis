@@ -147,4 +147,34 @@ describe("SSE connection drain during shutdown", () => {
       process.chdir(originalCwd);
     }
   });
+
+  it("returns a meaningful status summary from the control API instead of a scaffold acknowledgement", async () => {
+    const projectRoot = createTempRoot("aegis-status-root-");
+    initProject(projectRoot);
+
+    controller = createHttpServerController();
+    const { port } = await controller.start({ port: 0, root: projectRoot });
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/steer`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        action: "status",
+        request_id: "req-status-live",
+        issued_at: "2026-04-10T00:00:00.000Z",
+        source: "olympus",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      action: "status",
+      message: "Status: running, mode conversational, 0 active agents, queue depth 0.",
+      mode: "conversational",
+      server_state: "running",
+    });
+  });
 });

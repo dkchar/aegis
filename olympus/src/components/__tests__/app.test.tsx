@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { App } from "../../App";
 import * as useSseModule from "../../lib/use-sse";
 
@@ -36,6 +36,10 @@ function setMockUseSse(overrides: Record<string, unknown> = {}) {
 describe("App", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    cleanup();
   });
 
   it("renders the top bar", () => {
@@ -107,5 +111,111 @@ describe("App", () => {
     // Use querySelector to avoid StrictMode duplication issues
     const emptyText = container.querySelector(".empty-state-text");
     expect(emptyText?.textContent).toBe("No active agents");
+  });
+
+  it("shows only one command results surface and uses the backend status message", async () => {
+    const sendCommand = vi.fn().mockResolvedValue({
+      ok: true,
+      message: "Status: running, mode conversational, 0 active agents, queue depth 0",
+      raw: {},
+    });
+    setMockUseSse({
+      isConnected: true,
+      sendCommand,
+    });
+
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText("Command input"), {
+      target: { value: "status" },
+    });
+    fireEvent.click(screen.getByLabelText("Submit command"));
+
+    await waitFor(() => {
+      expect(sendCommand).toHaveBeenCalledWith("status", undefined);
+    });
+
+    const commandResults = screen.getAllByLabelText("Command Results");
+    expect(commandResults).toHaveLength(1);
+    expect(screen.getByText("Status: running, mode conversational, 0 active agents, queue depth 0")).toBeTruthy();
+    expect(screen.queryByText("Command sent successfully")).toBeNull();
+  });
+
+  it("keeps Start Run in an error state when scout is declined", async () => {
+    const sendCommand = vi.fn().mockResolvedValue({
+      ok: true,
+      status: "declined",
+      message: "Scout failed for aegis-aru",
+      raw: {
+        status: "declined",
+      },
+    });
+    setMockUseSse({
+      isConnected: true,
+      sendCommand,
+    });
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start Run" }));
+    fireEvent.change(screen.getByLabelText("Beads issue ID"), {
+      target: { value: "aegis-aru" },
+    });
+    fireEvent.click(screen.getByLabelText("Scout issue"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Scout Error:/)).toBeTruthy();
+    });
+
+    expect(screen.getByText(/Scout failed for aegis-aru/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Proceed to Implement" })).toBeNull();
+  });
+
+  it("keeps Start Run open and shows the backend error when implement is declined", async () => {
+    const sendCommand = vi.fn(async (command: string) => {
+      if (command === "scout") {
+        return {
+          ok: true,
+          message: "Scouted aegis-cgm; ready for implementation.",
+          raw: {
+            assessment: "Oracle says this issue is ready.",
+          },
+        };
+      }
+
+      return {
+        ok: true,
+        status: "declined",
+        message: "Implementation failed for aegis-cgm",
+        raw: {
+          status: "declined",
+        },
+      };
+    });
+    setMockUseSse({
+      isConnected: true,
+      sendCommand,
+    });
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start Run" }));
+    fireEvent.change(screen.getByLabelText("Beads issue ID"), {
+      target: { value: "aegis-cgm" },
+    });
+    fireEvent.click(screen.getByLabelText("Scout issue"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Proceed to Implement" })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Proceed to Implement" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Implement Error:/)).toBeTruthy();
+    });
+
+    expect(screen.getByText(/Implementation failed for aegis-cgm/)).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Start Run" })).toBeTruthy();
   });
 });

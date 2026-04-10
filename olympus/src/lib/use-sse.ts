@@ -9,6 +9,7 @@ const CONTROL_ACTIONS = new Set(["start", "stop", "status", "auto_on", "auto_off
 export interface SteerResult {
   ok: boolean;
   message: string;
+  status?: string;
   mode?: string;
   serverState?: string;
   requestId?: string;
@@ -284,14 +285,24 @@ export function useSse(options: UseSseOptions = {}): UseSseReturn {
         throw err;
       }
       const data: Record<string, unknown> = await res.json();
-      return {
+      const result: SteerResult = {
         ok: !!data.ok,
+        status: typeof data.status === "string" ? data.status : undefined,
         message: (data.message as string) ?? "",
         mode: data.mode as string | undefined,
         serverState: data.server_state as string | undefined,
         requestId: data.request_id as string | undefined,
         raw: data,
       };
+
+      if (!result.ok || result.status === "declined" || result.status === "unsupported") {
+        const message = result.message || `Command ${command} was ${result.status ?? "rejected"}.`;
+        const err = new Error(message);
+        setError(err.message);
+        throw err;
+      }
+
+      return result;
     },
     [],
   );

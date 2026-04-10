@@ -12,7 +12,7 @@
  * - Quick kill action integration
  */
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useCallback } from "react";
 import type { JSX } from "react";
 import { colors } from "../theme/tokens";
 
@@ -28,12 +28,6 @@ export interface CommandResult {
   result?: string;
   error?: string;
   timestamp: number;
-}
-
-/** Format a timestamp to a readable time string. */
-function formatTimestamp(ts: number): string {
-  const d = new Date(ts);
-  return d.toLocaleTimeString();
 }
 
 /** Parse a command string into command + optional agentId for kill shortcuts. */
@@ -75,20 +69,11 @@ export function CommandBar(props: CommandBarProps): JSX.Element {
   const { onCommand, onKill, disabled = false } = props;
 
   const [input, setInput] = useState("");
-  const [results, setResults] = useState<CommandResult[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [killAgentId, setKillAgentId] = useState("");
   const [showKillConfirm, setShowKillConfirm] = useState(false);
 
-  const resultsRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // Auto-scroll results when new entries arrive
-  useEffect(() => {
-    if (resultsRef.current) {
-      resultsRef.current.scrollTop = resultsRef.current.scrollHeight;
-    }
-  }, [results]);
 
   const handleSubmit = useCallback(
     async (e?: React.FormEvent) => {
@@ -100,64 +85,23 @@ export function CommandBar(props: CommandBarProps): JSX.Element {
       setIsSubmitting(true);
       const { command, payload } = parseCommand(trimmed);
 
-      // If it's a kill command, route through onKill
-      if (command === "kill" && payload?.agentId) {
-        try {
-          onKill(String(payload.agentId));
-          setResults((prev) => [
-            ...prev,
-            {
-              command: `kill ${payload.agentId}`,
-              success: true,
-              result: `Agent ${payload.agentId} kill signal sent`,
-              timestamp: Date.now(),
-            },
-          ]);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : "Unknown error";
-          setResults((prev) => [
-            ...prev,
-            {
-              command: `kill ${payload.agentId}`,
-              success: false,
-              error: msg,
-              timestamp: Date.now(),
-            },
-          ]);
-        }
-      } else {
-        try {
+      try {
+        // If it's a kill command, route through onKill
+        if (command === "kill" && payload?.agentId) {
+          await Promise.resolve(onKill(String(payload.agentId)));
+        } else {
           await onCommand(command, payload);
-          setResults((prev) => [
-            ...prev,
-            {
-              command: trimmed,
-              success: true,
-              result: "Command sent successfully",
-              timestamp: Date.now(),
-            },
-          ]);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : "Unknown error";
-          setResults((prev) => [
-            ...prev,
-            {
-              command: trimmed,
-              success: false,
-              error: msg,
-              timestamp: Date.now(),
-            },
-          ]);
         }
+
+        setInput("");
+      } finally {
+        setIsSubmitting(false);
+
+        // Re-focus input after submit
+        requestAnimationFrame(() => {
+          inputRef.current?.focus();
+        });
       }
-
-      setInput("");
-      setIsSubmitting(false);
-
-      // Re-focus input after submit
-      requestAnimationFrame(() => {
-        inputRef.current?.focus();
-      });
     },
     [input, disabled, isSubmitting, onCommand, onKill],
   );
@@ -181,23 +125,10 @@ export function CommandBar(props: CommandBarProps): JSX.Element {
       return;
     }
 
-    onKill(agentId);
-    setResults((prev) => [
-      ...prev,
-      {
-        command: `kill ${agentId}`,
-        success: true,
-        result: `Agent ${agentId} kill signal sent`,
-        timestamp: Date.now(),
-      },
-    ]);
+    void Promise.resolve(onKill(agentId));
     setKillAgentId("");
     setShowKillConfirm(false);
   }, [killAgentId, showKillConfirm, onKill]);
-
-  const clearResults = useCallback(() => {
-    setResults([]);
-  }, []);
 
   return (
     <section data-testid="command-bar" className="command-bar" aria-label="Command Bar">
@@ -256,48 +187,6 @@ export function CommandBar(props: CommandBarProps): JSX.Element {
           {showKillConfirm ? "Confirm Kill" : "Quick Kill"}
         </button>
       </div>
-
-      {/* Command results area */}
-      {results.length > 0 && (
-        <div style={{ marginTop: "12px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-            <span style={{ fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--text-muted)" }}>
-              Results ({results.length})
-            </span>
-            <button
-              type="button"
-              onClick={clearResults}
-              style={{ fontSize: "12px", color: "var(--text-muted)" }}
-            >
-              Clear
-            </button>
-          </div>
-          <div
-            ref={resultsRef}
-            className="command-results"
-            style={{ maxHeight: "300px", overflowY: "auto" }}
-          >
-            {results.map((r, i) => (
-              <div
-                key={i}
-                className={`command-result ${r.success ? "success" : "error"}`}
-                style={{ display: "flex", flexDirection: "column", gap: "4px" }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <code style={{ fontWeight: 600 }}>{r.command}</code>
-                  <span style={{ fontSize: "11px", opacity: 0.7 }}>{formatTimestamp(r.timestamp)}</span>
-                </div>
-                {r.success && r.result && (
-                  <span style={{ wordBreak: "break-word" }}>{r.result}</span>
-                )}
-                {r.error && (
-                  <span style={{ wordBreak: "break-word" }}>{r.error}</span>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </section>
   );
 }
