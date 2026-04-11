@@ -20,6 +20,7 @@ import type { SelectedIssue } from "./components/operator-sidebar";
 import type { ActiveSession } from "./components/active-sessions-panel";
 import type { RecentSession } from "./components/recent-sessions-tray";
 import type { JanusSession } from "./components/janus-popup";
+import { STEER_COMMAND_REFERENCE } from "../src/shared/steer-command-reference.js";
 
 // Inject global styles on first render
 injectGlobalStyles();
@@ -67,15 +68,7 @@ const EMPTY_PHASE_LOGS: LoopPhaseLogs = {
 const SIDEBAR_READY_QUEUE: string[] = [];
 const SIDEBAR_ISSUE_GRAPH: string[] = [];
 const SIDEBAR_SELECTED_ISSUE: SelectedIssue | null = null;
-const STEER_REFERENCE: string[] = [
-  "status",
-  "pause",
-  "resume",
-  "focus <issue>",
-  "kill <agent>",
-  "scout <issue>",
-  "implement <issue>",
-];
+const STEER_REFERENCE: string[] = STEER_COMMAND_REFERENCE.map((entry) => entry.command);
 
 const EMPTY_ACTIVE_SESSIONS: Record<string, ActiveSession> = {};
 const EMPTY_RECENT_SESSIONS: RecentSession[] = [];
