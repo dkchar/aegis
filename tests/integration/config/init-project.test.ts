@@ -211,17 +211,15 @@ describe("S01 init project contract seed", () => {
   it("creates an aegis scripts block when package.json has no scripts", () => {
     const tempRepo = createTempRepo();
     const packageJsonPath = path.join(tempRepo, "package.json");
+    const packageJson = `{
+  "name": "demo-repo"
+}
+`;
 
     try {
       writeFileSync(
         packageJsonPath,
-        JSON.stringify(
-          {
-            name: "demo-repo",
-          },
-          null,
-          2,
-        ),
+        packageJson,
         "utf8",
       );
 
@@ -236,6 +234,16 @@ describe("S01 init project contract seed", () => {
         "aegis:status": "aegis status",
         "aegis:stop": "aegis stop",
       });
+      expect(readFileSync(packageJsonPath, "utf8")).toBe(`{
+  "name": "demo-repo",
+  "scripts": {
+    "aegis:init": "aegis init",
+    "aegis:start": "aegis start",
+    "aegis:status": "aegis status",
+    "aegis:stop": "aegis stop"
+  }
+}
+`);
     } finally {
       rmSync(tempRepo, { recursive: true, force: true });
     }

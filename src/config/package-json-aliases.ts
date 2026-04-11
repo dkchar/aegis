@@ -274,10 +274,15 @@ function patchMissingScriptsProperty(
       : closingIndent + rootIndentUnit;
     const childIndent = propertyIndent + rootIndentUnit;
     const scriptsProperty = `${propertyIndent}"scripts": {${lineBreak}${serializeEntries(entries, childIndent, lineBreak)}${lineBreak}${propertyIndent}}`;
-    const prefix = hasExistingProperties ? `,${lineBreak}` : `${lineBreak}`;
-    const suffix = hasExistingProperties ? "" : `${lineBreak}${closingIndent}`;
 
-    return `${source.slice(0, rootEnd)}${prefix}${scriptsProperty}${suffix}${source.slice(rootEnd)}`;
+    if (hasExistingProperties) {
+      const closingLineStart = rootEnd - closingIndent.length;
+      const insertionPoint = closingLineStart - lineBreak.length;
+
+      return `${source.slice(0, insertionPoint)},${lineBreak}${scriptsProperty}${lineBreak}${closingIndent}${source.slice(rootEnd)}`;
+    }
+
+    return `${source.slice(0, rootStart + 1)}${lineBreak}${scriptsProperty}${lineBreak}${closingIndent}${source.slice(rootEnd)}`;
   }
 
   const inlineEntries = entries
