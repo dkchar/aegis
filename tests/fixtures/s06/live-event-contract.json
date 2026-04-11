@@ -69,6 +69,97 @@
         "attemptCount",
         "janusEnabled"
       ]
+    },
+    {
+      "type": "loop.phase_log",
+      "requiredPayloadFields": [
+        "phase",
+        "line",
+        "level",
+        "issueId",
+        "agentId"
+      ]
+    },
+    {
+      "type": "agent.session_started",
+      "requiredPayloadFields": [
+        "sessionId",
+        "caste",
+        "issueId",
+        "stage",
+        "model"
+      ]
+    },
+    {
+      "type": "agent.session_log",
+      "requiredPayloadFields": [
+        "sessionId",
+        "caste",
+        "issueId",
+        "line",
+        "level"
+      ]
+    },
+    {
+      "type": "agent.session_stats",
+      "requiredPayloadFields": [
+        "sessionId",
+        "caste",
+        "issueId",
+        "inputTokens",
+        "outputTokens",
+        "turns",
+        "elapsedSec"
+      ]
+    },
+    {
+      "type": "agent.session_ended",
+      "requiredPayloadFields": [
+        "sessionId",
+        "caste",
+        "issueId",
+        "outcome"
+      ]
+    },
+    {
+      "type": "merge.queue_log",
+      "requiredPayloadFields": [
+        "issueId",
+        "status",
+        "attemptCount"
+      ]
+    },
+    {
+      "type": "janus.session_started",
+      "requiredPayloadFields": [
+        "sessionId",
+        "issueId"
+      ]
+    },
+    {
+      "type": "janus.session_log",
+      "requiredPayloadFields": [
+        "sessionId",
+        "issueId",
+        "line",
+        "level"
+      ]
+    },
+    {
+      "type": "janus.session_ended",
+      "requiredPayloadFields": [
+        "sessionId",
+        "issueId",
+        "outcome"
+      ]
+    },
+    {
+      "type": "issue.stage_changed",
+      "requiredPayloadFields": [
+        "issueId",
+        "fromStage",
+        "toStage"
+      ]
     }
   ]
 }
