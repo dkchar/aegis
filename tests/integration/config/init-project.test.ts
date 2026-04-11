@@ -162,21 +162,20 @@ describe("S01 init project contract seed", () => {
   it("adds aegis package aliases without overwriting existing scripts", () => {
     const tempRepo = createTempRepo();
     const packageJsonPath = path.join(tempRepo, "package.json");
+    const initialPackageJson = `{
+    "name": "demo-repo",
+    "scripts": {
+        "start": "vite",
+        "test": "vitest"
+    },
+    "private": true
+}
+`;
 
     try {
       writeFileSync(
         packageJsonPath,
-        JSON.stringify(
-          {
-            name: "demo-repo",
-            scripts: {
-              start: "vite",
-              test: "vitest",
-            },
-          },
-          null,
-          2,
-        ),
+        initialPackageJson,
         "utf8",
       );
 
@@ -191,6 +190,19 @@ describe("S01 init project contract seed", () => {
       expect(updated.scripts["aegis:start"]).toBe("aegis start");
       expect(updated.scripts["aegis:status"]).toBe("aegis status");
       expect(updated.scripts["aegis:stop"]).toBe("aegis stop");
+      expect(readFileSync(packageJsonPath, "utf8")).toBe(`{
+    "name": "demo-repo",
+    "scripts": {
+        "start": "vite",
+        "test": "vitest",
+        "aegis:init": "aegis init",
+        "aegis:start": "aegis start",
+        "aegis:status": "aegis status",
+        "aegis:stop": "aegis stop"
+    },
+    "private": true
+}
+`);
     } finally {
       rmSync(tempRepo, { recursive: true, force: true });
     }
@@ -224,6 +236,90 @@ describe("S01 init project contract seed", () => {
         "aegis:status": "aegis status",
         "aegis:stop": "aegis stop",
       });
+    } finally {
+      rmSync(tempRepo, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves malformed package.json unchanged", () => {
+    const tempRepo = createTempRepo();
+    const packageJsonPath = path.join(tempRepo, "package.json");
+    const malformedPackageJson = "{\n  \"name\": \"demo-repo\",\n";
+
+    try {
+      writeFileSync(packageJsonPath, malformedPackageJson, "utf8");
+
+      initProject(tempRepo);
+
+      expect(readFileSync(packageJsonPath, "utf8")).toBe(malformedPackageJson);
+    } finally {
+      rmSync(tempRepo, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves package.json unchanged when scripts is not an object", () => {
+    const tempRepo = createTempRepo();
+    const packageJsonPath = path.join(tempRepo, "package.json");
+    const packageJson = `{
+  "name": "demo-repo",
+  "scripts": "vite"
+}
+`;
+
+    try {
+      writeFileSync(packageJsonPath, packageJson, "utf8");
+
+      initProject(tempRepo);
+
+      expect(readFileSync(packageJsonPath, "utf8")).toBe(packageJson);
+    } finally {
+      rmSync(tempRepo, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves package.json unchanged when an existing script value is not a string", () => {
+    const tempRepo = createTempRepo();
+    const packageJsonPath = path.join(tempRepo, "package.json");
+    const packageJson = `{
+  "name": "demo-repo",
+  "scripts": {
+    "start": "vite",
+    "lint": false
+  }
+}
+`;
+
+    try {
+      writeFileSync(packageJsonPath, packageJson, "utf8");
+
+      initProject(tempRepo);
+
+      expect(readFileSync(packageJsonPath, "utf8")).toBe(packageJson);
+    } finally {
+      rmSync(tempRepo, { recursive: true, force: true });
+    }
+  });
+
+  it("does not rewrite package.json on a second initProject run after aliases are installed", () => {
+    const tempRepo = createTempRepo();
+    const packageJsonPath = path.join(tempRepo, "package.json");
+    const packageJson = `{
+  "name": "demo-repo",
+  "scripts": {
+    "start": "vite"
+  }
+}
+`;
+
+    try {
+      writeFileSync(packageJsonPath, packageJson, "utf8");
+
+      initProject(tempRepo);
+      const afterFirstRun = readFileSync(packageJsonPath, "utf8");
+
+      initProject(tempRepo);
+
+      expect(readFileSync(packageJsonPath, "utf8")).toBe(afterFirstRun);
     } finally {
       rmSync(tempRepo, { recursive: true, force: true });
     }

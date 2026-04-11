@@ -79,10 +79,6 @@ function formatJsonFile(value: unknown) {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function updateGitIgnore(
   repoRoot: string,
   entries: readonly string[],
@@ -116,24 +112,13 @@ function updatePackageJsonAliases(repoRoot: string): void {
     return;
   }
 
-  let parsedPackageJson: unknown;
-
-  try {
-    parsedPackageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as unknown;
-  } catch {
-    return;
-  }
-
-  if (!isRecord(parsedPackageJson)) {
-    return;
-  }
-
-  const result = ensureAegisPackageJsonAliases(parsedPackageJson);
+  const packageJsonText = readFileSync(packageJsonPath, "utf8");
+  const result = ensureAegisPackageJsonAliases(packageJsonText);
   if (!result.changed) {
     return;
   }
 
-  writeFileSync(packageJsonPath, formatJsonFile(result.packageJson), "utf8");
+  writeFileSync(packageJsonPath, result.packageJsonText, "utf8");
 }
 
 export function initProject(root = process.cwd()): InitProjectResult {
