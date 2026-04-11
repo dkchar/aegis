@@ -10,6 +10,97 @@ import type {
   MergeJanusEscalationEventPayload,
 } from "./merge-events.js";
 
+// ---------------------------------------------------------------------------
+// Loop phase log
+// ---------------------------------------------------------------------------
+
+export interface LoopPhaseLogEventPayload {
+  phase: "poll" | "dispatch" | "monitor" | "reap";
+  line: string;
+  level: "info" | "warn" | "error";
+  issueId: string | null;
+  agentId: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Agent session lifecycle
+// ---------------------------------------------------------------------------
+
+export interface AgentSessionStartedEventPayload {
+  sessionId: string;
+  caste: "oracle" | "titan" | "sentinel" | "janus";
+  issueId: string;
+  stage: string;
+  model: string;
+}
+
+export interface AgentSessionLogEventPayload {
+  sessionId: string;
+  caste: "oracle" | "titan" | "sentinel" | "janus";
+  issueId: string;
+  line: string;
+  level: "info" | "warn" | "error";
+}
+
+export interface AgentSessionStatsEventPayload {
+  sessionId: string;
+  caste: "oracle" | "titan" | "sentinel" | "janus";
+  issueId: string;
+  inputTokens: number;
+  outputTokens: number;
+  turns: number;
+  elapsedSec: number;
+}
+
+export interface AgentSessionEndedEventPayload {
+  sessionId: string;
+  caste: "oracle" | "titan" | "sentinel" | "janus";
+  issueId: string;
+  outcome: "completed" | "failed" | "aborted";
+}
+
+// ---------------------------------------------------------------------------
+// Merge queue log
+// ---------------------------------------------------------------------------
+
+export interface MergeQueueLogEventPayload {
+  issueId: string;
+  status: string;
+  attemptCount: number;
+}
+
+// ---------------------------------------------------------------------------
+// Janus session lifecycle
+// ---------------------------------------------------------------------------
+
+export interface JanusSessionStartedEventPayload {
+  sessionId: string;
+  issueId: string;
+}
+
+export interface JanusSessionLogEventPayload {
+  sessionId: string;
+  issueId: string;
+  line: string;
+  level: "info" | "warn" | "error";
+}
+
+export interface JanusSessionEndedEventPayload {
+  sessionId: string;
+  issueId: string;
+  outcome: "completed" | "failed" | "aborted";
+}
+
+// ---------------------------------------------------------------------------
+// Issue stage change
+// ---------------------------------------------------------------------------
+
+export interface IssueStageChangedEventPayload {
+  issueId: string;
+  fromStage: string | null;
+  toStage: string;
+}
+
 export const LIVE_EVENT_ENVELOPE_FIELDS = [
   "id",
   "type",
@@ -26,6 +117,16 @@ export const LIVE_EVENT_TYPES = [
   "merge.queue_state",
   "merge.outcome",
   "merge.janus_escalation",
+  "loop.phase_log",
+  "agent.session_started",
+  "agent.session_log",
+  "agent.session_stats",
+  "agent.session_ended",
+  "merge.queue_log",
+  "janus.session_started",
+  "janus.session_log",
+  "janus.session_ended",
+  "issue.stage_changed",
 ] as const;
 
 export type LiveEventType = (typeof LIVE_EVENT_TYPES)[number];
@@ -77,6 +178,16 @@ export interface LiveEventPayloadMap {
   "merge.queue_state": MergeQueueStateEventPayload;
   "merge.outcome": MergeOutcomeEventPayload;
   "merge.janus_escalation": MergeJanusEscalationEventPayload;
+  "loop.phase_log": LoopPhaseLogEventPayload;
+  "agent.session_started": AgentSessionStartedEventPayload;
+  "agent.session_log": AgentSessionLogEventPayload;
+  "agent.session_stats": AgentSessionStatsEventPayload;
+  "agent.session_ended": AgentSessionEndedEventPayload;
+  "merge.queue_log": MergeQueueLogEventPayload;
+  "janus.session_started": JanusSessionStartedEventPayload;
+  "janus.session_log": JanusSessionLogEventPayload;
+  "janus.session_ended": JanusSessionEndedEventPayload;
+  "issue.stage_changed": IssueStageChangedEventPayload;
 }
 
 export type LiveEventPayload<TType extends LiveEventType> = LiveEventPayloadMap[TType];
@@ -103,6 +214,16 @@ const LIVE_EVENT_PAYLOAD_FIELDS: {
   "merge.queue_state": ["issueId", "status", "attemptCount", "errorDetail"],
   "merge.outcome": ["issueId", "outcome", "candidateBranch", "targetBranch", "detail"],
   "merge.janus_escalation": ["issueId", "reason", "attemptCount", "janusEnabled"],
+  "loop.phase_log": ["phase", "line", "level", "issueId", "agentId"],
+  "agent.session_started": ["sessionId", "caste", "issueId", "stage", "model"],
+  "agent.session_log": ["sessionId", "caste", "issueId", "line", "level"],
+  "agent.session_stats": ["sessionId", "caste", "issueId", "inputTokens", "outputTokens", "turns", "elapsedSec"],
+  "agent.session_ended": ["sessionId", "caste", "issueId", "outcome"],
+  "merge.queue_log": ["issueId", "status", "attemptCount"],
+  "janus.session_started": ["sessionId", "issueId"],
+  "janus.session_log": ["sessionId", "issueId", "line", "level"],
+  "janus.session_ended": ["sessionId", "issueId", "outcome"],
+  "issue.stage_changed": ["issueId", "fromStage", "toStage"],
 };
 
 export function isLiveEventType(value: string): value is LiveEventType {

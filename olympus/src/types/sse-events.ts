@@ -8,7 +8,20 @@ export type SseEventType =
   | "orchestrator.state"
   | "launch.sequence"
   | "control.command"
-  | "scope.suppression";
+  | "scope.suppression"
+  | "merge.queue_state"
+  | "merge.outcome"
+  | "merge.janus_escalation"
+  | "loop.phase_log"
+  | "agent.session_started"
+  | "agent.session_log"
+  | "agent.session_stats"
+  | "agent.session_ended"
+  | "merge.queue_log"
+  | "janus.session_started"
+  | "janus.session_log"
+  | "janus.session_ended"
+  | "issue.stage_changed";
 
 /** Server-side live event envelope — matches src/events/event-bus.ts LiveEventEnvelope. */
 export interface ServerLiveEventEnvelope<TPayload = Record<string, unknown>> {

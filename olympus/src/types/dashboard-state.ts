@@ -87,9 +87,85 @@ export interface EditableOlympusConfigPatch {
   budgets: EditableBudgetsConfig;
 }
 
+// ---------------------------------------------------------------------------
+// Loop state
+// ---------------------------------------------------------------------------
+
+export type LoopPhase = "poll" | "dispatch" | "monitor" | "reap";
+
+export interface LoopState {
+  phaseLogs: {
+    [K in LoopPhase]: string[];
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Session state
+// ---------------------------------------------------------------------------
+
+export interface ActiveSessionInfo {
+  id: string;
+  caste: "oracle" | "titan" | "sentinel" | "janus";
+  issueId: string;
+  stage: string;
+  model: string;
+  lines: string[];
+}
+
+export interface RecentSessionInfo {
+  id: string;
+  caste: "oracle" | "titan" | "sentinel" | "janus";
+  issueId: string;
+  outcome: "completed" | "failed" | "aborted";
+  endedAt: string;
+}
+
+export interface SessionsState {
+  active: Record<string, ActiveSessionInfo>;
+  recent: RecentSessionInfo[];
+}
+
+// ---------------------------------------------------------------------------
+// Merge queue state
+// ---------------------------------------------------------------------------
+
+export interface MergeQueueState {
+  items: Array<{
+    issueId: string;
+    status: string;
+    attemptCount: number;
+    lastError?: string | null;
+  }>;
+  logs: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Janus state
+// ---------------------------------------------------------------------------
+
+export interface JanusSessionInfo {
+  id: string;
+  issueId: string;
+  lines: string[];
+  outcome?: "completed" | "failed" | "aborted";
+}
+
+export interface JanusState {
+  active: Record<string, JanusSessionInfo>;
+  recent: Array<{ id: string; issueId: string; outcome: string; endedAt: string }>;
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard state (expanded)
+// ---------------------------------------------------------------------------
+
 export interface DashboardState {
   status: OrchestratorStatus;
   spend: SpendObservation;
   agents: ActiveAgentInfo[];
   config?: OlympusConfig | null;
+  loop?: LoopState;
+  sessions?: SessionsState;
+  mergeQueue?: MergeQueueState;
+  janus?: JanusState;
 }
