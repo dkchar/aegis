@@ -379,6 +379,7 @@ describe("S06 launch lifecycle contract seed", () => {
       },
     );
 
+    expect(startedWithBrowser.url).toBe(`http://127.0.0.1:${port}/`);
     expect(startedWithBrowser.openedBrowser).toBe(true);
     expect(openBrowser).toHaveBeenCalledTimes(1);
     expect(openBrowser).toHaveBeenCalledWith(`http://127.0.0.1:${port}/`);
