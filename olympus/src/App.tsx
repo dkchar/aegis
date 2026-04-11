@@ -8,9 +8,16 @@ import { SettingsPanel } from "./components/settings-panel";
 import { AgentGrid } from "./components/agent-grid";
 import { CommandBar } from "./components/command-bar";
 import { LoopPanel } from "./components/loop-panel";
+import { OperatorSidebar } from "./components/operator-sidebar";
+import { MergeQueuePanel } from "./components/merge-queue-panel";
+import { ActiveSessionsPanel } from "./components/active-sessions-panel";
+import { RecentSessionsTray } from "./components/recent-sessions-tray";
 import type { CommandResult } from "./components/command-bar";
 import type { DashboardState } from "./types/dashboard-state";
 import type { LoopPhaseLogs, LoopState } from "./components/loop-panel";
+import type { SelectedIssue } from "./components/operator-sidebar";
+import type { ActiveSession } from "./components/active-sessions-panel";
+import type { RecentSession } from "./components/recent-sessions-tray";
 
 // Inject global styles on first render
 injectGlobalStyles();
@@ -54,6 +61,22 @@ const EMPTY_PHASE_LOGS: LoopPhaseLogs = {
   monitor: [],
   reap: [],
 };
+
+const SIDEBAR_READY_QUEUE: string[] = [];
+const SIDEBAR_ISSUE_GRAPH: string[] = [];
+const SIDEBAR_SELECTED_ISSUE: SelectedIssue | null = null;
+const STEER_REFERENCE: string[] = [
+  "status",
+  "pause",
+  "resume",
+  "focus <issue>",
+  "kill <agent>",
+  "scout <issue>",
+  "implement <issue>",
+];
+
+const EMPTY_ACTIVE_SESSIONS: Record<string, ActiveSession> = {};
+const EMPTY_RECENT_SESSIONS: RecentSession[] = [];
 
 export function App(): JSX.Element {
   const { state, isConnected, error, sendCommand } = useSse();
@@ -150,6 +173,32 @@ export function App(): JSX.Element {
     [recordCommandResult, sendCommand],
   );
 
+  const handleSteerCommand = useCallback(
+    async (command: string) => {
+      try {
+        const result: SteerResult = await sendCommand(command);
+        if (!isHandledResult(result)) {
+          throw new Error(resultMessageOrFallback(result, `Command "${command}" was not accepted.`));
+        }
+        recordCommandResult({
+          command,
+          success: true,
+          result: resultMessageOrFallback(result, "OK"),
+          timestamp: Date.now(),
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Unknown error";
+        recordCommandResult({
+          command,
+          success: false,
+          error: msg,
+          timestamp: Date.now(),
+        });
+      }
+    },
+    [recordCommandResult, sendCommand],
+  );
+
   return (
     <div className="app">
       <TopBar
@@ -171,7 +220,16 @@ export function App(): JSX.Element {
         </div>
       )}
 
-      <main data-testid="app-main" className="app-main">
+      <div style={{ display: "flex", alignItems: "flex-start" }}>
+        <OperatorSidebar
+          readyQueue={SIDEBAR_READY_QUEUE}
+          issueGraph={SIDEBAR_ISSUE_GRAPH}
+          selectedIssue={SIDEBAR_SELECTED_ISSUE}
+          steerReference={STEER_REFERENCE}
+          onCommand={handleSteerCommand}
+        />
+
+        <main data-testid="app-main" className="app-main" style={{ flex: 1, minWidth: 0 }}>
         <LoopPanel
           loopState={deriveLoopState(state)}
           phaseLogs={EMPTY_PHASE_LOGS}
@@ -180,6 +238,20 @@ export function App(): JSX.Element {
           onResume={() => runLoopCommand("resume", "Aegis loop resumed")}
           onStop={() => runLoopCommand("stop", "Aegis loop stopped")}
           disabled={!isConnected}
+        />
+
+        <MergeQueuePanel
+          queueLength={0}
+          currentItem={null}
+          lines={[]}
+        />
+
+        <ActiveSessionsPanel
+          sessions={EMPTY_ACTIVE_SESSIONS}
+        />
+
+        <RecentSessionsTray
+          sessions={EMPTY_RECENT_SESSIONS}
         />
 
         <AgentGrid
@@ -207,7 +279,8 @@ export function App(): JSX.Element {
             ))}
           </section>
         )}
-      </main>
+        </main>
+      </div>
     </div>
   );
 }
