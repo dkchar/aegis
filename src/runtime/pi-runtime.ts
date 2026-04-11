@@ -415,6 +415,10 @@ function resolveSessionModel(modelReference?: string) {
   return normalizePiModel(model);
 }
 
+export function validatePiModelReference(modelReference?: string) {
+  resolveSessionModel(modelReference);
+}
+
 type PiModel = ReturnType<typeof getModels>[number];
 
 function normalizePiModel(model: PiModel): PiModel {

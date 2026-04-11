@@ -3,6 +3,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:net";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -135,6 +136,12 @@ function initializeGitRepo(root: string) {
   });
 
   expect(gitInit.status, gitInit.stderr).toBe(0);
+}
+
+function seedPiSettings(root: string) {
+  const settingsPath = path.join(root, ".pi", "settings.json");
+  mkdirSync(path.dirname(settingsPath), { recursive: true });
+  writeFileSync(settingsPath, "{\n  \"profiles\": []\n}\n", "utf8");
 }
 
 function initializeBeadsRepo(root: string) {
@@ -300,6 +307,7 @@ describe("S06 launch lifecycle contract seed", () => {
   it("fails start prerequisites clearly when config is missing", async () => {
     const tempRepo = createTempRepo();
     initializeGitRepo(tempRepo);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     const startModule = (await import(
       pathToFileURL(path.join(repoRoot, "src", "cli", "start.ts")).href
     )) as {
@@ -325,7 +333,10 @@ describe("S06 launch lifecycle contract seed", () => {
           verifyTracker: () => undefined,
         },
       ),
-    ).rejects.toThrow("Missing Aegis config");
+    ).rejects.toThrow("Aegis startup preflight blocked.");
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("Missing Aegis config"),
+    );
   });
 
   it("opens the browser by default and honors --no-browser overrides", async () => {
@@ -333,6 +344,7 @@ describe("S06 launch lifecycle contract seed", () => {
     const port = await reservePort();
     initProject(tempRepo);
     initializeGitRepo(tempRepo);
+    seedPiSettings(tempRepo);
 
     const startModule = (await import(
       pathToFileURL(path.join(repoRoot, "src", "cli", "start.ts")).href
@@ -393,6 +405,7 @@ describe("S06 launch lifecycle contract seed", () => {
     const port = await reservePort();
     initProject(tempRepo);
     initializeGitRepo(tempRepo);
+    seedPiSettings(tempRepo);
 
     const staleState: DispatchState = {
       schemaVersion: 1,
@@ -473,6 +486,7 @@ describe("S06 launch lifecycle contract seed", () => {
     const port = await reservePort();
     initProject(tempRepo);
     initializeGitRepo(tempRepo);
+    seedPiSettings(tempRepo);
 
     const startModule = (await import(
       pathToFileURL(path.join(repoRoot, "src", "cli", "start.ts")).href
@@ -550,6 +564,7 @@ describe("S06 launch lifecycle contract seed", () => {
     const port = await reservePort();
     initProject(tempRepo);
     initializeGitRepo(tempRepo);
+    seedPiSettings(tempRepo);
 
     writeFileSync(
       path.join(tempRepo, ".aegis", "dispatch-state.json"),
@@ -587,11 +602,35 @@ describe("S06 launch lifecycle contract seed", () => {
     ).rejects.toThrow(/dispatch-state|records/i);
   });
 
+  it("prints the preflight report and does not announce a URL when startup is blocked", async () => {
+    const tempRepo = createTempRepo();
+    const port = await reservePort();
+    initProject(tempRepo);
+    initializeGitRepo(tempRepo);
+
+    const startRun = runCliCommand(tempRepo, [
+      "start",
+      "--port",
+      String(port),
+      "--no-browser",
+    ]);
+
+    expect(startRun.status).not.toBe(0);
+    expect(startRun.stdout).not.toContain("Aegis started at http://127.0.0.1:");
+    expect(startRun.stderr).toContain("Aegis startup preflight: blocked");
+    expect(startRun.stderr).toContain("Aegis startup preflight blocked.");
+    expect(startRun.stderr).not.toContain(`http://127.0.0.1:${port}/`);
+    expect(
+      existsSync(path.join(tempRepo, ".aegis", "runtime-state.json")),
+    ).toBe(false);
+  });
+
   it.skipIf(!isBeadsCliAvailable())("fails startup clearly when Beads is not initialized in the target repo", async () => {
     const tempRepo = createTempRepo();
     const port = await reservePort();
     initProject(tempRepo);
     initializeGitRepo(tempRepo);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const startModule = (await import(
       pathToFileURL(path.join(repoRoot, "src", "cli", "start.ts")).href
@@ -616,7 +655,10 @@ describe("S06 launch lifecycle contract seed", () => {
           registerSignalHandlers: false,
         },
       ),
-    ).rejects.toThrow(/Beads|bd init|tracker/i);
+    ).rejects.toThrow("Aegis startup preflight blocked.");
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("Aegis startup preflight: blocked"),
+    );
   });
 
   it.skipIf(!isBeadsCliAvailable())("runs start, status, and stop commands with graceful shutdown semantics", { timeout: 30_000 }, async () => {
@@ -624,6 +666,7 @@ describe("S06 launch lifecycle contract seed", () => {
     const port = await reservePort();
     initProject(tempRepo);
     initializeGitRepo(tempRepo);
+    seedPiSettings(tempRepo);
     initializeBeadsRepo(tempRepo);
 
     const configPath = path.join(tempRepo, ".aegis", "config.json");

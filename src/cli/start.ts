@@ -1,8 +1,16 @@
 import { execFile, spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { accessSync, constants, existsSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 
 import { loadConfig } from "../config/load-config.js";
+import {
+  AEGIS_DIRECTORY,
+  MODEL_KEYS,
+  RUNTIME_STATE_FILES,
+  type AegisConfig,
+} from "../config/schema.js";
 import {
   createNoopEventPublisher,
   executeProjectDirectCommand,
@@ -17,9 +25,17 @@ import {
   type HttpServerBindings,
 } from "../server/http-server.js";
 import type { OrchestrationMode } from "../server/routes.js";
-import { PiRuntime } from "../runtime/pi-runtime.js";
+import {
+  PiRuntime,
+  validatePiModelReference,
+} from "../runtime/pi-runtime.js";
 import { BeadsCliClient } from "../tracker/beads-client.js";
 import { parseCommand } from "./parse-command.js";
+import {
+  formatStartupPreflight,
+  runStartupPreflight,
+  type StartupPreflightProbeResult,
+} from "./startup-preflight.js";
 import { STOP_COMMAND_REASONS } from "./stop.js";
 import {
   clearStopRequest,
@@ -181,7 +197,54 @@ function runTrackerProbe(root: string): TrackerProbeResult {
   };
 }
 
-export function verifyTrackerRepository(root: string, probe: TrackerProbe = runTrackerProbe) {
+function toErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  return String(error);
+}
+
+function probeBeadsCli(): StartupPreflightProbeResult {
+  const trackerProbe = spawnSync("bd", ["--help"], {
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  const errorCode =
+    trackerProbe.error && "code" in trackerProbe.error
+      ? String(trackerProbe.error.code)
+      : null;
+
+  if (errorCode === "ENOENT") {
+    return {
+      ok: false,
+      detail: "Beads CLI was not found. Install or fix `bd` before starting Aegis.",
+      fix: "install the `bd` CLI and ensure it is available on PATH",
+    };
+  }
+
+  if (trackerProbe.status !== 0) {
+    const detail = (trackerProbe.stderr ?? trackerProbe.stdout ?? "").trim();
+
+    return {
+      ok: false,
+      detail: detail.length > 0
+        ? `Beads CLI did not execute cleanly. Details: ${detail}`
+        : "Beads CLI did not execute cleanly.",
+      fix: "run `bd --help` and fix the local Beads installation before starting Aegis",
+    };
+  }
+
+  return {
+    ok: true,
+    detail: "Beads CLI is available.",
+  };
+}
+
+function probeBeadsRepository(
+  root: string,
+  probe: TrackerProbe = runTrackerProbe,
+): StartupPreflightProbeResult {
   const trackerProbe = probe(root);
   const errorCode =
     trackerProbe.error && "code" in trackerProbe.error
@@ -189,16 +252,41 @@ export function verifyTrackerRepository(root: string, probe: TrackerProbe = runT
       : null;
 
   if (errorCode === "ENOENT") {
-    throw new Error("Beads CLI was not found. Install or fix `bd` before starting Aegis.");
+    return {
+      ok: false,
+      detail: "Beads CLI was not found. Install or fix `bd` before starting Aegis.",
+      fix: "install the `bd` CLI and ensure it is available on PATH",
+    };
   }
 
   if (trackerProbe.status !== 0) {
     const detail = (trackerProbe.stderr || trackerProbe.stdout).trim();
     const suffix = detail.length > 0 ? ` Details: ${detail}` : "";
-    throw new Error(
-      "Beads tracker is not initialized or healthy for this repository. Run `bd init` (or `bd onboard`) before starting Aegis."
-      + suffix,
-    );
+
+    return {
+      ok: false,
+      detail:
+        "Beads tracker is not initialized or healthy for this repository. Run `bd init` (or `bd onboard`) before starting Aegis."
+        + suffix,
+      fix: "run `bd init` or `bd onboard` in this repository",
+    };
+  }
+
+  return {
+    ok: true,
+    detail: "Beads tracker is initialized.",
+  };
+}
+
+export function verifyTrackerRepository(root: string, probe: TrackerProbe = runTrackerProbe) {
+  const cliProbe = probeBeadsCli();
+  if (!cliProbe.ok) {
+    throw new Error(cliProbe.detail ?? "Beads CLI check failed.");
+  }
+
+  const repoProbe = probeBeadsRepository(root, probe);
+  if (!repoProbe.ok) {
+    throw new Error(repoProbe.detail ?? "Beads repository check failed.");
   }
 }
 
@@ -242,6 +330,139 @@ function createRuntimeForConfig(runtime: string) {
   }
 
   throw new Error(`Unsupported runtime adapter: ${runtime}`);
+}
+
+function verifyRuntimeAdapter(config: AegisConfig): StartupPreflightProbeResult {
+  try {
+    createRuntimeForConfig(config.runtime);
+    return {
+      ok: true,
+      detail: `Runtime adapter "${config.runtime}" is supported.`,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      detail: toErrorMessage(error),
+      fix: "set `.aegis/config.json` `runtime` to a supported adapter before starting Aegis",
+    };
+  }
+}
+
+function resolvePiSettingsPaths(repoRoot: string) {
+  const projectSettingsPath = path.join(repoRoot, ".pi", "settings.json");
+  const globalSettingsPath = process.env.PI_CODING_AGENT_DIR
+    ? path.join(process.env.PI_CODING_AGENT_DIR, "settings.json")
+    : path.join(homedir(), ".pi", "agent", "settings.json");
+
+  return {
+    projectSettingsPath,
+    globalSettingsPath,
+  };
+}
+
+function verifyRuntimeLocalConfig(
+  repoRoot: string,
+  config: AegisConfig,
+): StartupPreflightProbeResult {
+  if (config.runtime !== "pi") {
+    return {
+      ok: true,
+      detail: `Runtime "${config.runtime}" does not require Pi local settings.`,
+    };
+  }
+
+  const { projectSettingsPath, globalSettingsPath } = resolvePiSettingsPaths(repoRoot);
+
+  if (existsSync(projectSettingsPath)) {
+    return {
+      ok: true,
+      detail: `Pi runtime settings found at ${projectSettingsPath}.`,
+    };
+  }
+
+  if (existsSync(globalSettingsPath)) {
+    return {
+      ok: true,
+      detail: `Pi runtime settings found at ${globalSettingsPath}.`,
+    };
+  }
+
+  return {
+    ok: false,
+    detail:
+      `Pi runtime settings were not found. Checked ${projectSettingsPath} and ${globalSettingsPath}.`,
+    fix:
+      `create ${projectSettingsPath} for this repository or ${globalSettingsPath} for the current user before starting Aegis`,
+  };
+}
+
+function verifyConfiguredModels(config: AegisConfig): StartupPreflightProbeResult {
+  if (config.runtime !== "pi") {
+    return {
+      ok: true,
+      detail: `Runtime "${config.runtime}" does not require Pi model validation.`,
+    };
+  }
+
+  try {
+    for (const modelKey of MODEL_KEYS) {
+      try {
+        validatePiModelReference(config.models[modelKey]);
+      } catch (error) {
+        throw new Error(`Invalid configured model for "${modelKey}": ${toErrorMessage(error)}`);
+      }
+    }
+
+    return {
+      ok: true,
+      detail: "Configured model refs are valid.",
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      detail: toErrorMessage(error),
+      fix: "update `.aegis/config.json` so each configured model is a valid Pi model reference",
+    };
+  }
+}
+
+function verifyRuntimeStatePaths(repoRoot: string): StartupPreflightProbeResult {
+  const aegisDir = path.join(repoRoot, AEGIS_DIRECTORY);
+
+  if (!existsSync(aegisDir)) {
+    return {
+      ok: false,
+      detail: `Missing Aegis runtime directory at ${aegisDir}.`,
+      fix: "run `aegis init` in this repository before starting Aegis",
+    };
+  }
+
+  const missingBootstrapFiles = RUNTIME_STATE_FILES
+    .map((relativePath) => path.join(repoRoot, ...relativePath.split("/")))
+    .filter((candidate) => !existsSync(candidate));
+
+  if (missingBootstrapFiles.length > 0) {
+    return {
+      ok: false,
+      detail: `Missing Aegis bootstrap state files: ${missingBootstrapFiles.join(", ")}.`,
+      fix: "run `aegis init` to seed the required `.aegis` state files before starting Aegis",
+    };
+  }
+
+  try {
+    accessSync(aegisDir, constants.R_OK | constants.W_OK);
+  } catch {
+    return {
+      ok: false,
+      detail: `Aegis cannot write runtime state under ${aegisDir}.`,
+      fix: "fix repository permissions so Aegis can read and write files under `.aegis/`",
+    };
+  }
+
+  return {
+    ok: true,
+    detail: "Runtime state paths are available.",
+  };
 }
 
 function toRunningRuntimeState(
@@ -339,15 +560,53 @@ export async function startAegis(
   options: StartCommandOptions = {},
 ): Promise<StartResult> {
   const repoRoot = path.resolve(root);
-  const verifyTracker = options.verifyTracker ?? verifyTrackerRepository;
+  const verifyTracker = options.verifyTracker ?? ((candidateRoot: string) => {
+    const probe = probeBeadsRepository(candidateRoot);
+
+    if (!probe.ok) {
+      throw new Error(probe.detail ?? "Beads repository check failed.");
+    }
+  });
   const verifyGitRepo = options.verifyGitRepo ?? (() => {
     verifyGitRepository(repoRoot);
   });
   const openBrowser = options.openBrowser ?? openBrowserUrl;
+  let config: AegisConfig | undefined;
 
-  const config = loadConfig(repoRoot);
-  verifyTracker(repoRoot);
-  verifyGitRepo();
+  const preflight = runStartupPreflight(repoRoot, {
+    verifyGitRepo,
+    probeBeadsCli,
+    probeBeadsRepo: () => {
+      try {
+        verifyTracker(repoRoot);
+        return {
+          ok: true,
+          detail: "Beads tracker is initialized.",
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          detail: toErrorMessage(error),
+          fix: "run `bd init` or `bd onboard` in this repository",
+        };
+      }
+    },
+    loadConfig: () => {
+      config = loadConfig(repoRoot);
+      return config;
+    },
+    verifyRuntimeAdapter,
+    verifyRuntimeLocalConfig: (loadedConfig) => verifyRuntimeLocalConfig(repoRoot, loadedConfig),
+    verifyModelRefs: verifyConfiguredModels,
+    verifyRuntimeStatePaths,
+  });
+
+  if (preflight.overall === "blocked") {
+    console.error(formatStartupPreflight(preflight));
+    throw new Error("Aegis startup preflight blocked.");
+  }
+
+  const resolvedConfig = config ?? loadConfig(repoRoot);
 
   const recoveredState = readRuntimeState(repoRoot);
   const isAlreadyRunning = recoveredState
@@ -370,7 +629,7 @@ export async function startAegis(
   saveDispatchState(repoRoot, recoveredDispatchState);
 
   const token = randomUUID();
-  const runtimeAdapter = createRuntimeForConfig(config.runtime);
+  const runtimeAdapter = createRuntimeForConfig(resolvedConfig.runtime);
   const tracker = new BeadsCliClient((args) => execBdInRepository(repoRoot, args));
   let runningState: RuntimeStateRecord | null = null;
   const httpServerBindings: HttpServerBindings = {
@@ -378,7 +637,7 @@ export async function startAegis(
     executeCommand: options.httpServerBindings?.executeCommand ?? (async (commandText) => (
       executeProjectDirectCommand(parseCommand(commandText), {
         projectRoot: repoRoot,
-        config,
+        config: resolvedConfig,
         tracker,
         runtime: runtimeAdapter,
         eventPublisher: options.httpServerBindings?.eventPublisher ?? createNoopEventPublisher(),
@@ -397,14 +656,14 @@ export async function startAegis(
     },
   };
   const controller = createHttpServerController(httpServerBindings);
-  const requestedPort = overrides.port ?? config.olympus.port;
+  const requestedPort = overrides.port ?? resolvedConfig.olympus.port;
   const server = await controller.start({
     root: repoRoot,
     host: DEFAULT_HOST,
     port: requestedPort,
     serverToken: token,
   });
-  const shouldOpenBrowser = !overrides.noBrowser && config.olympus.open_browser;
+  const shouldOpenBrowser = !overrides.noBrowser && resolvedConfig.olympus.open_browser;
   const openedBrowser = shouldOpenBrowser ? openBrowser(server.url) : false;
   runningState = toRunningRuntimeState(
     process.pid,
