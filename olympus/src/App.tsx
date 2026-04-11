@@ -17,9 +17,6 @@ import type { CommandResult } from "./components/command-bar";
 import type { DashboardState } from "./types/dashboard-state";
 import type { LoopPhaseLogs, LoopState } from "./components/loop-panel";
 import type { SelectedIssue } from "./components/operator-sidebar";
-import type { ActiveSession } from "./components/active-sessions-panel";
-import type { RecentSession } from "./components/recent-sessions-tray";
-import type { JanusSession } from "./components/janus-popup";
 import { STEER_COMMAND_REFERENCE } from "../src/shared/steer-command-reference.js";
 
 // Inject global styles on first render
@@ -27,6 +24,20 @@ injectGlobalStyles();
 
 /** Auto-dismiss delay for error result cards (ms). */
 const ERROR_DISMISS_MS = 5000;
+
+/** Format an ISO timestamp as a human-readable "time ago" string. */
+function timeAgo(isoString: string): string {
+  const then = new Date(isoString).getTime();
+  const now = Date.now();
+  const diffMs = Math.max(0, now - then);
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  return `${Math.floor(diffHr / 24)}d ago`;
+}
 
 function readCommandStatus(result: SteerResult): string | undefined {
   if (typeof result.status === "string") {
@@ -70,15 +81,13 @@ const SIDEBAR_ISSUE_GRAPH: string[] = [];
 const SIDEBAR_SELECTED_ISSUE: SelectedIssue | null = null;
 const STEER_REFERENCE: string[] = STEER_COMMAND_REFERENCE.map((entry) => entry.command);
 
-const EMPTY_ACTIVE_SESSIONS: Record<string, ActiveSession> = {};
-const EMPTY_RECENT_SESSIONS: RecentSession[] = [];
-const PLACEHOLDER_JANUS_SESSION: JanusSession | null = null;
-
 export function App(): JSX.Element {
   const { state, isConnected, error, sendCommand } = useSse();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [commandResults, setCommandResults] = useState<CommandResult[]>([]);
-  const [janusSession, setJanusSession] = useState<JanusSession | null>(PLACEHOLDER_JANUS_SESSION);
+  const janusSession = state?.janus && Object.keys(state.janus.active).length > 0
+    ? Object.values(state.janus.active)[0] as { id: string; issueId: string; lines: string[] }
+    : null;
 
   /** Auto-dismiss the oldest error card after a timeout. */
   useEffect(() => {
@@ -229,7 +238,7 @@ export function App(): JSX.Element {
         <main data-testid="app-main" className="app-main" style={{ flex: 1, minWidth: 0 }}>
         <LoopPanel
           loopState={deriveLoopState(state)}
-          phaseLogs={EMPTY_PHASE_LOGS}
+          phaseLogs={state?.loop?.phaseLogs ?? EMPTY_PHASE_LOGS}
           onStart={() => runLoopCommand("auto_on", "Aegis loop started")}
           onPause={() => runLoopCommand("pause", "Aegis loop paused")}
           onResume={() => runLoopCommand("resume", "Aegis loop resumed")}
@@ -238,17 +247,21 @@ export function App(): JSX.Element {
         />
 
         <MergeQueuePanel
-          queueLength={0}
-          currentItem={null}
-          lines={[]}
+          queueLength={state?.mergeQueue?.items?.length ?? 0}
+          currentItem={state?.mergeQueue?.items?.[0]?.issueId ?? null}
+          lines={state?.mergeQueue?.logs ?? []}
         />
 
         <ActiveSessionsPanel
-          sessions={EMPTY_ACTIVE_SESSIONS}
+          sessions={state?.sessions?.active ?? {}}
         />
 
         <RecentSessionsTray
-          sessions={EMPTY_RECENT_SESSIONS}
+          sessions={(state?.sessions?.recent ?? []).map((s) => ({
+            id: s.id,
+            closedAgo: timeAgo(s.endedAt),
+            outcome: s.outcome === "completed" ? "success" : s.outcome === "failed" ? "failed" : "rejected",
+          }))}
         />
 
         <AgentGrid
@@ -281,8 +294,14 @@ export function App(): JSX.Element {
 
       {janusSession && (
         <JanusPopup
-          session={janusSession}
-          onDismiss={() => setJanusSession(null)}
+          session={{
+            id: janusSession.id,
+            issueId: janusSession.issueId,
+            lines: janusSession.lines,
+          }}
+          onDismiss={() => {
+            // Janus sessions are driven by server state; dismiss is visual only
+          }}
         />
       )}
     </div>

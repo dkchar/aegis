@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { SseEvent, OrchestratorStateEvent, CommandResultEvent, ServerLiveEventEnvelope } from "../types/sse-events";
 import type { DashboardState, SpendObservation, ActiveAgentInfo } from "../types/dashboard-state";
+import { reduceDashboardLiveEvent } from "./dashboard-state-reducer";
 
 /** Known control actions that map directly to server lifecycle actions. */
 const CONTROL_ACTIONS = new Set(["start", "stop", "status", "auto_on", "auto_off", "pause", "resume"]);
@@ -199,6 +200,71 @@ export function useSse(options: UseSseOptions = {}): UseSseReturn {
         } catch {
           // Malformed event — skip silently
         }
+      });
+
+      // Listen for live execution events and route them through the reducer
+      es.addEventListener("loop.phase_log", (rawEvent) => {
+        const message = (rawEvent as MessageEvent).data;
+        try {
+          const envelope: ServerLiveEventEnvelope = JSON.parse(message);
+          setState((prev) => reduceDashboardLiveEvent(prev!, envelope));
+        } catch { /* skip */ }
+      });
+
+      es.addEventListener("agent.session_started", (rawEvent) => {
+        const message = (rawEvent as MessageEvent).data;
+        try {
+          const envelope: ServerLiveEventEnvelope = JSON.parse(message);
+          setState((prev) => reduceDashboardLiveEvent(prev!, envelope));
+        } catch { /* skip */ }
+      });
+
+      es.addEventListener("agent.session_log", (rawEvent) => {
+        const message = (rawEvent as MessageEvent).data;
+        try {
+          const envelope: ServerLiveEventEnvelope = JSON.parse(message);
+          setState((prev) => reduceDashboardLiveEvent(prev!, envelope));
+        } catch { /* skip */ }
+      });
+
+      es.addEventListener("agent.session_ended", (rawEvent) => {
+        const message = (rawEvent as MessageEvent).data;
+        try {
+          const envelope: ServerLiveEventEnvelope = JSON.parse(message);
+          setState((prev) => reduceDashboardLiveEvent(prev!, envelope));
+        } catch { /* skip */ }
+      });
+
+      es.addEventListener("merge.queue_log", (rawEvent) => {
+        const message = (rawEvent as MessageEvent).data;
+        try {
+          const envelope: ServerLiveEventEnvelope = JSON.parse(message);
+          setState((prev) => reduceDashboardLiveEvent(prev!, envelope));
+        } catch { /* skip */ }
+      });
+
+      es.addEventListener("janus.session_started", (rawEvent) => {
+        const message = (rawEvent as MessageEvent).data;
+        try {
+          const envelope: ServerLiveEventEnvelope = JSON.parse(message);
+          setState((prev) => reduceDashboardLiveEvent(prev!, envelope));
+        } catch { /* skip */ }
+      });
+
+      es.addEventListener("janus.session_log", (rawEvent) => {
+        const message = (rawEvent as MessageEvent).data;
+        try {
+          const envelope: ServerLiveEventEnvelope = JSON.parse(message);
+          setState((prev) => reduceDashboardLiveEvent(prev!, envelope));
+        } catch { /* skip */ }
+      });
+
+      es.addEventListener("janus.session_ended", (rawEvent) => {
+        const message = (rawEvent as MessageEvent).data;
+        try {
+          const envelope: ServerLiveEventEnvelope = JSON.parse(message);
+          setState((prev) => reduceDashboardLiveEvent(prev!, envelope));
+        } catch { /* skip */ }
       });
 
       // Generic message handler for other event types
