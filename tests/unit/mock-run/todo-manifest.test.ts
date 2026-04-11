@@ -8,11 +8,17 @@ import {
 } from "../../../src/mock-run/todo-manifest.js";
 
 describe("todo mock-run manifest", () => {
-  it("defines the deterministic baseline repo and issue graph", () => {
-    expect(TODO_BASELINE_FILES["README.md"]).toContain("Todo System Mock Run");
-    expect(TODO_BASELINE_FILES[".pi/settings.json"]).toContain("gemma-4-31b-it");
-    expect(TODO_BASELINE_FILES[".gitignore"]).toContain(".aegis/oracle/");
+  it("defines a scratchpad baseline with no seeded src or tests tree", () => {
+    expect(Object.keys(TODO_BASELINE_FILES)).toEqual([
+      ".gitignore",
+      ".pi/settings.json",
+    ]);
+    expect(Object.keys(TODO_BASELINE_FILES).some((key) => key.startsWith("src/"))).toBe(false);
+    expect(Object.keys(TODO_BASELINE_FILES).some((key) => key.startsWith("tests/"))).toBe(false);
+    expect(TODO_READY_QUEUE_EXPECTATION).toEqual(["foundation.contract"]);
+  });
 
+  it("defines the deterministic issue graph", () => {
     expect(TODO_MOCK_RUN_ISSUES.map((issue) => issue.key)).toEqual([
       "todo-system",
       "foundation",
@@ -32,7 +38,6 @@ describe("todo mock-run manifest", () => {
       "integration.gate",
     ]);
 
-    expect(TODO_READY_QUEUE_EXPECTATION).toEqual(["foundation.contract"]);
     expect(TODO_MOCK_RUN_MANIFEST.repoName).toBe("aegis-mock-run");
   });
 });

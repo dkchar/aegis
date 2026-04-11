@@ -1,91 +1,30 @@
 import type { MockRunManifest } from "./types.js";
 
 export const TODO_BASELINE_FILES: Record<string, string> = {
-  ".gitignore": `# Beads / Dolt files (added by bd init)
-.dolt/
-*.db
-.beads-credential-key
-.aegis/config.json
-.aegis/dispatch-state.json
-.aegis/merge-queue.json
-.aegis/mnemosyne.jsonl
-.aegis/runtime-state.json
-.aegis/labors/
-.aegis/evals/
-.aegis/mock-run-manifest.json
-.aegis/oracle/
-`,
-  "README.md": `# Todo System Mock Run
-
-Deterministic todo project seeded by Aegis for black-box orchestrator runs.
-`,
-  "package.json": `{
-  "name": "aegis-mock-run",
-  "private": true,
-  "version": "1.0.0",
-  "type": "module",
-  "scripts": {
-    "build": "tsc --project tsconfig.json",
-    "test": "node --test",
-    "lint": "tsc --project tsconfig.json --noEmit"
-  }
-}`,
-  "tsconfig.json": `{
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "rootDir": ".",
-    "outDir": "dist",
-    "strict": true
-  },
-  "include": ["src/**/*.ts", "tests/**/*.ts"]
-}`,
-  ".pi/settings.json": `{
-  "defaultProvider": "google",
-  "defaultModel": "gemma-4-31b-it",
-  "defaultThinkingLevel": "high"
-}`,
-  "src/models/task.ts": `export interface Task {
-  id: string;
-  title: string;
-  completed: boolean;
-}
-`,
-  "src/store/task-store.ts": `import type { Task } from "../models/task.js";
-
-export class TaskStore {
-  private readonly tasks: Task[] = [];
-
-  list(): Task[] {
-    return [...this.tasks];
-  }
-}
-`,
-  "src/commands/create-task.ts": `export function createTask(title: string) {
-  return { title };
-}
-`,
-  "src/commands/list-tasks.ts": `export function listTasks(): string[] {
-  return [];
-}
-`,
-  "src/commands/complete-task.ts": `export function completeTask(taskId: string) {
-  return taskId;
-}
-`,
-  "src/cli.ts": `console.log("todo mock run");`,
-  "src/reporting/summary.ts": `export function buildSummary(): string {
-  return "0 tasks";
-}
-`,
-  "tests/task-store.test.ts": `import assert from "node:assert/strict";
-import test from "node:test";
-
-test("baseline task store exists", () => {
-  assert.equal(true, true);
-});
-`,
+  ".gitignore": [
+    "# Beads / Dolt files (added by bd init)",
+    ".dolt/",
+    "*.db",
+    ".beads-credential-key",
+    ".aegis/config.json",
+    ".aegis/dispatch-state.json",
+    ".aegis/merge-queue.json",
+    ".aegis/mnemosyne.jsonl",
+    ".aegis/runtime-state.json",
+    ".aegis/labors/",
+    ".aegis/evals/",
+    ".aegis/mock-run-manifest.json",
+    ".aegis/oracle/",
+  ].join("\n"),
+  ".pi/settings.json": JSON.stringify(
+    {
+      defaultProvider: "google",
+      defaultModel: "gemma-4-31b-it",
+      defaultThinkingLevel: "high",
+    },
+    null,
+    2,
+  ),
 };
 
 export const TODO_MOCK_RUN_ISSUES: MockRunManifest["issues"] = [
