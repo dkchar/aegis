@@ -118,14 +118,25 @@ function findObjectProperty(
   objectStart: number,
   propertyName: string,
 ): JsonPropertyRange | null {
+  const properties = findObjectProperties(source, objectStart, propertyName);
+
+  return properties[0] ?? null;
+}
+
+function findObjectProperties(
+  source: string,
+  objectStart: number,
+  propertyName: string,
+): JsonPropertyRange[] {
   let cursor = skipWhitespace(source, objectStart + 1);
+  const properties: JsonPropertyRange[] = [];
 
   while (cursor < source.length) {
     if (source[cursor] === "}") {
-      return null;
+      return properties;
     }
     if (source[cursor] !== "\"") {
-      return null;
+      return [];
     }
 
     const keyStart = cursor;
@@ -134,7 +145,7 @@ function findObjectProperty(
     cursor = skipWhitespace(source, keyEnd);
 
     if (source[cursor] !== ":") {
-      return null;
+      return [];
     }
 
     const valueStart = skipWhitespace(source, cursor + 1);
@@ -142,11 +153,11 @@ function findObjectProperty(
     const next = skipWhitespace(source, valueEnd);
 
     if (key === propertyName) {
-      return {
+      properties.push({
         keyStart,
         valueStart,
         valueEnd,
-      };
+      });
     }
 
     if (source[next] === ",") {
@@ -154,12 +165,12 @@ function findObjectProperty(
       continue;
     }
     if (source[next] === "}") {
-      return null;
+      return properties;
     }
-    return null;
+    return [];
   }
 
-  return null;
+  return properties;
 }
 
 function detectLineBreak(source: string): string {
@@ -355,9 +366,17 @@ export function ensureAegisPackageJsonAliases(
   const rootEnd = rootEndExclusive - 1;
   const lineBreak = detectLineBreak(packageJsonText);
   const rootIndentUnit = detectIndentUnit(packageJsonText, rootStart, rootEnd, "  ");
+  const topLevelScriptsProperties = findObjectProperties(packageJsonText, rootStart, "scripts");
+
+  if (topLevelScriptsProperties.length > 1) {
+    return {
+      changed: false,
+      packageJsonText,
+    };
+  }
 
   if (isRecord(scripts)) {
-    const scriptsRange = findObjectProperty(packageJsonText, rootStart, "scripts");
+    const scriptsRange = topLevelScriptsProperties[0] ?? findObjectProperty(packageJsonText, rootStart, "scripts");
     if (
       scriptsRange === null
       || packageJsonText[scriptsRange.valueStart] !== "{"

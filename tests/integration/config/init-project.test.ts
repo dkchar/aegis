@@ -308,6 +308,32 @@ describe("S01 init project contract seed", () => {
     }
   });
 
+  it("leaves package.json unchanged when top-level scripts keys are duplicated", () => {
+    const tempRepo = createTempRepo();
+    const packageJsonPath = path.join(tempRepo, "package.json");
+    const packageJson = `{
+  "name": "demo",
+  "scripts": {
+    "start": "vite"
+  },
+  "private": true,
+  "scripts": {
+    "test": "vitest"
+  }
+}
+`;
+
+    try {
+      writeFileSync(packageJsonPath, packageJson, "utf8");
+
+      initProject(tempRepo);
+
+      expect(readFileSync(packageJsonPath, "utf8")).toBe(packageJson);
+    } finally {
+      rmSync(tempRepo, { recursive: true, force: true });
+    }
+  });
+
   it("does not rewrite package.json on a second initProject run after aliases are installed", () => {
     const tempRepo = createTempRepo();
     const packageJsonPath = path.join(tempRepo, "package.json");
