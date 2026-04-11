@@ -11,6 +11,7 @@ import {
   AEGIS_CONFIG_PATH,
   resolveProjectRelativePath,
 } from "./load-config.js";
+import { ensureAegisPackageJsonAliases } from "./package-json-aliases.js";
 import { AEGIS_DIRECTORY, RUNTIME_STATE_FILES } from "./schema.js";
 import { emptyDispatchState } from "../core/dispatch-state.js";
 
@@ -78,6 +79,10 @@ function formatJsonFile(value: unknown) {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function updateGitIgnore(
   repoRoot: string,
   entries: readonly string[],
@@ -103,6 +108,32 @@ function updateGitIgnore(
 
   writeFileSync(gitIgnorePath, `${existingContents}${prefix}${suffix}`, "utf8");
   return true;
+}
+
+function updatePackageJsonAliases(repoRoot: string): void {
+  const packageJsonPath = path.join(repoRoot, "package.json");
+  if (!existsSync(packageJsonPath)) {
+    return;
+  }
+
+  let parsedPackageJson: unknown;
+
+  try {
+    parsedPackageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as unknown;
+  } catch {
+    return;
+  }
+
+  if (!isRecord(parsedPackageJson)) {
+    return;
+  }
+
+  const result = ensureAegisPackageJsonAliases(parsedPackageJson);
+  if (!result.changed) {
+    return;
+  }
+
+  writeFileSync(packageJsonPath, formatJsonFile(result.packageJson), "utf8");
 }
 
 export function initProject(root = process.cwd()): InitProjectResult {
@@ -155,6 +186,7 @@ export function initProject(root = process.cwd()): InitProjectResult {
       resolveProjectRelativePath(plan.repoRoot, ".aegis/mnemosyne.jsonl"),
     );
   }
+  updatePackageJsonAliases(plan.repoRoot);
 
   return {
     repoRoot: plan.repoRoot,

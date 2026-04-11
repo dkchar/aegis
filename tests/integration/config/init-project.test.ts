@@ -158,4 +158,74 @@ describe("S01 init project contract seed", () => {
       rmSync(tempRepo, { recursive: true, force: true });
     }
   });
+
+  it("adds aegis package aliases without overwriting existing scripts", () => {
+    const tempRepo = createTempRepo();
+    const packageJsonPath = path.join(tempRepo, "package.json");
+
+    try {
+      writeFileSync(
+        packageJsonPath,
+        JSON.stringify(
+          {
+            name: "demo-repo",
+            scripts: {
+              start: "vite",
+              test: "vitest",
+            },
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+
+      initProject(tempRepo);
+
+      const updated = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
+        scripts: Record<string, string>;
+      };
+      expect(updated.scripts.start).toBe("vite");
+      expect(updated.scripts.test).toBe("vitest");
+      expect(updated.scripts["aegis:init"]).toBe("aegis init");
+      expect(updated.scripts["aegis:start"]).toBe("aegis start");
+      expect(updated.scripts["aegis:status"]).toBe("aegis status");
+      expect(updated.scripts["aegis:stop"]).toBe("aegis stop");
+    } finally {
+      rmSync(tempRepo, { recursive: true, force: true });
+    }
+  });
+
+  it("creates an aegis scripts block when package.json has no scripts", () => {
+    const tempRepo = createTempRepo();
+    const packageJsonPath = path.join(tempRepo, "package.json");
+
+    try {
+      writeFileSync(
+        packageJsonPath,
+        JSON.stringify(
+          {
+            name: "demo-repo",
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+
+      initProject(tempRepo);
+
+      const updated = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
+        scripts?: Record<string, string>;
+      };
+      expect(updated.scripts).toEqual({
+        "aegis:init": "aegis init",
+        "aegis:start": "aegis start",
+        "aegis:status": "aegis status",
+        "aegis:stop": "aegis stop",
+      });
+    } finally {
+      rmSync(tempRepo, { recursive: true, force: true });
+    }
+  });
 });
