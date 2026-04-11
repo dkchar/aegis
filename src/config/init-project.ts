@@ -112,13 +112,24 @@ function updatePackageJsonAliases(repoRoot: string): void {
     return;
   }
 
-  const packageJsonText = readFileSync(packageJsonPath, "utf8");
+  let packageJsonText: string;
+
+  try {
+    packageJsonText = readFileSync(packageJsonPath, "utf8");
+  } catch {
+    return;
+  }
+
   const result = ensureAegisPackageJsonAliases(packageJsonText);
   if (!result.changed) {
     return;
   }
 
-  writeFileSync(packageJsonPath, result.packageJsonText, "utf8");
+  try {
+    writeFileSync(packageJsonPath, result.packageJsonText, "utf8");
+  } catch {
+    return;
+  }
 }
 
 export function initProject(root = process.cwd()): InitProjectResult {

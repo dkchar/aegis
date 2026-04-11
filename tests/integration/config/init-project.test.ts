@@ -265,6 +265,20 @@ describe("S01 init project contract seed", () => {
     }
   });
 
+  it("does not throw when package.json exists as an unreadable directory", () => {
+    const tempRepo = createTempRepo();
+    const packageJsonPath = path.join(tempRepo, "package.json");
+
+    try {
+      mkdirSync(packageJsonPath, { recursive: true });
+
+      expect(() => initProject(tempRepo)).not.toThrow();
+      expect(existsSync(packageJsonPath)).toBe(true);
+    } finally {
+      rmSync(tempRepo, { recursive: true, force: true });
+    }
+  });
+
   it("leaves package.json unchanged when scripts is not an object", () => {
     const tempRepo = createTempRepo();
     const packageJsonPath = path.join(tempRepo, "package.json");
@@ -303,6 +317,35 @@ describe("S01 init project contract seed", () => {
       initProject(tempRepo);
 
       expect(readFileSync(packageJsonPath, "utf8")).toBe(packageJson);
+    } finally {
+      rmSync(tempRepo, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves a pre-existing user-owned aegis alias script", () => {
+    const tempRepo = createTempRepo();
+    const packageJsonPath = path.join(tempRepo, "package.json");
+    const packageJson = `{
+  "name": "demo-repo",
+  "scripts": {
+    "start": "vite",
+    "aegis:start": "custom command"
+  }
+}
+`;
+
+    try {
+      writeFileSync(packageJsonPath, packageJson, "utf8");
+
+      initProject(tempRepo);
+
+      const updatedPackageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
+        scripts: Record<string, string>;
+      };
+      expect(updatedPackageJson.scripts["aegis:start"]).toBe("custom command");
+      expect(updatedPackageJson.scripts["aegis:init"]).toBe("aegis init");
+      expect(updatedPackageJson.scripts["aegis:status"]).toBe("aegis status");
+      expect(updatedPackageJson.scripts["aegis:stop"]).toBe("aegis stop");
     } finally {
       rmSync(tempRepo, { recursive: true, force: true });
     }
