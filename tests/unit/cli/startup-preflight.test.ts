@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { AegisConfig } from "../../../src/config/schema.js";
+import { DEFAULT_AEGIS_CONFIG } from "../../../src/config/defaults.js";
 
 import {
   formatStartupPreflight,
@@ -10,73 +11,15 @@ import {
 
 function makeConfig(): AegisConfig {
   return {
+    ...DEFAULT_AEGIS_CONFIG,
     runtime: "pi",
-    auth: {
-      provider: "pi",
-      mode: "api_key",
-      plan: null,
-    },
     models: {
-      oracle: "pi:default",
+      ...DEFAULT_AEGIS_CONFIG.models,
       titan: "pi:default",
       sentinel: "pi:default",
       janus: "pi:default",
       metis: "pi:default",
       prometheus: "pi:default",
-    },
-    concurrency: {
-      max_agents: 4,
-      max_oracles: 1,
-      max_titans: 1,
-      max_sentinels: 1,
-      max_janus: 1,
-    },
-    budgets: {
-      oracle: { turns: 10, tokens: 1_000 },
-      titan: { turns: 10, tokens: 1_000 },
-      sentinel: { turns: 10, tokens: 1_000 },
-      janus: { turns: 10, tokens: 1_000 },
-    },
-    thresholds: {
-      poll_interval_seconds: 30,
-      stuck_warning_seconds: 300,
-      stuck_kill_seconds: 600,
-      allow_complex_auto_dispatch: false,
-      scope_overlap_threshold: 0.5,
-      janus_retry_threshold: 1,
-    },
-    economics: {
-      metering_fallback: "stats_only",
-      per_issue_cost_warning_usd: null,
-      daily_cost_warning_usd: null,
-      daily_hard_stop_usd: null,
-      quota_warning_floor_pct: null,
-      quota_hard_stop_floor_pct: null,
-      credit_warning_floor: null,
-      credit_hard_stop_floor: null,
-      allow_exact_cost_estimation: false,
-    },
-    janus: {
-      enabled: true,
-      max_invocations_per_issue: 1,
-    },
-    mnemosyne: {
-      max_records: 100,
-      prompt_token_budget: 1_000,
-    },
-    labor: {
-      base_path: ".aegis/labors",
-    },
-    olympus: {
-      port: 3847,
-      open_browser: true,
-    },
-    evals: {
-      enabled: false,
-      results_path: ".aegis/evals",
-      benchmark_suite: "core-suite",
-      minimum_pass_rate: 0.8,
-      max_human_interventions_per_10_issues: 1,
     },
   };
 }
@@ -160,6 +103,20 @@ describe("runStartupPreflight", () => {
       ["model_refs", "skipped", "Skipped because an earlier preflight check failed."],
       ["runtime_state_paths", "skipped", "Skipped because an earlier preflight check failed."],
     ]);
+  });
+
+  it("uses a failure fallback detail when a failing probe does not provide one", () => {
+    const report = runStartupPreflight("C:/repo", makeDeps({
+      probeBeadsCli: () => ({ ok: false }),
+    }));
+
+    expect(report.overall).toBe("blocked");
+    expect(report.checks[1]).toMatchObject({
+      id: "beads_cli",
+      status: "fail",
+    });
+    expect(report.checks[1]?.detail).not.toBe("Beads CLI is available.");
+    expect(formatStartupPreflight(report)).not.toContain("Beads CLI is available.");
   });
 
   it("fails the aegis_config check when loading config throws", () => {

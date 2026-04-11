@@ -83,6 +83,17 @@ const PASS_DETAILS: Record<StartupPreflightCheckId, string> = {
   runtime_state_paths: "Runtime state paths are available.",
 };
 
+const FAIL_DETAILS: Record<StartupPreflightCheckId, string> = {
+  git_repo: "Git repository check failed.",
+  beads_cli: "Beads CLI check failed.",
+  beads_repo: "Beads repository check failed.",
+  aegis_config: "Aegis config check failed.",
+  runtime_adapter: "Runtime adapter check failed.",
+  runtime_local_config: "Runtime local config check failed.",
+  model_refs: "Model refs check failed.",
+  runtime_state_paths: "Runtime state paths check failed.",
+};
+
 function toThrownMessage(error: unknown) {
   if (error instanceof Error && error.message.trim().length > 0) {
     return error.message;
@@ -99,7 +110,7 @@ function toCheckFromProbe(
     id,
     label: CHECK_LABELS[id],
     status: probe.ok ? "pass" : "fail",
-    detail: probe.detail ?? PASS_DETAILS[id],
+    detail: probe.detail ?? (probe.ok ? PASS_DETAILS[id] : FAIL_DETAILS[id]),
     fix: probe.fix,
   };
 }
