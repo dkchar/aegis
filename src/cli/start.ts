@@ -34,6 +34,7 @@ import { parseCommand } from "./parse-command.js";
 import {
   formatStartupPreflight,
   runStartupPreflight,
+  StartupPreflightBlockedError,
   type StartupPreflightProbeResult,
 } from "./startup-preflight.js";
 import { STOP_COMMAND_REASONS } from "./stop.js";
@@ -603,7 +604,7 @@ export async function startAegis(
 
   if (preflight.overall === "blocked") {
     console.error(formatStartupPreflight(preflight));
-    throw new Error("Aegis startup preflight blocked.");
+    throw new StartupPreflightBlockedError(preflight);
   }
 
   const resolvedConfig = config ?? loadConfig(repoRoot);

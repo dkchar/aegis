@@ -33,6 +33,16 @@ export interface StartupPreflightReport {
   checks: StartupPreflightCheck[];
 }
 
+export class StartupPreflightBlockedError extends Error {
+  readonly report: StartupPreflightReport;
+
+  constructor(report: StartupPreflightReport) {
+    super("Aegis startup preflight blocked.");
+    this.name = "StartupPreflightBlockedError";
+    this.report = report;
+  }
+}
+
 export interface StartupPreflightDependencies {
   verifyGitRepo: () => void;
   probeBeadsCli: () => StartupPreflightProbeResult;

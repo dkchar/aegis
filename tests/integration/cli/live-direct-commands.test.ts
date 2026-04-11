@@ -1,6 +1,6 @@
 import path from "node:path";
 import { createServer } from "node:net";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 
@@ -27,6 +27,12 @@ function initializeGitRepo(root: string) {
     encoding: "utf8",
   });
   expect(gitInit.status, gitInit.stderr).toBe(0);
+}
+
+function seedPiSettings(root: string) {
+  const settingsPath = path.join(root, ".pi", "settings.json");
+  mkdirSync(path.dirname(settingsPath), { recursive: true });
+  writeFileSync(settingsPath, "{\n  \"profiles\": []\n}\n", "utf8");
 }
 
 async function reservePort() {
@@ -87,6 +93,7 @@ describe("live direct CLI commands", () => {
     const port = await reservePort();
     initProject(tempRepo);
     initializeGitRepo(tempRepo);
+    seedPiSettings(tempRepo);
 
     const started = await startAegis(
       tempRepo,
@@ -116,6 +123,7 @@ describe("live direct CLI commands", () => {
     const port = await reservePort();
     initProject(tempRepo);
     initializeGitRepo(tempRepo);
+    seedPiSettings(tempRepo);
 
     const executedCommands: string[] = [];
     const started = await startAegis(

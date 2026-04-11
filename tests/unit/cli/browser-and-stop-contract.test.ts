@@ -86,19 +86,25 @@ describe("S06 browser and stop runtime safeguards", () => {
       ) => Promise<unknown>;
     };
 
-    await expect(
-      startModule.startAegis(
-        tempRepo,
-        {},
-        {
-          verifyTracker,
-          verifyGitRepo: () => undefined,
-          openBrowser,
-          registerSignalHandlers: false,
-        },
-      ),
-    ).rejects.toThrow("Aegis startup preflight blocked.");
+    const blockedError = await startModule.startAegis(
+      tempRepo,
+      {},
+      {
+        verifyTracker,
+        verifyGitRepo: () => undefined,
+        openBrowser,
+        registerSignalHandlers: false,
+      },
+    ).catch((error: unknown) => error);
 
+    expect(blockedError).toBeInstanceOf(Error);
+    expect(blockedError).toMatchObject({
+      message: "Aegis startup preflight blocked.",
+      report: expect.objectContaining({
+        overall: "blocked",
+        repoRoot: tempRepo,
+      }),
+    });
     expect(openBrowser).not.toHaveBeenCalled();
     expect(consoleError).toHaveBeenCalledWith(
       expect.stringContaining("Aegis startup preflight: blocked"),
