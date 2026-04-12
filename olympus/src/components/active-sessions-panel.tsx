@@ -8,6 +8,16 @@ export interface ActiveSession {
   stage: string;
   model: string;
   lines: string[];
+  /** Input tokens consumed so far. */
+  inputTokens?: number;
+  /** Output tokens consumed so far. */
+  outputTokens?: number;
+  /** Number of turns taken. */
+  turns?: number;
+  /** Elapsed wall-clock seconds. */
+  elapsedSec?: number;
+  /** Approximate USD spend for this session. */
+  spendUsd?: number;
 }
 
 export interface ActiveSessionsPanelProps {
@@ -21,30 +31,57 @@ const CASTE_COLORS: Record<ActiveSession["caste"], string> = {
   janus: colors.casteJanus,
 };
 
+function formatElapsed(sec?: number): string {
+  if (sec == null) return "";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}m ${s}s`;
+}
+
 function SessionTerminal(props: { session: ActiveSession }): JSX.Element {
   const { session } = props;
   const casteColor = CASTE_COLORS[session.caste];
+  const hasStats = session.inputTokens != null || session.turns != null || session.elapsedSec != null;
 
   return (
     <div
+      className="session-terminal"
+      data-testid={`session-terminal-${session.id}`}
+      aria-label={`Session ${session.id}`}
       style={{
-        background: colors.bgPrimary,
-        border: `1px solid ${colors.borderDefault}`,
+        background: "#0a0e14",
+        border: `1px solid ${casteColor}44`,
         borderRadius: radius.md,
-        padding: spacing.sm,
+        overflow: "hidden",
       }}
     >
+      {/* Terminal title bar */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          marginBottom: spacing.xs,
+          padding: `${spacing.xs} ${spacing.sm}`,
+          background: "#111820",
+          borderBottom: `1px solid ${colors.borderDefault}`,
         }}
       >
-        <span style={{ fontSize: fontSizes.xs, fontWeight: 700, color: colors.textPrimary }}>
-          {session.id}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: spacing.xs }}>
+          {/* Terminal dot indicator */}
+          <span
+            style={{
+              width: "8px",
+              height: "8px",
+              borderRadius: "50%",
+              backgroundColor: casteColor,
+              display: "inline-block",
+              boxShadow: `0 0 6px ${casteColor}66`,
+            }}
+          />
+          <span style={{ fontSize: fontSizes.xs, fontWeight: 700, color: "#8b949e" }}>
+            {session.id}
+          </span>
+        </div>
         <span
           style={{
             fontSize: fontSizes.xs,
@@ -55,21 +92,54 @@ function SessionTerminal(props: { session: ActiveSession }): JSX.Element {
           {session.caste}
         </span>
       </div>
-      <div style={{ fontSize: fontSizes.xs, color: colors.textMuted, marginBottom: spacing.xs }}>
-        {session.issueId} — {session.stage}
-      </div>
+
+      {/* Session info bar */}
       <div
         style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: `${spacing.xs} ${spacing.sm}`,
+          fontSize: fontSizes.xs,
+          color: colors.textMuted,
+          borderBottom: `1px solid ${colors.borderDefault}44`,
+        }}
+      >
+        <span>{session.issueId} — {session.stage}</span>
+        {hasStats && (
+          <span style={{ fontFamily: "monospace", fontSize: "10px", color: "#6e7681" }}>
+            {session.turns != null ? `${session.turns}t ` : ""}
+            {session.inputTokens != null ? `${(session.inputTokens / 1000).toFixed(1)}k in ` : ""}
+            {session.outputTokens != null ? `${(session.outputTokens / 1000).toFixed(1)}k out ` : ""}
+            {session.elapsedSec != null ? formatElapsed(session.elapsedSec) : ""}
+            {session.spendUsd != null ? ` · $${session.spendUsd.toFixed(2)}` : ""}
+          </span>
+        )}
+      </div>
+
+      {/* Terminal output */}
+      <div
+        style={{
+          padding: spacing.sm,
           display: "grid",
           gap: spacing.xs,
           fontSize: fontSizes.xs,
-          fontFamily: "monospace",
-          color: colors.textSecondary,
+          fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+          color: "#7ee787",
+          lineHeight: 1.6,
+          minHeight: "48px",
         }}
       >
-        {session.lines.map((line, index) => (
-          <code key={`${session.id}-${index}`}>{line}</code>
-        ))}
+        {session.lines.length > 0 ? (
+          session.lines.map((line, index) => (
+            <div key={`${session.id}-${index}`}>
+              <span style={{ color: "#484f58" }}>{"› "}</span>
+              <code style={{ color: "#7ee787" }}>{line.replace(/^>\s*/, "")}</code>
+            </div>
+          ))
+        ) : (
+          <div style={{ color: "#484f58", fontStyle: "italic" }}>Waiting for output...</div>
+        )}
       </div>
     </div>
   );
