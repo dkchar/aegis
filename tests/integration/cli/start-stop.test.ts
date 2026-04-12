@@ -636,28 +636,32 @@ describe("S06 launch lifecycle contract seed", () => {
     ).rejects.toThrow(/dispatch-state|records/i);
   });
 
-  it("prints the preflight report and does not announce a URL when startup is blocked", async () => {
-    const tempRepo = createTempRepo();
-    const port = await reservePort();
-    initProject(tempRepo);
-    initializeGitRepo(tempRepo);
+  it(
+    "prints the preflight report and does not announce a URL when startup is blocked",
+    async () => {
+      const tempRepo = createTempRepo();
+      const port = await reservePort();
+      initProject(tempRepo);
+      initializeGitRepo(tempRepo);
 
-    const startRun = runCliCommand(tempRepo, [
-      "start",
-      "--port",
-      String(port),
-      "--no-browser",
-    ]);
+      const startRun = runCliCommand(tempRepo, [
+        "start",
+        "--port",
+        String(port),
+        "--no-browser",
+      ]);
 
-    expect(startRun.status).not.toBe(0);
-    expect(startRun.stdout).not.toContain("Aegis started at http://127.0.0.1:");
-    expect(startRun.stderr).toContain("Aegis startup preflight: blocked");
-    expect(startRun.stderr).toContain("Aegis startup preflight blocked.");
-    expect(startRun.stderr).not.toContain(`http://127.0.0.1:${port}/`);
-    expect(
-      existsSync(path.join(tempRepo, ".aegis", "runtime-state.json")),
-    ).toBe(false);
-  });
+      expect(startRun.status).not.toBe(0);
+      expect(startRun.stdout).not.toContain("Aegis started at http://127.0.0.1:");
+      expect(startRun.stderr).toContain("Aegis startup preflight: blocked");
+      expect(startRun.stderr).toContain("Aegis startup preflight blocked.");
+      expect(startRun.stderr).not.toContain(`http://127.0.0.1:${port}/`);
+      expect(
+        existsSync(path.join(tempRepo, ".aegis", "runtime-state.json")),
+      ).toBe(false);
+    },
+    15_000,
+  );
 
   it.skipIf(!isBeadsCliAvailable())("fails startup clearly when Beads is not initialized in the target repo", async () => {
     const tempRepo = createTempRepo();

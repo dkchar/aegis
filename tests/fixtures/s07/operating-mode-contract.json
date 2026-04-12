@@ -4,12 +4,6 @@
     "auto"
   ],
   "autoEnabledAt": "2026-04-05T09:00:00.000Z",
-  "baselineReadyIssue": {
-    "id": "aegis-fjm.8.2",
-    "readyAt": "2026-04-05T08:59:59.000Z"
-  },
-  "freshReadyIssue": {
-    "id": "aegis-fjm.8.99",
-    "readyAt": "2026-04-05T09:00:01.000Z"
-  }
+  "backlogIssueId": "aegis-fjm.8.2",
+  "laterIssueId": "aegis-fjm.8.99"
 }

@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { initProject } from "../../../src/config/init-project.js";
+import { createInMemoryLiveEventBus } from "../../../src/events/event-bus.js";
 import { loadLearnings } from "../../../src/memory/mnemosyne-store.js";
 import { createHttpServerController } from "../../../src/server/http-server.js";
 import type { HttpServerController } from "../../../src/server/http-server.js";
@@ -175,6 +176,47 @@ describe("SSE connection drain during shutdown", () => {
       message: "Status: running, mode conversational, 0 active agents, queue depth 0.",
       mode: "conversational",
       server_state: "running",
+    });
+  });
+
+  it("ingests externally published live events into the dashboard state snapshot", async () => {
+    const projectRoot = createTempRoot("aegis-sse-ingress-root-");
+    initProject(projectRoot);
+    const eventIngress = createInMemoryLiveEventBus();
+
+    controller = createHttpServerController({
+      eventIngress,
+    });
+    const { port } = await controller.start({ port: 0, root: projectRoot });
+
+    eventIngress.publish({
+      id: "evt-external-1",
+      type: "agent.session_started",
+      timestamp: "2026-04-12T10:00:00.000Z",
+      sequence: 1,
+      payload: {
+        sessionId: "sess-external-1",
+        caste: "oracle",
+        issueId: "bd-42",
+        stage: "scouting",
+        model: "pi:test",
+      },
+    });
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/state`);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      sessions: {
+        active: {
+          "sess-external-1": {
+            id: "sess-external-1",
+            caste: "oracle",
+            issueId: "bd-42",
+            stage: "scouting",
+            model: "pi:test",
+          },
+        },
+      },
     });
   });
 });

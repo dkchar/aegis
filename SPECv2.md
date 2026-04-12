@@ -422,8 +422,8 @@ Behavior:
 - stopping auto returns the system to conversational mode
 
 The existing rule remains canonical:
-- auto mode only processes issues that entered the ready queue after auto mode was enabled
-- it does not retroactively sweep the backlog
+- auto mode sweeps any issue already in `bd ready` when it is enabled
+- later polls continue to pick up newly ready work as it appears
 - Sentinel auto-review is limited to work whose Titan was dispatched by the current Aegis session lineage recorded in dispatch state
 
 ### 7.3 Canonical direct commands
@@ -454,7 +454,7 @@ Later natural-language modes resolve to this action family or its structured suc
 
 - start Aegis and confirm idle mode does not poll
 - run `process <issue-id>` and confirm only that issue is touched
-- enable auto mode and verify newly ready issues begin flowing
+- enable auto mode and verify backlog and newly ready issues begin flowing
 - disable auto mode and confirm dispatch stops
 - restart during auto mode and confirm the system resumes consistently from persisted state
 

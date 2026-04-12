@@ -7,14 +7,8 @@ import { describe, expect, it } from "vitest";
 interface OperatingModeFixture {
   modes: string[];
   autoEnabledAt: string;
-  baselineReadyIssue: {
-    id: string;
-    readyAt: string;
-  };
-  freshReadyIssue: {
-    id: string;
-    readyAt: string;
-  };
+  backlogIssueId: string;
+  laterIssueId: string;
 }
 
 const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
@@ -83,7 +77,7 @@ describe("S07 operating mode contract seed", () => {
     expect(resumed).toEqual({ mode: "auto", paused: false });
   });
 
-  it("tracks new-ready-only auto dispatch semantics", async () => {
+  it("tracks backlog-sweep auto dispatch semantics", async () => {
     const fixture = readJsonFixture<OperatingModeFixture>(
       "tests/fixtures/s07/operating-mode-contract.json",
     );
@@ -99,10 +93,7 @@ describe("S07 operating mode contract seed", () => {
       disableAutoLoop: () => {
         enabledAt: null;
       };
-      isNewReadyIssue: (
-        issue: { id: string; readyAt: string },
-        state: { enabledAt: string | null },
-      ) => boolean;
+      isAutoLoopEligible: (state: { enabledAt: string | null }) => boolean;
     };
     const commandExecutorModule = (await import(
       pathToFileURL(path.join(repoRoot, "src", "core", "command-executor.ts")).href
@@ -132,38 +123,13 @@ describe("S07 operating mode contract seed", () => {
 
     const initial = autoLoopModule.createAutoLoopState();
     expect(initial).toEqual({ enabledAt: null });
+    expect(autoLoopModule.isAutoLoopEligible(initial)).toBe(false);
 
     const enabled = autoLoopModule.enableAutoLoop(fixture.autoEnabledAt);
     expect(enabled).toEqual({ enabledAt: fixture.autoEnabledAt });
-    expect(autoLoopModule.isNewReadyIssue(fixture.baselineReadyIssue, enabled)).toBe(
-      false,
-    );
-    expect(autoLoopModule.isNewReadyIssue(fixture.freshReadyIssue, enabled)).toBe(
-      true,
-    );
-    expect(
-      autoLoopModule.isNewReadyIssue(
-        {
-          id: "aegis-fjm.8.same-boundary",
-          readyAt: fixture.autoEnabledAt,
-        },
-        enabled,
-      ),
-    ).toBe(false);
-    expect(() =>
-      autoLoopModule.isNewReadyIssue(
-        {
-          id: "aegis-fjm.8.bad-ready-at",
-          readyAt: "not-a-timestamp",
-        },
-        enabled,
-      ),
-    ).toThrow(/issue.readyAt/i);
-    expect(() =>
-      autoLoopModule.isNewReadyIssue(fixture.freshReadyIssue, {
-        enabledAt: "not-a-timestamp",
-      }),
-    ).toThrow(/state.enabledAt/i);
+    expect(autoLoopModule.isAutoLoopEligible(enabled)).toBe(true);
+    expect(fixture.backlogIssueId).toBe("aegis-fjm.8.2");
+    expect(fixture.laterIssueId).toBe("aegis-fjm.8.99");
 
     expect(autoLoopModule.disableAutoLoop()).toEqual({ enabledAt: null });
   });

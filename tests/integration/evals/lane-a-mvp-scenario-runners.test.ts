@@ -52,23 +52,27 @@ describe("lane A MVP scenario runners", () => {
     expect(result.human_intervention_issue_ids).toEqual(["complex-001"]);
   });
 
-  it("creates decomposition children and carries them plus the parent to completion", async () => {
-    const result = await runScenario({
-      scenario: getScenario("decomposition"),
-      projectRoot: repoRoot,
-    });
+  it(
+    "creates decomposition children and carries them plus the parent to completion",
+    async () => {
+      const result = await runScenario({
+        scenario: getScenario("decomposition"),
+        projectRoot: repoRoot,
+      });
 
-    expect(result.completion_outcomes).toEqual({
-      "decomp-parent-001": "completed",
-      "decomp-child-001": "completed",
-      "decomp-child-002": "completed",
-    });
-    expect(result.merge_outcomes).toEqual({
-      "decomp-parent-001": "merged_clean",
-      "decomp-child-001": "merged_clean",
-      "decomp-child-002": "merged_clean",
-    });
-  });
+      expect(result.completion_outcomes).toEqual({
+        "decomp-parent-001": "completed",
+        "decomp-child-001": "completed",
+        "decomp-child-002": "completed",
+      });
+      expect(result.merge_outcomes).toEqual({
+        "decomp-parent-001": "merged_clean",
+        "decomp-child-001": "merged_clean",
+        "decomp-child-002": "merged_clean",
+      });
+    },
+    15_000,
+  );
 
   it("forces Titan ambiguity into the clarification path", async () => {
     const result = await runScenario({

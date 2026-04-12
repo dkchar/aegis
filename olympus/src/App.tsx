@@ -15,20 +15,14 @@ import { RecentSessionsTray } from "./components/recent-sessions-tray";
 import { JanusPopup } from "./components/janus-popup";
 import { fetchReadyIssues } from "./lib/api-client";
 import type { CommandResult } from "./components/command-bar";
-import type { DashboardState } from "./types/dashboard-state";
-import type { LoopPhaseLogs, LoopState } from "./components/loop-panel";
+import type { DashboardState, ReadyIssueSummary } from "./types/dashboard-state";
+import type { LoopPhaseLogs } from "./components/loop-panel";
 import type { SelectedIssue } from "./components/operator-sidebar";
-import type { ActiveSession } from "./components/active-sessions-panel";
-import type { RecentSession } from "./components/recent-sessions-tray";
-import type { JanusSession } from "./components/janus-popup";
 
-// Inject global styles on first render
 injectGlobalStyles();
 
-/** Auto-dismiss delay for error result cards (ms). */
 const ERROR_DISMISS_MS = 5000;
 
-/** Format an ISO timestamp as a human-readable "time ago" string. */
 function timeAgo(isoString: string): string {
   const then = new Date(isoString).getTime();
   const now = Date.now();
@@ -60,18 +54,79 @@ function resultMessageOrFallback(result: SteerResult, fallback: string): string 
   return result.message?.trim() ? result.message : fallback;
 }
 
-function deriveLoopState(state: DashboardState | null): LoopState {
+function deriveLoopState(state: DashboardState | null): "idle" | "paused" | "running" {
   const autoEnabled = state?.status.autoLoopEnabled ?? false;
 
   if (!autoEnabled) {
     return "idle";
   }
 
-  if (state && state.status.paused) {
+  if (state?.status.paused) {
     return "paused";
   }
 
   return "running";
+}
+
+function deriveSidebarIssueGraph(
+  readyIssues: ReadyIssueSummary[],
+  state: DashboardState | null,
+): string[] {
+  const entries = [
+    ...Object.values(state?.sessions?.active ?? {}).map(
+      (session) => `${session.issueId} - active: ${session.stage}`,
+    ),
+    ...(state?.mergeQueue?.items ?? []).map(
+      (item) => `${item.issueId} - merge: ${item.status}`,
+    ),
+    ...(state?.sessions?.recent ?? []).map(
+      (session) => `${session.issueId} - recent: ${session.outcome}`,
+    ),
+    ...readyIssues.map((issue) => `${issue.id} - ready`),
+  ];
+
+  return Array.from(new Set(entries));
+}
+
+function deriveSelectedIssue(
+  readyIssues: ReadyIssueSummary[],
+  state: DashboardState | null,
+): SelectedIssue | null {
+  const activeSession = Object.values(state?.sessions?.active ?? {})[0];
+  if (activeSession) {
+    return {
+      id: activeSession.issueId,
+      stage: activeSession.stage,
+      summary: `${activeSession.caste} session ${activeSession.id}`,
+    };
+  }
+
+  const readyIssue = readyIssues[0];
+  if (!readyIssue) {
+    return null;
+  }
+
+  return {
+    id: readyIssue.id,
+    stage: "ready",
+    summary: readyIssue.title || "Ready for dispatch",
+  };
+}
+
+function deriveLiveActiveAgents(state: DashboardState | null): number {
+  const sessionCount = Object.keys(state?.sessions?.active ?? {}).length;
+  return Math.max(state?.status.activeAgents ?? 0, sessionCount);
+}
+
+function deriveLiveQueueDepth(
+  readyIssues: ReadyIssueSummary[],
+  state: DashboardState | null,
+): number {
+  return Math.max(
+    state?.status.queueDepth ?? 0,
+    readyIssues.length,
+    state?.mergeQueue?.items?.length ?? 0,
+  );
 }
 
 const EMPTY_PHASE_LOGS: LoopPhaseLogs = {
@@ -81,8 +136,6 @@ const EMPTY_PHASE_LOGS: LoopPhaseLogs = {
   reap: [],
 };
 
-const SIDEBAR_ISSUE_GRAPH: string[] = [];
-const SIDEBAR_SELECTED_ISSUE: SelectedIssue | null = null;
 const STEER_REFERENCE = [
   "status",
   "pause",
@@ -95,28 +148,29 @@ export function App(): JSX.Element {
   const { state, isConnected, error, sendCommand } = useSse();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [commandResults, setCommandResults] = useState<CommandResult[]>([]);
-  const [readyQueue, setReadyQueue] = useState<string[]>([]);
+  const [readyIssues, setReadyIssues] = useState<ReadyIssueSummary[]>([]);
   const janusSession = state?.janus && Object.keys(state.janus.active).length > 0
-    ? Object.values(state.janus.active)[0] as { id: string; issueId: string; lines: string[] }
+    ? Object.values(state.janus.active)[0]
     : null;
 
-  // Fetch ready queue from the server and poll for updates
   useEffect(() => {
     if (!isConnected) {
-      setReadyQueue([]);
+      setReadyIssues([]);
       return;
     }
+
     let cancelled = false;
     const fetch = async () => {
       try {
         const issues = await fetchReadyIssues();
         if (!cancelled) {
-          setReadyQueue(issues.map((i) => i.id));
+          setReadyIssues(issues);
         }
       } catch {
-        // Silently fail — ready queue is advisory
+        // Ready-queue rendering is advisory; fail closed.
       }
     };
+
     void fetch();
     const interval = setInterval(fetch, 5000);
     return () => {
@@ -125,18 +179,21 @@ export function App(): JSX.Element {
     };
   }, [isConnected]);
 
-  /** Auto-dismiss the oldest error card after a timeout. */
   useEffect(() => {
-    const hasError = commandResults.some((r) => !r.success);
-    if (!hasError) return;
+    const hasError = commandResults.some((result) => !result.success);
+    if (!hasError) {
+      return undefined;
+    }
+
     const timer = setTimeout(() => {
-      setCommandResults((prev) => prev.filter((r) => r.success));
+      setCommandResults((previous) => previous.filter((result) => result.success));
     }, ERROR_DISMISS_MS);
+
     return () => clearTimeout(timer);
   }, [commandResults]);
 
   const recordCommandResult = useCallback((result: CommandResult) => {
-    setCommandResults((prev) => [...prev, result]);
+    setCommandResults((previous) => [...previous, result]);
   }, []);
 
   const handleKill = useCallback(
@@ -165,10 +222,11 @@ export function App(): JSX.Element {
   const handleCommand = useCallback(
     async (command: string, payload?: Record<string, unknown>) => {
       try {
-        const result: SteerResult = await sendCommand(command, payload);
+        const result = await sendCommand(command, payload);
         if (!isHandledResult(result)) {
           throw new Error(resultMessageOrFallback(result, `Command "${command}" was not accepted.`));
         }
+
         recordCommandResult({
           command,
           success: true,
@@ -191,7 +249,7 @@ export function App(): JSX.Element {
   const runLoopCommand = useCallback(
     async (command: string, successFallback: string) => {
       try {
-        const result: SteerResult = await sendCommand(command);
+        const result = await sendCommand(command);
         if (!isHandledResult(result)) {
           throw new Error(resultMessageOrFallback(result, successFallback));
         }
@@ -218,10 +276,11 @@ export function App(): JSX.Element {
   const handleSteerCommand = useCallback(
     async (command: string) => {
       try {
-        const result: SteerResult = await sendCommand(command);
+        const result = await sendCommand(command);
         if (!isHandledResult(result)) {
           throw new Error(resultMessageOrFallback(result, `Command "${command}" was not accepted.`));
         }
+
         recordCommandResult({
           command,
           success: true,
@@ -241,11 +300,19 @@ export function App(): JSX.Element {
     [recordCommandResult, sendCommand],
   );
 
+  const readyQueue = readyIssues.map((issue) => issue.id);
+  const sidebarIssueGraph = deriveSidebarIssueGraph(readyIssues, state);
+  const selectedIssue = deriveSelectedIssue(readyIssues, state);
+  const liveActiveAgents = deriveLiveActiveAgents(state);
+  const liveQueueDepth = deriveLiveQueueDepth(readyIssues, state);
+
   return (
     <div className="app">
       <TopBar
         state={state}
         isConnected={isConnected}
+        liveActiveAgents={liveActiveAgents}
+        liveQueueDepth={liveQueueDepth}
         onSettingsOpen={() => setSettingsOpen(true)}
       />
 
@@ -265,66 +332,70 @@ export function App(): JSX.Element {
       <div style={{ display: "flex", alignItems: "flex-start" }}>
         <OperatorSidebar
           readyQueue={readyQueue}
-          issueGraph={SIDEBAR_ISSUE_GRAPH}
-          selectedIssue={SIDEBAR_SELECTED_ISSUE}
+          issueGraph={sidebarIssueGraph}
+          selectedIssue={selectedIssue}
           steerReference={STEER_REFERENCE}
           onCommand={handleSteerCommand}
         />
 
         <main data-testid="app-main" className="app-main" style={{ flex: 1, minWidth: 0 }}>
-        <LoopPanel
-          loopState={deriveLoopState(state)}
-          phaseLogs={state?.loop?.phaseLogs ?? EMPTY_PHASE_LOGS}
-          onStart={() => runLoopCommand("auto_on", "Aegis loop started")}
-          onPause={() => runLoopCommand("pause", "Aegis loop paused")}
-          onResume={() => runLoopCommand("resume", "Aegis loop resumed")}
-          onStop={() => runLoopCommand("stop", "Aegis loop stopped")}
-          disabled={!isConnected}
-        />
+          <LoopPanel
+            loopState={deriveLoopState(state)}
+            phaseLogs={state?.loop?.phaseLogs ?? EMPTY_PHASE_LOGS}
+            onStart={() => runLoopCommand("auto_on", "Aegis loop started")}
+            onPause={() => runLoopCommand("pause", "Aegis loop paused")}
+            onResume={() => runLoopCommand("resume", "Aegis loop resumed")}
+            onStop={() => runLoopCommand("stop", "Aegis loop stopped")}
+            disabled={!isConnected}
+          />
 
-        <MergeQueuePanel
-          queueLength={state?.mergeQueue?.items?.length ?? 0}
-          currentItem={state?.mergeQueue?.items?.[0]?.issueId ?? null}
-          lines={state?.mergeQueue?.logs ?? []}
-        />
+          <MergeQueuePanel
+            queueLength={state?.mergeQueue?.items?.length ?? 0}
+            currentItem={state?.mergeQueue?.items?.[0]?.issueId ?? null}
+            lines={state?.mergeQueue?.logs ?? []}
+          />
 
-        <ActiveSessionsPanel
-          sessions={state?.sessions?.active ?? {}}
-        />
+          <ActiveSessionsPanel
+            sessions={state?.sessions?.active ?? {}}
+          />
 
-        <RecentSessionsTray
-          sessions={(state?.sessions?.recent ?? []).map((s) => ({
-            id: s.id,
-            closedAgo: timeAgo(s.endedAt),
-            outcome: s.outcome === "completed" ? "success" : s.outcome === "failed" ? "failed" : "rejected",
-          }))}
-        />
+          <RecentSessionsTray
+            sessions={(state?.sessions?.recent ?? []).map((session) => ({
+              id: session.id,
+              closedAgo: timeAgo(session.endedAt),
+              outcome: session.outcome === "completed"
+                ? "success"
+                : session.outcome === "failed"
+                  ? "failed"
+                  : "rejected",
+            }))}
+          />
 
-        <AgentGrid
-          agents={state?.agents ?? []}
-          onKill={handleKill}
-        />
+          <AgentGrid
+            agents={state?.agents ?? []}
+            onKill={handleKill}
+          />
 
-        <CommandBar
-          onCommand={handleCommand}
-          onKill={handleKill}
-          disabled={!isConnected}
-        />
+          <CommandBar
+            onCommand={handleCommand}
+            onKill={handleKill}
+            disabled={!isConnected}
+          />
 
-        {commandResults.length > 0 && (
-          <section data-testid="command-results" aria-label="Command Results">
-            {commandResults.map((r, i) => (
-              <div key={i} className={`command-result ${r.success ? "success" : "error"}`}>
-                <code>{r.command}</code>
-                {r.success ? (
-                  <span className="success">{r.result}</span>
-                ) : (
-                  <span className="error">{r.error}</span>
-                )}
-              </div>
-            ))}
-          </section>
-        )}
+          {commandResults.length > 0 && (
+            <section data-testid="command-results" aria-label="Command Results">
+              {commandResults.map((result, index) => (
+                <div key={index} className={`command-result ${result.success ? "success" : "error"}`}>
+                  <code>{result.command}</code>
+                  {result.success ? (
+                    <span className="success">{result.result}</span>
+                  ) : (
+                    <span className="error">{result.error}</span>
+                  )}
+                </div>
+              ))}
+            </section>
+          )}
         </main>
       </div>
 
@@ -336,7 +407,7 @@ export function App(): JSX.Element {
             lines: janusSession.lines,
           }}
           onDismiss={() => {
-            // Janus sessions are driven by server state; dismiss is visual only
+            // Janus sessions are driven by server state; dismiss is visual only.
           }}
         />
       )}

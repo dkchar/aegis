@@ -1,6 +1,6 @@
 # Aegis MVP Tracker
 
-- Refreshed: 2026-04-10T16:42:20+01:00
+- Refreshed: 2026-04-12T22:12:10+01:00
 - Source spec: SPECv2.md
 - Design doc: docs/superpowers/specs/2026-04-03-aegis-mvp-slicing-design.md
 - Plan doc: docs/superpowers/plans/2026-04-03-aegis-mvp-slice-plan.md
@@ -9,6 +9,18 @@
 - Program updated: 2026-04-08T14:33:48Z
 - Operational queue: use `bd ready`; slice and program epics stay `blocked` as coordination units because Beads cannot model task-to-epic blockers.
 - Planning view: `bd swarm validate` still reports epic-level waves and is advisory, not the executable queue.
+
+## 2026-04-12 Auto-Loop Backlog Sweep Parity
+
+- Closed non-epic follow-up in this batch: `aegis-80p`.
+- Scope of the automation and observability fixes:
+  - auto mode now sweeps the full current `bd ready` backlog when enabled, keeps polling for newly ready work, and no longer suppresses pre-existing ready issues behind a freshness gate.
+  - the auto-loop dispatch path now fills available concurrency slots with multiple ready issues in parallel where capacity allows, while preserving the merge queue's serialized processing path.
+  - live direct-command execution and auto-loop ticks now publish real runtime events into the HTTP server event bus, so Olympus receives active sessions, completed sessions, merge activity, and loop phase logs from the running orchestrator instead of placeholders.
+  - Olympus now derives its issue graph, selected issue, and top-bar queue/agent counters from live ready issues, sessions, and merge state, so the operator console reflects real backlog and execution state after refreshes and new-ready changes.
+  - mock-run seeding now retries transient Windows directory-lock failures, which restored the required disposable-repo sanity checks for this workflow.
+- Verification on 2026-04-12: `npm run lint`; `npm run build`; `npm run test`; `npm run mock:seed`; `npm run mock:run -- node ../dist/index.js init`; `npm run mock:run -- node ../dist/index.js status`; `npm run mock:run -- node ../dist/index.js start --port 43123 --no-browser`; `GET /`; `GET /api/state`; `GET /api/events`; `npm run mock:run -- node ../dist/index.js stop`; `git -C aegis-mock-run status -sb`.
+- Queue parity on 2026-04-12: `bd ready --json` returned `[]`.
 
 ## 2026-04-09 Follow-up Parity
 

@@ -49,6 +49,31 @@ interface BdInitHelpProbeResult {
   output: string;
 }
 
+function sleepMs(milliseconds: number) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
+
+function removeDirectoryWithRetries(targetPath: string, maxAttempts: number = 8) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      rmSync(targetPath, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const errorCode =
+        error && typeof error === "object" && "code" in error
+          ? String((error as NodeJS.ErrnoException).code)
+          : null;
+      const retriable = errorCode === "EBUSY" || errorCode === "ENOTEMPTY";
+
+      if (!retriable || attempt === maxAttempts) {
+        throw error;
+      }
+
+      sleepMs(attempt * 250);
+    }
+  }
+}
+
 function run(command: string, args: string[], cwd: string): string {
   return execFileSync(command, args, {
     cwd,
@@ -263,7 +288,7 @@ export async function seedMockRun(options: SeedMockRunOptions = {}): Promise<See
   const repoRoot = path.join(workspaceRoot, repoName);
   const databaseName = createDatabaseName(beadsPrefix);
 
-  rmSync(repoRoot, { recursive: true, force: true });
+  removeDirectoryWithRetries(repoRoot);
   mkdirSync(repoRoot, { recursive: true });
 
   for (const [relativePath, contents] of Object.entries(TODO_MOCK_RUN_MANIFEST.baselineFiles)) {

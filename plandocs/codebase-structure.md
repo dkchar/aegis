@@ -92,7 +92,7 @@ Deterministic orchestration core. No runtime-specific imports.
 - `stage-transition.ts`: canonical dispatch stage enum, transition table, and immutable transition helper.
 - `dispatch-state.ts`: load/save/reconcile logic for `.aegis/dispatch-state.json`; writes atomically via temp-file rename.
 - `operating-mode.ts`: S07 contract for conversational vs auto mode state plus pause/resume helpers.
-- `auto-loop.ts`: S07 contract for "new ready only" auto-mode freshness gating.
+- `auto-loop.ts`: S07 contract for auto-mode backlog-sweep eligibility.
 - `command-executor.ts`: S07 contract for parsed-command routing and execution result shape.
 - `run-oracle.ts`: Oracle runtime dispatch, strict assessment parsing, artifact persistence, complexity gating, and derived-issue materialization.
 - `run-titan.ts`: Titan runtime dispatch inside a labor, handoff and clarification artifact emission, and stage transitions.

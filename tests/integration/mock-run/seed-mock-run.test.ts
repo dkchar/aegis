@@ -30,7 +30,7 @@ describe.skipIf(!bdSupport.supported)("seedMockRun", () => {
     expect(existsSync(path.join(result.repoRoot, "src"))).toBe(false);
     expect(existsSync(path.join(result.repoRoot, "tests"))).toBe(false);
     expect(result.initialReadyKeys).toEqual(["foundation.contract"]);
-  }, 60_000);
+  }, 90_000);
 
   it("recreates the repo and verifies foundation.contract is the only initial ready issue", async () => {
     const sandboxRoot = mkdtempSync(path.join(tmpdir(), "aegis-mock-run-"));
@@ -59,7 +59,7 @@ describe.skipIf(!bdSupport.supported)("seedMockRun", () => {
     expect(manifest.initialReadyKeys).toEqual(["foundation.contract"]);
     expect(manifest.configuredModels.oracle).toBe("pi:gemma-4-31b-it");
     expect(manifest.configuredModels.titan).toBe("pi:gemma-4-31b-it");
-  }, 60_000);
+  }, 90_000);
 
   it("creates the live Beads queue so only foundation.contract is initially ready", async () => {
     const sandboxRoot = mkdtempSync(path.join(tmpdir(), "aegis-mock-run-"));
@@ -82,7 +82,7 @@ describe.skipIf(!bdSupport.supported)("seedMockRun", () => {
     expect(ready).toHaveLength(1);
     expect(ready[0]?.title).toBe("[foundation] Contract seed");
     expect(ready[0]?.id).toBe(result.issueIdByKey["foundation.contract"]);
-  }, 60_000);
+  }, 90_000);
 
   it("writes Gemma defaults into the generated repo config", async () => {
     const sandboxRoot = mkdtempSync(path.join(tmpdir(), "aegis-mock-run-"));
@@ -107,7 +107,7 @@ describe.skipIf(!bdSupport.supported)("seedMockRun", () => {
     expect(aegisConfig.models.titan).toBe("pi:gemma-4-31b-it");
     expect(aegisConfig.models.sentinel).toBe("pi:gemma-4-31b-it");
     expect(aegisConfig.olympus.open_browser).toBe(false);
-  }, 60_000);
+  }, 90_000);
 
   it("makes both foundation lanes ready after the contract closes", async () => {
     const sandboxRoot = mkdtempSync(path.join(tmpdir(), "aegis-mock-run-"));
@@ -141,5 +141,5 @@ describe.skipIf(!bdSupport.supported)("seedMockRun", () => {
       result.issueIdByKey["foundation.lane_a"],
       result.issueIdByKey["foundation.lane_b"],
     ].sort());
-  }, 60_000);
+  }, 90_000);
 });

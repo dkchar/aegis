@@ -64,6 +64,7 @@ interface MergeStageOutcome {
 }
 
 const NOOP_SUBSCRIBE: LiveEventPublisher["subscribe"] = () => () => {};
+let mergeQueueLock: Promise<void> = Promise.resolve();
 
 function createPendingDispatchRecord(
   issueId: string,
@@ -110,15 +111,35 @@ function persistDispatchRecord(
   state: DispatchState,
   record: DispatchRecord,
 ): DispatchState {
+  const latestState = loadDispatchState(deps.projectRoot);
+  const baseState = latestState.schemaVersion === state.schemaVersion
+    ? latestState
+    : state;
   const nextState: DispatchState = {
-    schemaVersion: state.schemaVersion,
+    schemaVersion: baseState.schemaVersion,
     records: {
-      ...state.records,
+      ...baseState.records,
       [record.issueId]: record,
     },
   };
   saveDispatchState(deps.projectRoot, nextState);
   return nextState;
+}
+
+async function withMergeQueueLock<T>(work: () => Promise<T>): Promise<T> {
+  const previous = mergeQueueLock;
+  let release: () => void = () => {};
+  mergeQueueLock = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  await previous;
+
+  try {
+    return await work();
+  } finally {
+    release();
+  }
 }
 
 function runGit(
@@ -311,6 +332,7 @@ async function scoutIssue(
     allowComplexAutoDispatch: true,
     mnemosyne: deps.config.mnemosyne,
     model: deps.config.models.oracle,
+    eventPublisher: deps.eventPublisher,
   });
   persistDispatchRecord(deps, state, oracleResult.updatedRecord);
 
@@ -384,6 +406,7 @@ async function ensureOracleStage(
       allowComplexAutoDispatch: true,
       mnemosyne: deps.config.mnemosyne,
       model: deps.config.models.oracle,
+      eventPublisher: deps.eventPublisher,
     });
     state = persistDispatchRecord(deps, state, oracleResult.updatedRecord);
     const refreshedIssue = await deps.tracker.getIssue(issueId);
@@ -482,6 +505,7 @@ async function implementIssue(
     projectRoot: deps.projectRoot,
     mnemosyne: deps.config.mnemosyne,
     model: deps.config.models.titan,
+    eventPublisher: deps.eventPublisher,
   });
   persistDispatchRecord(deps, state, titanResult.updatedRecord);
 
@@ -554,136 +578,140 @@ async function ensureMergedStage(
     return implementedStage;
   }
 
-  if (implementedStage.record.stage === DispatchStage.Merged
-    || implementedStage.record.stage === DispatchStage.Reviewing
-    || implementedStage.record.stage === DispatchStage.Complete) {
-    return {
-      issue: implementedStage.issue,
-      record: implementedStage.record,
-      message: describeAlreadyReached(implementedStage.record),
-    };
-  }
+  return withMergeQueueLock(async () => {
+    const latestRecord = loadDispatchState(deps.projectRoot).records[issueId] ?? implementedStage.record;
 
-  let dispatchState = loadDispatchState(deps.projectRoot);
-  let queueState = loadMergeQueueState(deps.projectRoot);
+    if (latestRecord.stage === DispatchStage.Merged
+      || latestRecord.stage === DispatchStage.Reviewing
+      || latestRecord.stage === DispatchStage.Complete) {
+      return {
+        issue: implementedStage.issue,
+        record: latestRecord,
+        message: describeAlreadyReached(latestRecord),
+      };
+    }
 
-  if (implementedStage.record.stage === DispatchStage.Implemented) {
-    const admission = runAdmissionWorkflow(
-      dispatchState,
-      queueState,
-      deps.eventPublisher,
-      {
-        dispatchRecord: implementedStage.record,
-        candidateBranch: implementedStage.labor.branchName,
-        targetBranch: "main",
-      },
+    let dispatchState = loadDispatchState(deps.projectRoot);
+    let queueState = loadMergeQueueState(deps.projectRoot);
+
+    if (latestRecord.stage === DispatchStage.Implemented) {
+      const admission = runAdmissionWorkflow(
+        dispatchState,
+        queueState,
+        deps.eventPublisher,
+        {
+          dispatchRecord: latestRecord,
+          candidateBranch: implementedStage.labor.branchName,
+          targetBranch: "main",
+        },
+      );
+
+      dispatchState = admission.dispatchState;
+      queueState = admission.queueState;
+      saveDispatchState(deps.projectRoot, dispatchState);
+      saveMergeQueueState(deps.projectRoot, queueState);
+    }
+
+    let currentRecord = loadDispatchState(deps.projectRoot).records[issueId];
+    if (!currentRecord) {
+      return {
+        kind: "review",
+        status: "declined",
+        message: `No dispatch record exists for ${issueId}.`,
+      };
+    }
+
+    const queueStateForProcessing = loadMergeQueueState(deps.projectRoot);
+    const janusRequiredItem = queueStateForProcessing.items.find(
+      (item) => item.status === "janus_required",
+    );
+    if (janusRequiredItem && janusRequiredItem.issueId !== issueId) {
+      return {
+        kind: "review",
+        status: "declined",
+        message: `Issue ${issueId} cannot bypass Janus work for ${janusRequiredItem.issueId}.`,
+      };
+    }
+
+    const nextQueued = nextQueuedItem(queueStateForProcessing);
+    if (nextQueued && nextQueued.issueId !== issueId) {
+      return {
+        kind: "review",
+        status: "declined",
+        message: `Issue ${issueId} is queued behind ${nextQueued.issueId}; direct review cannot skip FIFO merge order.`,
+      };
+    }
+
+    if (currentRecord.stage === DispatchStage.QueuedForMerge) {
+      currentRecord = transitionStage(currentRecord, DispatchStage.Merging);
+      dispatchState = {
+        schemaVersion: dispatchState.schemaVersion,
+        records: {
+          ...dispatchState.records,
+          [issueId]: currentRecord,
+        },
+      };
+      saveDispatchState(deps.projectRoot, dispatchState);
+    }
+
+    const queueResult = await processNextQueueItem(queueStateForProcessing, {
+      projectRoot: deps.projectRoot,
+      eventPublisher: deps.eventPublisher,
+      janusEnabled: deps.config.janus.enabled,
+      maxRetryAttempts: deps.config.thresholds.janus_retry_threshold,
+      targetBranch: "main",
+      runtime: deps.runtime,
+      janusModel: deps.config.models.janus,
+    });
+
+    if (!queueResult) {
+      return {
+        kind: "review",
+        status: "declined",
+        message: `Merge queue is empty for ${issueId}.`,
+      };
+    }
+
+    saveMergeQueueState(deps.projectRoot, queueResult.updatedState);
+    dispatchState = loadDispatchState(deps.projectRoot);
+    const postQueueRecord = dispatchState.records[issueId] ?? currentRecord;
+    const reconciledRecord = reconcileDispatchRecordAfterQueueStatus(
+      postQueueRecord,
+      queueResult.result.newStatus,
     );
 
-    dispatchState = admission.dispatchState;
-    queueState = admission.queueState;
-    saveDispatchState(deps.projectRoot, dispatchState);
-    saveMergeQueueState(deps.projectRoot, queueState);
-  }
+    if (reconciledRecord !== postQueueRecord) {
+      dispatchState = {
+        schemaVersion: dispatchState.schemaVersion,
+        records: {
+          ...dispatchState.records,
+          [issueId]: reconciledRecord,
+        },
+      };
+      saveDispatchState(deps.projectRoot, dispatchState);
+    }
 
-  let currentRecord = loadDispatchState(deps.projectRoot).records[issueId];
-  if (!currentRecord) {
+    if (queueResult.result.newStatus !== "merged") {
+      const detail = queueResult.result.error ?? queueResult.result.newStatus;
+      const message = queueResult.result.newStatus === "janus_required"
+        ? `Merge for ${issueId} now requires Janus resolution before review can continue.`
+        : queueResult.result.newStatus === "queued"
+          ? `Janus resolved ${issueId}; the candidate was requeued for a fresh mechanical merge pass.`
+          : `Merge failed for ${issueId}: ${detail}`;
+
+      return {
+        kind: "review",
+        status: "declined",
+        message,
+      };
+    }
+
     return {
-      kind: "review",
-      status: "declined",
-      message: `No dispatch record exists for ${issueId}.`,
+      issue: implementedStage.issue,
+      record: reconciledRecord,
+      message: `Merged ${issueId}.`,
     };
-  }
-
-  const queueStateForProcessing = loadMergeQueueState(deps.projectRoot);
-  const janusRequiredItem = queueStateForProcessing.items.find(
-    (item) => item.status === "janus_required",
-  );
-  if (janusRequiredItem && janusRequiredItem.issueId !== issueId) {
-    return {
-      kind: "review",
-      status: "declined",
-      message: `Issue ${issueId} cannot bypass Janus work for ${janusRequiredItem.issueId}.`,
-    };
-  }
-
-  const nextQueued = nextQueuedItem(queueStateForProcessing);
-  if (nextQueued && nextQueued.issueId !== issueId) {
-    return {
-      kind: "review",
-      status: "declined",
-      message: `Issue ${issueId} is queued behind ${nextQueued.issueId}; direct review cannot skip FIFO merge order.`,
-    };
-  }
-
-  if (currentRecord.stage === DispatchStage.QueuedForMerge) {
-    currentRecord = transitionStage(currentRecord, DispatchStage.Merging);
-    dispatchState = {
-      schemaVersion: dispatchState.schemaVersion,
-      records: {
-        ...dispatchState.records,
-        [issueId]: currentRecord,
-      },
-    };
-    saveDispatchState(deps.projectRoot, dispatchState);
-  }
-
-  const queueResult = await processNextQueueItem(queueStateForProcessing, {
-    projectRoot: deps.projectRoot,
-    eventPublisher: deps.eventPublisher,
-    janusEnabled: deps.config.janus.enabled,
-    maxRetryAttempts: deps.config.thresholds.janus_retry_threshold,
-    targetBranch: "main",
-    runtime: deps.runtime,
-    janusModel: deps.config.models.janus,
   });
-
-  if (!queueResult) {
-    return {
-      kind: "review",
-      status: "declined",
-      message: `Merge queue is empty for ${issueId}.`,
-    };
-  }
-
-  saveMergeQueueState(deps.projectRoot, queueResult.updatedState);
-  dispatchState = loadDispatchState(deps.projectRoot);
-  const latestRecord = dispatchState.records[issueId] ?? currentRecord;
-  const reconciledRecord = reconcileDispatchRecordAfterQueueStatus(
-    latestRecord,
-    queueResult.result.newStatus,
-  );
-
-  if (reconciledRecord !== latestRecord) {
-    dispatchState = {
-      schemaVersion: dispatchState.schemaVersion,
-      records: {
-        ...dispatchState.records,
-        [issueId]: reconciledRecord,
-      },
-    };
-    saveDispatchState(deps.projectRoot, dispatchState);
-  }
-
-  if (queueResult.result.newStatus !== "merged") {
-    const detail = queueResult.result.error ?? queueResult.result.newStatus;
-    const message = queueResult.result.newStatus === "janus_required"
-      ? `Merge for ${issueId} now requires Janus resolution before review can continue.`
-      : queueResult.result.newStatus === "queued"
-        ? `Janus resolved ${issueId}; the candidate was requeued for a fresh mechanical merge pass.`
-        : `Merge failed for ${issueId}: ${detail}`;
-
-    return {
-      kind: "review",
-      status: "declined",
-      message,
-    };
-  }
-
-  return {
-    issue: implementedStage.issue,
-    record: reconciledRecord,
-    message: `Merged ${issueId}.`,
-  };
 }
 
 async function reviewIssue(
@@ -722,6 +750,7 @@ async function reviewIssue(
     budget: deps.config.budgets.sentinel,
     projectRoot: deps.projectRoot,
     model: deps.config.models.sentinel,
+    eventPublisher: deps.eventPublisher,
   });
   state = persistDispatchRecord(deps, state, sentinelResult.updatedRecord);
 

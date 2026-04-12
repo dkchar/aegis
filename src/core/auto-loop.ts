@@ -1,18 +1,13 @@
 /**
- * Fresh-ready auto-loop contract for S07.
+ * Backlog-sweep auto-loop contract for S07.
  *
- * Auto mode may only process work that became ready after auto was enabled.
- * Lane B will own the actual polling/dispatch loop; this module provides the
- * time-based gate used to keep that loop deterministic.
+ * Auto mode treats any ready issue as eligible while it is enabled, including
+ * work that was already in bd ready before the toggle. Lane B owns the actual
+ * polling/dispatch loop; this module only answers whether auto mode is active.
  */
 
 export interface AutoLoopState {
   enabledAt: string | null;
-}
-
-export interface ReadyIssueObservation {
-  id: string;
-  readyAt: string;
 }
 
 export function createAutoLoopState(): AutoLoopState {
@@ -33,23 +28,6 @@ export function disableAutoLoop(): AutoLoopState {
   };
 }
 
-function parseTimestamp(value: string, fieldName: string): number {
-  const parsed = Date.parse(value);
-  if (Number.isNaN(parsed)) {
-    throw new Error(`Invalid timestamp for ${fieldName}: ${value}`);
-  }
-
-  return parsed;
-}
-
-export function isNewReadyIssue(
-  issue: ReadyIssueObservation,
-  state: AutoLoopState,
-): boolean {
-  if (state.enabledAt === null) {
-    return false;
-  }
-
-  return parseTimestamp(issue.readyAt, "issue.readyAt") >
-    parseTimestamp(state.enabledAt, "state.enabledAt");
+export function isAutoLoopEligible(state: AutoLoopState): boolean {
+  return state.enabledAt !== null;
 }

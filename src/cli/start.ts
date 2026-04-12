@@ -12,14 +12,16 @@ import {
   type AegisConfig,
 } from "../config/schema.js";
 import {
-  createNoopEventPublisher,
   executeProjectDirectCommand,
 } from "../core/direct-command-runner.js";
+import { runAutoLoopTick } from "../core/auto-loop-runner.js";
 import {
   loadDispatchState,
   reconcileDispatchState,
   saveDispatchState,
 } from "../core/dispatch-state.js";
+import { createLoopPhaseLog } from "../events/dashboard-events.js";
+import { createInMemoryLiveEventBus } from "../events/event-bus.js";
 import {
   createHttpServerController,
   type HttpServerBindings,
@@ -638,16 +640,83 @@ export async function startAegis(
   const token = randomUUID();
   const runtimeAdapter = createRuntimeForConfig(resolvedConfig.runtime);
   const tracker = new BeadsCliClient((args) => execBdInRepository(repoRoot, args));
+  const liveEventBus = options.httpServerBindings?.eventIngress ?? createInMemoryLiveEventBus();
   let runningState: RuntimeStateRecord | null = null;
+  let autoLoopTimer: NodeJS.Timeout | null = null;
+  let autoLoopTickInFlight = false;
+  let autoLoopTickPromise: Promise<void> | null = null;
+
+  const stopAutoLoop = () => {
+    if (!autoLoopTimer) {
+      return;
+    }
+
+    clearInterval(autoLoopTimer);
+    autoLoopTimer = null;
+  };
+
+  const runScheduledAutoLoopTick = () => {
+    if (autoLoopTickInFlight) {
+      return autoLoopTickPromise ?? Promise.resolve();
+    }
+
+    autoLoopTickInFlight = true;
+    autoLoopTickPromise = (async () => {
+      try {
+        await runAutoLoopTick({
+          enabledAt: new Date().toISOString(),
+          projectRoot: repoRoot,
+          config: resolvedConfig,
+          tracker,
+          runtime: runtimeAdapter,
+          eventPublisher: liveEventBus,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        liveEventBus.publish(
+          createLoopPhaseLog("reap", `auto loop tick failed: ${message}`),
+        );
+      } finally {
+        autoLoopTickInFlight = false;
+        autoLoopTickPromise = null;
+      }
+    })();
+
+    return autoLoopTickPromise;
+  };
+
+  const startAutoLoop = () => {
+    if (autoLoopTimer) {
+      return;
+    }
+
+    const intervalMs = Math.max(1, resolvedConfig.thresholds.poll_interval_seconds) * 1000;
+    autoLoopTimer = setInterval(() => {
+      void runScheduledAutoLoopTick();
+    }, intervalMs);
+    autoLoopTimer.unref();
+    void runScheduledAutoLoopTick();
+  };
+
+  const syncAutoLoopToMode = (state: { mode: OrchestrationMode; paused: boolean }) => {
+    if (state.mode === "auto" && !state.paused) {
+      startAutoLoop();
+      return;
+    }
+
+    stopAutoLoop();
+  };
+
   const httpServerBindings: HttpServerBindings = {
     ...options.httpServerBindings,
+    eventIngress: liveEventBus,
     executeCommand: options.httpServerBindings?.executeCommand ?? (async (commandText) => (
       executeProjectDirectCommand(parseCommand(commandText), {
         projectRoot: repoRoot,
         config: resolvedConfig,
         tracker,
         runtime: runtimeAdapter,
-        eventPublisher: options.httpServerBindings?.eventPublisher ?? createNoopEventPublisher(),
+        eventPublisher: liveEventBus,
       })
     )),
     onOperatingModeStateChange: (state) => {
@@ -659,6 +728,7 @@ export async function startAegis(
         writeRuntimeState(runningState, repoRoot);
       }
 
+      syncAutoLoopToMode(state);
       options.httpServerBindings?.onOperatingModeStateChange?.(state);
     },
   };
@@ -696,6 +766,8 @@ export async function startAegis(
         clearInterval(stopRequestPoller);
         stopRequestPoller = null;
       }
+      stopAutoLoop();
+      await autoLoopTickPromise;
       await controller.stop();
       clearStopRequest(repoRoot);
       writeRuntimeState(toStoppedRuntimeState(runningState!, reason), repoRoot);

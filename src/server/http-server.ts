@@ -64,6 +64,7 @@ export interface HttpServerContract {
 
 export interface HttpServerBindings {
   eventPublisher?: LiveEventPublisher;
+  eventIngress?: LiveEventPublisher;
   executeCommand?: (
     commandText: string,
     context: CommandExecutionContext,
@@ -279,6 +280,7 @@ export function createHttpServerController(
   let startedAt: number | null = null;
   let serverToken: string | undefined;
   let nextEventSequence = 1;
+  let unsubscribeEventIngress: (() => void) | null = null;
   let operatingModeState: OperatingModeState = createOperatingModeState();
   let autoLoopState: AutoLoopState = createAutoLoopState();
   const activeSseConnections = new Set<ServerResponse>();
@@ -294,6 +296,19 @@ export function createHttpServerController(
     replayBus.publish(event);
     bindings.eventPublisher?.publish(event);
     dashboardStateStore.apply(event);
+  }
+
+  function deriveStatusMetrics(storeSnapshot: ReturnType<DashboardStateStore["snapshot"]>) {
+    const activeAgents = Object.keys(storeSnapshot.sessions.active).length;
+    const queueDepth = Math.max(
+      storeSnapshot.status.queueDepth,
+      storeSnapshot.mergeQueue.items.length,
+    );
+
+    return {
+      activeAgents,
+      queueDepth,
+    };
   }
 
   function getCurrentMode(): OrchestrationMode {
@@ -358,6 +373,9 @@ export function createHttpServerController(
   }
 
   function publishOrchestratorStateEvent() {
+    const storeSnapshot = dashboardStateStore.snapshot();
+    const metrics = deriveStatusMetrics(storeSnapshot);
+
     publishEvent(
       createLiveEvent({
         id: `evt-${nextEventSequence}`,
@@ -369,17 +387,13 @@ export function createHttpServerController(
             mode: getCurrentMode(),
             isRunning: lifecycleState === "running",
             uptimeSeconds: startedAt === null ? 0 : Math.floor((Date.now() - startedAt) / 1000),
-            activeAgents: 0,
-            queueDepth: 0,
+            activeAgents: metrics.activeAgents,
+            queueDepth: metrics.queueDepth,
             paused: operatingModeState.paused,
             autoLoopEnabled: autoLoopState.enabledAt !== null,
           },
-          spend: {
-            metering: "unknown" as const,
-            totalInputTokens: 0,
-            totalOutputTokens: 0,
-          },
-          agents: [],
+          spend: { ...storeSnapshot.spend },
+          agents: [...storeSnapshot.agents],
         },
       }),
     );
@@ -387,6 +401,7 @@ export function createHttpServerController(
 
   function buildDashboardStateSnapshot() {
     const storeSnapshot = dashboardStateStore.snapshot();
+    const metrics = deriveStatusMetrics(storeSnapshot);
     const cfg = loadConfig(projectRoot);
     const dailyHardStop = cfg.economics?.daily_hard_stop_usd ?? null;
 
@@ -397,6 +412,8 @@ export function createHttpServerController(
         mode: getCurrentMode(),
         isRunning: lifecycleState === "running",
         uptimeSeconds: startedAt === null ? 0 : Math.floor((Date.now() - startedAt) / 1000),
+        activeAgents: metrics.activeAgents,
+        queueDepth: metrics.queueDepth,
         paused: operatingModeState.paused,
         autoLoopEnabled: autoLoopState.enabledAt !== null,
       },
@@ -592,6 +609,13 @@ export function createHttpServerController(
       lifecycleState = "starting";
       projectRoot = path.resolve(options.root ?? process.cwd());
       serverToken = options.serverToken;
+      if (!unsubscribeEventIngress && bindings.eventIngress) {
+        unsubscribeEventIngress = bindings.eventIngress.subscribe((event) => {
+          replayBus.publish(event);
+          dashboardStateStore.apply(event);
+          publishOrchestratorStateEvent();
+        });
+      }
       const host = options.host ?? "127.0.0.1";
       const server = createServer((request, response) => {
         void handleRequest(request, response).catch((error: Error) => {
@@ -674,6 +698,10 @@ export function createHttpServerController(
       lifecycleState = "stopped";
       startedAt = null;
       serverToken = undefined;
+      if (unsubscribeEventIngress) {
+        unsubscribeEventIngress();
+        unsubscribeEventIngress = null;
+      }
       publishOrchestratorStateEvent();
     },
     status() {

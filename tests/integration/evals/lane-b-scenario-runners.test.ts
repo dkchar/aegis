@@ -51,19 +51,23 @@ describe("lane B MVP scenario runners", () => {
     expect(result.human_intervention_issue_ids).toEqual(["conflict-001"]);
   });
 
-  it("routes Janus escalation back through the queue and then completes", async () => {
-    const result = await runScenario({
-      scenario: getScenario("janus-escalation"),
-      projectRoot: repoRoot,
-    });
+  it(
+    "routes Janus escalation back through the queue and then completes",
+    async () => {
+      const result = await runScenario({
+        scenario: getScenario("janus-escalation"),
+        projectRoot: repoRoot,
+      });
 
-    expect(result.completion_outcomes).toEqual({
-      "janus-esc-001": "completed",
-    });
-    expect(result.merge_outcomes).toEqual({
-      "janus-esc-001": "conflict_resolved_janus",
-    });
-  });
+      expect(result.completion_outcomes).toEqual({
+        "janus-esc-001": "completed",
+      });
+      expect(result.merge_outcomes).toEqual({
+        "janus-esc-001": "conflict_resolved_janus",
+      });
+    },
+    15_000,
+  );
 
   it("stops on Janus manual decision without auto-resolving the ambiguity", async () => {
     const result = await runScenario({

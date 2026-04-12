@@ -4,12 +4,10 @@ import { App } from "../../App";
 import * as apiClient from "../../lib/api-client";
 import * as useSseModule from "../../lib/use-sse";
 
-// Mock the useSse hook
 vi.mock("../../lib/use-sse", () => ({
   useSse: vi.fn(),
 }));
 
-// Mock the api-client
 vi.mock("../../lib/api-client", () => ({
   sendCommand: vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) }),
   killAgent: vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) }),
@@ -21,7 +19,6 @@ vi.mock("../../lib/api-client", () => ({
   submitLearning: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
-// Mock global styles injection
 vi.mock("../../theme/global.css", () => ({
   injectGlobalStyles: vi.fn(),
 }));
@@ -41,6 +38,34 @@ function setMockReadyIssues(issueIds: string[]) {
   vi.mocked(apiClient.fetchReadyIssues).mockResolvedValue(
     issueIds.map((id) => ({ id, title: `${id} title`, priority: 1 })),
   );
+}
+
+function buildBaseState(overrides: Record<string, unknown> = {}) {
+  return {
+    status: {
+      mode: "conversational" as const,
+      isRunning: true,
+      uptimeSeconds: 12,
+      activeAgents: 0,
+      queueDepth: 0,
+      paused: false,
+      autoLoopEnabled: false,
+      ...((overrides.status as Record<string, unknown>) ?? {}),
+    },
+    spend: {
+      metering: "unknown" as const,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      ...((overrides.spend as Record<string, unknown>) ?? {}),
+    },
+    agents: [],
+    ...overrides,
+  };
+}
+
+function getMetricText(label: string): string {
+  const metric = screen.getByText(label).closest('[data-testid="metric-display"]');
+  return metric?.textContent ?? "";
 }
 
 describe("App", () => {
@@ -123,7 +148,6 @@ describe("App", () => {
   it("shows empty state when no agents are active", () => {
     setMockUseSse({ state: { status: {}, spend: {}, agents: [] } });
     const { container } = render(<App />);
-    // Use querySelector to avoid StrictMode duplication issues
     const emptyText = container.querySelector(".empty-state-text");
     expect(emptyText?.textContent).toBe("No active agents");
   });
@@ -158,10 +182,8 @@ describe("App", () => {
     render(<App />);
 
     const headings = screen.getAllByRole("heading").map((node) => node.textContent);
-
-    // Extract only the canonical execution headings and verify their relative order
-    const canonical = headings.filter((h) =>
-      ["Aegis Loop", "Merge Queue", "Active Agent Sessions", "Completed Sessions"].includes(h),
+    const canonical = headings.filter((heading) =>
+      ["Aegis Loop", "Merge Queue", "Active Agent Sessions", "Completed Sessions"].includes(heading ?? ""),
     );
     expect(canonical).toEqual([
       "Aegis Loop",
@@ -175,5 +197,144 @@ describe("App", () => {
     setMockUseSse({ isConnected: true });
     render(<App />);
     expect(screen.queryByText("Start Run")).toBeNull();
+  });
+
+  it("hydrates the sidebar issue graph from ready queue data", async () => {
+    setMockUseSse({ isConnected: true });
+    setMockReadyIssues(["foundation.contract"]);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.queryByText("No graph data")).toBeNull();
+      expect(screen.getByText("Selected Issue")).toBeTruthy();
+      expect(screen.getByText("Stage: ready")).toBeTruthy();
+    });
+  });
+
+  it("uses live ready queue and active sessions when top-bar counters lag", async () => {
+    setMockReadyIssues(["foundation.contract", "merge.queue"]);
+
+    setMockUseSse({
+      isConnected: true,
+      state: buildBaseState({
+        status: {
+          activeAgents: 0,
+          queueDepth: 0,
+        },
+        sessions: {
+          active: {
+            session_a: {
+              id: "session_a",
+              caste: "titan",
+              issueId: "bd-live",
+              stage: "implementing",
+              model: "pi:default",
+              lines: [],
+            },
+            session_b: {
+              id: "session_b",
+              caste: "oracle",
+              issueId: "bd-aux",
+              stage: "scouting",
+              model: "pi:default",
+              lines: [],
+            },
+          },
+          recent: [],
+        },
+        mergeQueue: {
+          items: [
+            { issueId: "bd-merge", status: "queued", attemptCount: 1, lastError: null },
+          ],
+          logs: [],
+        },
+      }),
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(getMetricText("Queue")).toContain("2");
+      expect(getMetricText("Agents")).toContain("2");
+    });
+  });
+
+  it("builds the sidebar graph from ready issues, merge queue items, active sessions, and recent sessions", async () => {
+    setMockReadyIssues(["foundation.contract"]);
+
+    setMockUseSse({
+      isConnected: true,
+      state: buildBaseState({
+        sessions: {
+          active: {
+            session_a: {
+              id: "session_a",
+              caste: "titan",
+              issueId: "bd-active",
+              stage: "implementing",
+              model: "pi:default",
+              lines: ["working"],
+            },
+          },
+          recent: [
+            {
+              id: "session_b",
+              caste: "oracle",
+              issueId: "bd-recent",
+              outcome: "completed",
+              endedAt: new Date().toISOString(),
+            },
+          ],
+        },
+        mergeQueue: {
+          items: [
+            { issueId: "bd-merge", status: "queued", attemptCount: 1, lastError: null },
+          ],
+          logs: [],
+        },
+      }),
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.queryByText("No graph data")).toBeNull();
+      expect(screen.getByText("bd-active - active: implementing")).toBeTruthy();
+      expect(screen.getByText("bd-merge - merge: queued")).toBeTruthy();
+      expect(screen.getByText("bd-recent - recent: completed")).toBeTruthy();
+      expect(screen.getByText("foundation.contract - ready")).toBeTruthy();
+    });
+  });
+
+  it("selects the active session issue before a ready issue", async () => {
+    setMockReadyIssues(["foundation.contract"]);
+
+    setMockUseSse({
+      isConnected: true,
+      state: buildBaseState({
+        sessions: {
+          active: {
+            session_a: {
+              id: "session_a",
+              caste: "titan",
+              issueId: "bd-active",
+              stage: "implementing",
+              model: "pi:default",
+              lines: ["working"],
+            },
+          },
+          recent: [],
+        },
+      }),
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Selected Issue")).toBeTruthy();
+      expect(screen.getByText("bd-active")).toBeTruthy();
+      expect(screen.getByText("Stage: implementing")).toBeTruthy();
+    });
   });
 });

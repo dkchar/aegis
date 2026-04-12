@@ -11,6 +11,7 @@ import { createScenarioSandbox, createTrackedIssue, InMemoryScenarioTracker } fr
 import { loadMergeQueueState } from "../../../src/merge/merge-queue-store.js";
 import { parseCommand } from "../../../src/cli/parse-command.js";
 import type { AgentEvent, AgentHandle, AgentRuntime, SpawnOptions } from "../../../src/runtime/agent-runtime.js";
+import type { AegisLiveEvent } from "../../../src/events/event-bus.js";
 
 const ISSUE_ID = "liveaegis-1n2";
 
@@ -142,6 +143,24 @@ describe("executeProjectDirectCommand", () => {
         state.records[ISSUE_ID].oracleAssessmentRef!,
       );
       expect(readFileSync(assessmentPath, "utf8")).toContain(`"ready": true`);
+
+      const publishedEvents = sandbox.eventBus.snapshot();
+      expect(publishedEvents.some((event) =>
+        event.type === "loop.phase_log"
+        && event.payload.phase === "dispatch"
+        && event.payload.line.includes(`oracle -> ${ISSUE_ID}`)
+      )).toBe(true);
+      expect(publishedEvents.some((event) =>
+        event.type === "agent.session_started"
+        && event.payload.caste === "oracle"
+        && event.payload.issueId === ISSUE_ID
+      )).toBe(true);
+      expect(publishedEvents.some((event) =>
+        event.type === "agent.session_ended"
+        && event.payload.caste === "oracle"
+        && event.payload.issueId === ISSUE_ID
+        && event.payload.outcome === "completed"
+      )).toBe(true);
     } finally {
       sandbox.cleanup();
     }
@@ -183,6 +202,29 @@ describe("executeProjectDirectCommand", () => {
       );
       expect(readFileSync(mergedFile, "utf8")).toContain(ISSUE_ID);
       expect((await tracker.getIssue(ISSUE_ID)).status).toBe("closed");
+
+      const publishedEvents = sandbox.eventBus.snapshot();
+      expect(publishedEvents.some((event) =>
+        event.type === "agent.session_started"
+        && event.payload.caste === "oracle"
+        && event.payload.issueId === ISSUE_ID
+      )).toBe(true);
+      expect(publishedEvents.some((event) =>
+        event.type === "agent.session_started"
+        && event.payload.caste === "titan"
+        && event.payload.issueId === ISSUE_ID
+      )).toBe(true);
+      expect(publishedEvents.some((event) =>
+        event.type === "agent.session_started"
+        && event.payload.caste === "sentinel"
+        && event.payload.issueId === ISSUE_ID
+      )).toBe(true);
+      expect(publishedEvents.some((event) =>
+        event.type === "agent.session_ended"
+        && event.payload.caste === "sentinel"
+        && event.payload.issueId === ISSUE_ID
+        && event.payload.outcome === "completed"
+      )).toBe(true);
     } finally {
       sandbox.cleanup();
     }

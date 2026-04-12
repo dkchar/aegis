@@ -48,6 +48,8 @@ export function useLiveUptime(uptimeSeconds: number, isRunning: boolean): number
 export interface TopBarProps {
   state: DashboardState | null;
   isConnected: boolean;
+  liveActiveAgents?: number | null;
+  liveQueueDepth?: number | null;
   onSettingsOpen: () => void;
 }
 
@@ -106,12 +108,12 @@ function formatSpend(state: DashboardState | null): { value: string; unit?: stri
 }
 
 export function TopBar(props: TopBarProps): JSX.Element {
-  const { state, isConnected, onSettingsOpen } = props;
+  const { state, isConnected, liveActiveAgents, liveQueueDepth, onSettingsOpen } = props;
 
   const isRunning = state?.status.isRunning ?? false;
   const mode = state?.status.mode ?? null;
-  const activeAgents = state?.status.activeAgents ?? 0;
-  const queueDepth = state?.status.queueDepth ?? 0;
+  const activeAgents = liveActiveAgents ?? state?.status.activeAgents ?? 0;
+  const queueDepth = liveQueueDepth ?? state?.status.queueDepth ?? 0;
   const uptimeSeconds = state?.status.uptimeSeconds ?? 0;
   const isAutoMode = mode === "auto";
 
