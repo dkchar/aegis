@@ -139,6 +139,7 @@ export interface OrchestratorStateEventPayload {
     activeAgents: number;
     queueDepth: number;
     paused: boolean;
+    autoLoopEnabled: boolean;
   };
   spend: {
     metering: string;

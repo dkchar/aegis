@@ -372,6 +372,7 @@ export function createHttpServerController(
             activeAgents: 0,
             queueDepth: 0,
             paused: operatingModeState.paused,
+            autoLoopEnabled: autoLoopState.enabledAt !== null,
           },
           spend: {
             metering: "unknown" as const,
@@ -397,6 +398,7 @@ export function createHttpServerController(
         isRunning: lifecycleState === "running",
         uptimeSeconds: startedAt === null ? 0 : Math.floor((Date.now() - startedAt) / 1000),
         paused: operatingModeState.paused,
+        autoLoopEnabled: autoLoopState.enabledAt !== null,
       },
       config: {
         runtime: cfg.runtime ?? "pi",

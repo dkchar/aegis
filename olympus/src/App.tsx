@@ -13,23 +13,14 @@ import { MergeQueuePanel } from "./components/merge-queue-panel";
 import { ActiveSessionsPanel } from "./components/active-sessions-panel";
 import { RecentSessionsTray } from "./components/recent-sessions-tray";
 import { JanusPopup } from "./components/janus-popup";
+import { fetchReadyIssues } from "./lib/api-client";
 import type { CommandResult } from "./components/command-bar";
 import type { DashboardState } from "./types/dashboard-state";
 import type { LoopPhaseLogs, LoopState } from "./components/loop-panel";
 import type { SelectedIssue } from "./components/operator-sidebar";
-
-/**
- * Mirrors STEER_COMMAND_REFERENCE from src/shared/steer-command-reference.ts.
- * Olympus cannot import directly from the root workspace, so we keep this
- * local constant in sync with the canonical list.
- */
-const STEER_REFERENCE = [
-  "status",
-  "pause",
-  "resume",
-  "focus <issue-id>",
-  "kill <agent-id>",
-];
+import type { ActiveSession } from "./components/active-sessions-panel";
+import type { RecentSession } from "./components/recent-sessions-tray";
+import type { JanusSession } from "./components/janus-popup";
 
 // Inject global styles on first render
 injectGlobalStyles();
@@ -70,11 +61,13 @@ function resultMessageOrFallback(result: SteerResult, fallback: string): string 
 }
 
 function deriveLoopState(state: DashboardState | null): LoopState {
-  if (!state?.status.isRunning) {
+  const autoEnabled = state?.status.autoLoopEnabled ?? false;
+
+  if (!autoEnabled) {
     return "idle";
   }
 
-  if (state.status.paused) {
+  if (state && state.status.paused) {
     return "paused";
   }
 
@@ -88,17 +81,49 @@ const EMPTY_PHASE_LOGS: LoopPhaseLogs = {
   reap: [],
 };
 
-const SIDEBAR_READY_QUEUE: string[] = [];
 const SIDEBAR_ISSUE_GRAPH: string[] = [];
 const SIDEBAR_SELECTED_ISSUE: SelectedIssue | null = null;
+const STEER_REFERENCE = [
+  "status",
+  "pause",
+  "resume",
+  "focus <issue-id>",
+  "kill <agent-id>",
+];
 
 export function App(): JSX.Element {
   const { state, isConnected, error, sendCommand } = useSse();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [commandResults, setCommandResults] = useState<CommandResult[]>([]);
+  const [readyQueue, setReadyQueue] = useState<string[]>([]);
   const janusSession = state?.janus && Object.keys(state.janus.active).length > 0
     ? Object.values(state.janus.active)[0] as { id: string; issueId: string; lines: string[] }
     : null;
+
+  // Fetch ready queue from the server and poll for updates
+  useEffect(() => {
+    if (!isConnected) {
+      setReadyQueue([]);
+      return;
+    }
+    let cancelled = false;
+    const fetch = async () => {
+      try {
+        const issues = await fetchReadyIssues();
+        if (!cancelled) {
+          setReadyQueue(issues.map((i) => i.id));
+        }
+      } catch {
+        // Silently fail — ready queue is advisory
+      }
+    };
+    void fetch();
+    const interval = setInterval(fetch, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [isConnected]);
 
   /** Auto-dismiss the oldest error card after a timeout. */
   useEffect(() => {
@@ -239,7 +264,7 @@ export function App(): JSX.Element {
 
       <div style={{ display: "flex", alignItems: "flex-start" }}>
         <OperatorSidebar
-          readyQueue={SIDEBAR_READY_QUEUE}
+          readyQueue={readyQueue}
           issueGraph={SIDEBAR_ISSUE_GRAPH}
           selectedIssue={SIDEBAR_SELECTED_ISSUE}
           steerReference={STEER_REFERENCE}

@@ -7,6 +7,7 @@ export interface OrchestratorStatus {
   activeAgents: number;
   queueDepth: number;
   paused: boolean;
+  autoLoopEnabled: boolean;
 }
 
 export interface SpendObservation {

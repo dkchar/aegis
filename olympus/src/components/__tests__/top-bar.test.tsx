@@ -5,7 +5,7 @@ import type { DashboardState } from "../../types/dashboard-state";
 
 function makeState(overrides: Partial<DashboardState> = {}): DashboardState {
   return {
-    status: { mode: "conversational", isRunning: true, uptimeSeconds: 3661, activeAgents: 2, queueDepth: 3, paused: false },
+    status: { mode: "conversational", isRunning: true, uptimeSeconds: 3661, activeAgents: 2, queueDepth: 3, paused: false, autoLoopEnabled: false },
     spend: { metering: "exact_usd", totalInputTokens: 1000, totalOutputTokens: 500 },
     agents: [],
     ...overrides,

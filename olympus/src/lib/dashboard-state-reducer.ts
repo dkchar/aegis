@@ -18,6 +18,7 @@ export function createEmptyDashboardState(): DashboardState {
       activeAgents: 0,
       queueDepth: 0,
       paused: false,
+      autoLoopEnabled: false,
     },
     spend: {
       metering: "unknown",
