@@ -177,7 +177,21 @@ export async function createOrchestrator(
 
     // MONITOR — check budget gates and drain events.
     monitor.checkBudgetGate();
-    monitor.drainEvents();
+    const monitorEvents = monitor.drainEvents();
+
+    // Check for fatal monitor events (e.g., tool-call failure).
+    // If found, log the error, disable auto mode, and stop the loop.
+    for (const evt of monitorEvents) {
+      if (evt.fatal) {
+        console.error(`[aegis] FATAL: ${evt.message}`);
+        mode = "idle";
+        if (pollTimer) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+        }
+        return;
+      }
+    }
   }
 
   // -----------------------------------------------------------------------

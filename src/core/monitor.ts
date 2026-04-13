@@ -104,6 +104,11 @@ export interface MonitorEvent {
   issueId: string;
   message: string;
   details?: Record<string, unknown>;
+  /**
+   * When true, this event signals a fatal condition that should stop the run loop.
+   * The orchestrator must surface this to the user and halt further dispatch.
+   */
+  fatal?: boolean;
 }
 
 export interface BudgetGateResult {

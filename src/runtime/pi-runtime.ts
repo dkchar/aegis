@@ -400,6 +400,17 @@ function applyToolRestrictions(tools: PiTool[], restrictions: string[]): PiTool[
   return tools.filter((t) => allowed.has(t.name));
 }
 
+/**
+ * Castes that require custom structured-output tools.
+ * These castes depend on submit_assessment, submit_handoff, or submit_verdict
+ * for deterministic artifact verification by the Reaper.
+ */
+const CASTES_REQUIRING_CUSTOM_TOOLS = new Set([
+  "oracle",
+  "titan",
+  "sentinel",
+]);
+
 function resolveSessionModel(modelReference?: string) {
   if (!modelReference || modelReference === "pi:default") {
     return undefined;

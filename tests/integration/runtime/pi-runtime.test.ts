@@ -72,6 +72,8 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
   createAgentSession: mockCreateAgentSession,
   codingTools: mockCodingTools,
   readOnlyTools: mockReadOnlyTools,
+  // Passthrough mock for defineTool — custom-tools.ts imports this
+  defineTool: vi.fn((_def: unknown) => _def),
 }));
 
 // ---------------------------------------------------------------------------

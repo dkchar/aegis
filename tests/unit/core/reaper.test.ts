@@ -321,6 +321,37 @@ describe("ReaperImpl — monitor termination and crash", () => {
     expect(result.monitorEvents.length).toBeGreaterThan(0);
     expect(result.monitorEvents[0].type).toBe("session_aborted_by_monitor");
   });
+
+  it("detects tool_call_failure when session completed but produced no output", () => {
+    const record = makeRecord("issue-1", DispatchStage.Scouting);
+    // Session completed but produced no events at all — model couldn't invoke tool
+    const result = reaper.reap("issue-1", "oracle", "completed", [], record);
+
+    expect(result.outcome).toBe("success"); // Session completed nominally
+    expect(result.artifacts.passed).toBe(false); // No artifacts
+    // tool_call_failure overrides the finalOutcome
+    expect(result.nextStage).toBe(DispatchStage.Failed);
+    // Should emit a fatal monitor event with actionable message
+    const fatalEvents = result.monitorEvents.filter((e) => e.fatal);
+    expect(fatalEvents.length).toBe(1);
+    expect(fatalEvents[0].message).toContain("could not invoke the required custom tool");
+  });
+
+  it("does NOT detect tool_call_failure for non-tool-call castes (janus)", () => {
+    const record = makeRecord("issue-1", DispatchStage.ResolvingIntegration);
+    record.runningAgent = { ...record.runningAgent!, caste: "janus" };
+    // Janus uses message-based artifacts, not custom tools
+    // When session completes with no events, artifacts fail (not tool_call_failure)
+    const result = reaper.reap("issue-1", "janus", "completed", [], record);
+
+    // Janus doesn't have tool_call_failure detection — it's artifact_failure instead
+    expect(result.outcome).toBe("success"); // Session completed
+    expect(result.artifacts.passed).toBe(false); // No resolution artifact
+    expect(result.nextStage).toBe(DispatchStage.Failed);
+    // No fatal events because it's not a tool_call_failure
+    const fatalEvents = result.monitorEvents.filter((e) => e.fatal);
+    expect(fatalEvents.length).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

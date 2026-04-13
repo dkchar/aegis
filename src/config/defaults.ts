@@ -8,9 +8,9 @@ export const DEFAULT_AEGIS_CONFIG: AegisConfig = {
     plan: "pro",
   },
   models: {
-    oracle: "pi:default",
-    titan: "pi:default",
-    sentinel: "pi:default",
+    oracle: "google:gemini-2.0-flash-exp",
+    titan: "google:gemini-2.0-flash-exp",
+    sentinel: "google:gemini-2.0-flash-exp",
     janus: "anthropic:claude-sonnet-4-6",
     metis: "anthropic:claude-haiku-4-5",
     prometheus: "anthropic:claude-sonnet-4-6",

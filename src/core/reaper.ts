@@ -25,6 +25,7 @@ export type SessionEndReason =
 export type ReaperOutcome =
   | "success"
   | "artifact_failure"
+  | "tool_call_failure"
   | "monitor_termination"
   | "crash";
 

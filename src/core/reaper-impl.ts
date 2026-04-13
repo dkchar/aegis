@@ -73,7 +73,14 @@ export class ReaperImpl implements Reaper {
     // 1. Determine the outcome category
     const outcome = this.determineOutcome(caste, endReason, events);
 
-    // 2. Verify artifacts
+    // 2. Detect tool-call failure: session "completed" but produced NO structured output
+    // for a caste that requires custom tools. This happens when the model cannot invoke
+    // the custom tool (known issue with some models like Gemma 4).
+    // We check this BEFORE artifact verification to distinguish "no tool call at all"
+    // from "tool call present but malformed".
+    const isToolCallFailure = this.detectToolCallFailure(caste, endReason, events);
+
+    // 3. Verify artifacts
     let artifacts: ArtifactVerification;
     switch (caste) {
       case "oracle":
@@ -97,16 +104,21 @@ export class ReaperImpl implements Reaper {
         };
     }
 
-    // 3. If artifacts don't pass, override outcome to artifact_failure
-    const finalOutcome = artifacts.passed ? outcome : "artifact_failure";
+    // 4. If artifacts don't pass, override outcome to artifact_failure
+    // If tool call failed entirely (no tool call emitted), override to tool_call_failure
+    const finalOutcome = isToolCallFailure
+      ? "tool_call_failure"
+      : artifacts.passed
+        ? outcome
+        : "artifact_failure";
 
-    // 4. Extract sentinel verdict if applicable and compute next stage
+    // 5. Extract sentinel verdict if applicable and compute next stage
     const sentinelVerdict = caste === "sentinel"
       ? this.extractSentinelVerdict(events)
       : undefined;
     const nextStage = computeNextStage(caste, finalOutcome, currentRecord.stage, sentinelVerdict);
 
-    // 5. Determine failure accounting
+    // 6. Determine failure accounting
     // Sentinel "fail" verdict IS a valid execution (the sentinel did its job
     // and rejected the PR), but it still counts as an agent failure for cooldown
     // purposes because the underlying issue remains unresolved.
@@ -116,10 +128,10 @@ export class ReaperImpl implements Reaper {
     const incrementFailure = finalOutcome !== "success" || isSentinelFailVerdict;
     const resetFail = finalOutcome === "success" && !isSentinelFailVerdict;
 
-    // 6. Labor cleanup
+    // 7. Labor cleanup
     const laborCleanup = determineLaborCleanup(caste, finalOutcome, issueId);
 
-    // 7. Merge candidate (Titan success only)
+    // 8. Merge candidate (Titan success only)
     const mergeCandidate = this.computeMergeCandidate(
       caste,
       finalOutcome,
@@ -127,14 +139,17 @@ export class ReaperImpl implements Reaper {
       events,
     );
 
-    // 8. Monitor events — based on endReason, not finalOutcome.
+    // 9. Monitor events — based on outcome (derived from endReason), not finalOutcome.
     // When the monitor terminates a session (budget, stuck, etc.), we emit
     // events regardless of whether artifacts happen to be present.
+    // When a tool-call failure is detected, we emit a fatal event to surface
+    // this to the user and kill the loop.
     const monitorEvents = this.collectMonitorEvents(
       caste,
       outcome,
       endReason,
       issueId,
+      isToolCallFailure,
     );
 
     return {
@@ -278,13 +293,24 @@ export class ReaperImpl implements Reaper {
         e.tool === "submit_verdict",
     );
 
-    const hasVerdict = verdictCalls.length > 0 && verdictCalls[0]!.args !== undefined;
+    let hasVerdict = verdictCalls.length > 0 && verdictCalls[0]!.args !== undefined;
+
+    // Transitional fallback: if no tool call found, check for JSON in messages
+    if (!hasVerdict) {
+      const verdictMessages = events.filter(
+        (e) =>
+          e.type === "message" &&
+          this.looksLikeSentinelVerdict(e.text),
+      );
+      hasVerdict = verdictMessages.length > 0;
+    }
+
     checks.push({
       name: "sentinel_verdict",
       passed: hasVerdict,
       detail: hasVerdict
-        ? `Found submit_verdict tool call with validated args`
-        : "No submit_verdict tool call found — Sentinel did not produce structured verdict",
+        ? `Found submit_verdict tool call or structured verdict in messages`
+        : "No submit_verdict tool call or valid verdict found — Sentinel did not produce structured verdict",
     });
 
     return {
@@ -351,6 +377,57 @@ export class ReaperImpl implements Reaper {
       default:
         return "crash";
     }
+  }
+
+  /**
+   * Detect when a session "completed" but produced NO structured output for a
+   * caste that requires custom tools. This means the model failed to invoke
+   * the custom tool AND did not fall back to producing the expected JSON in
+   * a message.
+   *
+   * This is a strong signal that the model cannot do tool calling at all
+   * (known issue with models like Gemma 4). The orchestrator should surface
+   * this to the user and kill the loop — continuing with retries will not help.
+   */
+  private detectToolCallFailure(
+    caste: string,
+    endReason: SessionEndReason,
+    events: AgentEvent[],
+  ): boolean {
+    // Only applies when the session nominally "completed" — crashes and
+    // monitor terminations are handled by their own outcome paths.
+    if (endReason !== "completed") return false;
+
+    // Only applies to castes that require custom structured-output tools.
+    const requiresTools = caste === "oracle" || caste === "titan" || caste === "sentinel";
+    if (!requiresTools) return false;
+
+    // Check for any custom tool_use event
+    const toolNames: Record<string, string> = {
+      oracle: "submit_assessment",
+      titan: "submit_handoff",
+      sentinel: "submit_verdict",
+    };
+    const expectedTool = toolNames[caste];
+    const hasToolCall = events.some(
+      (e) => e.type === "tool_use" && e.tool === expectedTool,
+    );
+    if (hasToolCall) return false; // Tool was invoked — not a tool-call failure
+
+    // Check for any valid message-based fallback (transitional path)
+    const hasMessageFallback = events.some((e) => {
+      if (e.type !== "message") return false;
+      switch (caste) {
+        case "oracle": return this.looksLikeOracleAssessment(e.text);
+        case "titan": return this.looksLikeTitanHandoff(e.text);
+        case "sentinel": return this.looksLikeSentinelVerdict(e.text);
+        default: return false;
+      }
+    });
+    if (hasMessageFallback) return false; // Model produced valid output in a message
+
+    // Session completed but produced neither a tool call nor valid structured output
+    return true;
   }
 
   private looksLikeOracleAssessment(text: string): boolean {
@@ -509,10 +586,12 @@ export class ReaperImpl implements Reaper {
 
   /**
    * Extract the sentinel verdict ("pass" or "fail") from session events.
-   * Reads from submit_verdict tool call args (structured output).
+   * Reads from submit_verdict tool call args (structured output) first,
+   * then falls back to message JSON for transitional compatibility.
    * Returns undefined if no valid verdict is found.
    */
   private extractSentinelVerdict(events: AgentEvent[]): "pass" | "fail" | undefined {
+    // Primary: check tool call args
     for (const event of events) {
       if (event.type === "tool_use" && event.tool === "submit_verdict") {
         const args = event.args as Record<string, unknown> | undefined;
@@ -522,6 +601,24 @@ export class ReaperImpl implements Reaper {
         }
       }
     }
+
+    // Transitional fallback: check message JSON
+    for (const event of events) {
+      if (event.type === "message") {
+        try {
+          const parsed = JSON.parse(event.text);
+          if (typeof parsed === "object" && parsed !== null) {
+            const verdict = parsed["verdict"];
+            if (verdict === "pass" || verdict === "fail") {
+              return verdict;
+            }
+          }
+        } catch {
+          // Not valid JSON — skip
+        }
+      }
+    }
+
     return undefined;
   }
 
@@ -564,8 +661,24 @@ export class ReaperImpl implements Reaper {
     outcome: ReaperOutcome,
     endReason: SessionEndReason,
     issueId: string,
+    isToolCallFailure: boolean,
   ): MonitorEvent[] {
     const events: MonitorEvent[] = [];
+
+    if (isToolCallFailure) {
+      events.push({
+        type: "session_aborted_by_monitor",
+        timestamp: new Date().toISOString(),
+        issueId,
+        message:
+          `FATAL: ${caste} session on ${issueId} completed but produced no structured output. ` +
+          `The model could not invoke the required custom tool (${caste === "oracle" ? "submit_assessment" : caste === "titan" ? "submit_handoff" : "submit_verdict"}) ` +
+          `and did not produce valid output in messages. This model may not support tool calling. ` +
+          `Please switch to a model with confirmed tool-call reliability and restart the run.`,
+        details: { endReason, caste, isToolCallFailure: true },
+        fatal: true,
+      });
+    }
 
     if (outcome === "monitor_termination") {
       events.push({
