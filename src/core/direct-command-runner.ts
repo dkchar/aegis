@@ -15,6 +15,7 @@ import {
   type DispatchRecord,
   type DispatchState,
 } from "./dispatch-state.js";
+import { createLoopPhaseLog } from "../events/dashboard-events.js";
 import {
   loadMergeQueueState,
   nextQueuedItem,
@@ -340,14 +341,14 @@ async function scoutIssue(
     const failureReason = oracleResult.failureReason ?? "unknown error";
 
     // Detect tool-call failure: model produced no output.
-    // Close the issue to prevent infinite retry loop, and emit a FATAL event.
+    // Emit a FATAL loop phase log and let the caller handle stopping the loop.
+    // DO NOT close the issue — the user needs to change their model config first.
     if (failureReason === "Oracle did not return a final message payload") {
-      // Close the issue so it's not retried
-      try {
-        await deps.tracker.closeIssue(issueId, `Oracle produced no output — model may not support tool calling`);
-      } catch {
-        // Best-effort close; the issue may already be closed
-      }
+      deps.eventPublisher.publish(createLoopPhaseLog(
+        "monitor",
+        `FATAL: oracle produced no output — model may not support tool calling. Change the model in .pi/settings.json and restart.`,
+        issueId,
+      ));
 
       return {
         kind: "scout",

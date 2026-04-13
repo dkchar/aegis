@@ -663,7 +663,7 @@ export async function startAegis(
     autoLoopTickInFlight = true;
     autoLoopTickPromise = (async () => {
       try {
-        await runAutoLoopTick({
+        const result = await runAutoLoopTick({
           enabledAt: new Date().toISOString(),
           projectRoot: repoRoot,
           config: resolvedConfig,
@@ -671,6 +671,15 @@ export async function startAegis(
           runtime: runtimeAdapter,
           eventPublisher: liveEventBus,
         });
+
+        // If a fatal condition was detected (e.g., model tool-call failure),
+        // disable auto mode immediately to prevent infinite retry loops.
+        if (result.fatalDetected) {
+          liveEventBus.publish(
+            createLoopPhaseLog("reap", "FATAL: auto loop disabled due to model failure"),
+          );
+          stopAutoLoop();
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         liveEventBus.publish(

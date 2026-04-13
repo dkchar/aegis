@@ -85,6 +85,8 @@ export async function runAutoLoopTick(
       createLoopPhaseLog("dispatch", `process -> ${issue.id}`, issue.id),
     );
 
+    let fatalDetected = false;
+
     try {
       const result = await executeProjectDirectCommand(parseCommand(`process ${issue.id}`), {
         projectRoot: input.projectRoot,
@@ -98,9 +100,15 @@ export async function runAutoLoopTick(
         createLoopPhaseLog("reap", `${result.status} ${issue.id}`, issue.id),
       );
 
+      // Check if this result contains a FATAL indicator (tool-call failure)
+      if (result.status === "declined" && result.message.includes("FATAL")) {
+        fatalDetected = true;
+      }
+
       return {
         issueId: issue.id,
         handled: result.status === "handled",
+        fatalDetected,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -111,6 +119,7 @@ export async function runAutoLoopTick(
       return {
         issueId: issue.id,
         handled: false,
+        fatalDetected: false,
       };
     }
   }));
@@ -121,11 +130,12 @@ export async function runAutoLoopTick(
   const dynamicSkippedIssueIds = candidateResults
     .filter((result) => !result.handled)
     .map((result) => result.issueId);
+  const anyFatalDetected = candidateResults.some((result) => result.fatalDetected);
 
   return {
     readyIssueIds,
     skippedIssueIds: [...skippedIssueIds, ...dynamicSkippedIssueIds],
     processedIssueIds,
-    fatalDetected: false,
+    fatalDetected: anyFatalDetected,
   };
 }

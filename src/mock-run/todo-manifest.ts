@@ -19,7 +19,6 @@ export const TODO_BASELINE_FILES: Record<string, string> = {
   ".pi/settings.json": JSON.stringify(
     {
       defaultProvider: "google",
-      defaultModel: "gemma-4-31b-it",
       defaultThinkingLevel: "high",
     },
     null,
