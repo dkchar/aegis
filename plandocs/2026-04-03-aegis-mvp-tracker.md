@@ -10,7 +10,14 @@
 - Operational queue: use `bd ready`; slice and program epics stay `blocked` as coordination units because Beads cannot model task-to-epic blockers.
 - Planning view: `bd swarm validate` still reports epic-level waves and is advisory, not the executable queue.
 
-## 2026-04-13 Mock-Run Fix and Olympus Control Actions
+## 2026-04-13 Infinite Retry Loop Fix and FATAL Event Emission
+
+- Fixed infinite retry loop: when Oracle produces no output (tool-call failure), the issue is now **closed** instead of left in the ready queue for infinite retries.
+- Added FATAL loop phase log emission so the error is visible in the SSE stream and Olympus UI.
+- The root cause remains the model (`gemma-4-31b-it` in `.pi/settings.json` has known tool-call bugs). With this fix, the issue will be closed with a clear message: "Oracle produced no output — model may not support tool calling".
+- To fix permanently: change the model in `.pi/settings.json` to a reliable one (not gemma-4).
+- Verification: `npm run build` passes.
+- Still open: realtime agent session logs not streaming to active sessions, kill command for individual agents.
 
 - Removed hardcoded `gemma-4-31b-it` from mock seed — now flows through `DEFAULT_AEGIS_CONFIG` (`pi:default` lets Pi SDK use `.pi/settings.json` model).
 - Added `stop` binding to HTTP server — writes runtime-stop-request.json so the server's own poller triggers graceful shutdown (mirrors CLI `aegis stop` mechanism).
