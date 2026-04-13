@@ -12,11 +12,12 @@
 
 ## 2026-04-13 Mock-Run Fix and Olympus Control Actions
 
-- Removed hardcoded `gemma-4-31b-it` from mock seed — now flows through `DEFAULT_AEGIS_CONFIG` (gemini-2.0-flash-exp for structured-output castes).
+- Removed hardcoded `gemma-4-31b-it` from mock seed — now flows through `DEFAULT_AEGIS_CONFIG` (`pi:default` lets Pi SDK use `.pi/settings.json` model).
 - Added `stop` binding to HTTP server — writes runtime-stop-request.json so the server's own poller triggers graceful shutdown (mirrors CLI `aegis stop` mechanism).
 - Added `stop` route handler in routes.ts for the Olympus stop button.
+- Note: default models use `pi:default` (Pi SDK validates model IDs against its own catalog; hardcoding `google:gemini-2.0-flash-exp` failed because it's not a known Pi model).
 - Verification on 2026-04-13: `npm run lint`; `npm run build`; `npm run test` (81 tests pass in key suites).
-- Open items: realtime agent session logs still not streaming to active sessions (investigation ongoing — SSE eventIngress subscription confirmed wired, sessionId matching confirmed, may be timing/mock-run specific). Kill command for individual agents needs investigation (sent as `command` action, not control action).
+- Open items: realtime agent session logs still not streaming to active sessions (investigation ongoing — SSE eventIngress subscription confirmed wired, sessionId matching confirmed, may be timing/mock-run specific). Kill command for individual agents needs investigation (sent as `command` action, not control action). Gemma-4 tool-call failures will now produce a clear fatal error telling users to switch models.
 
 ## 2026-04-13 Runtime Tool-Call Failure Detection and Reaper Fix
 
