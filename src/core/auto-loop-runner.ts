@@ -100,8 +100,9 @@ export async function runAutoLoopTick(
         createLoopPhaseLog("reap", `${result.status} ${issue.id}`, issue.id),
       );
 
-      // Check if this result contains a FATAL indicator (tool-call failure)
-      if (result.status === "declined" && result.message.includes("FATAL")) {
+      // Check if this result indicates a tool-call failure (model produced no output).
+      // The failure reason is embedded in the message from direct-command-runner.
+      if (result.message.includes("Oracle did not return a final message payload")) {
         fatalDetected = true;
       }
 
