@@ -24,6 +24,11 @@ export interface AutoLoopTickResult {
   readyIssueIds: string[];
   skippedIssueIds: string[];
   processedIssueIds: string[];
+  /**
+   * True when a fatal condition was detected (e.g., model tool-call failure).
+   * The orchestrator should kill the auto-loop when this is true.
+   */
+  fatalDetected: boolean;
 }
 
 function hasLiveAgent(record: DispatchRecord | undefined): boolean {
@@ -47,6 +52,7 @@ export async function runAutoLoopTick(
       readyIssueIds: [],
       skippedIssueIds: [],
       processedIssueIds: [],
+      fatalDetected: false,
     };
   }
 
@@ -120,5 +126,6 @@ export async function runAutoLoopTick(
     readyIssueIds,
     skippedIssueIds: [...skippedIssueIds, ...dynamicSkippedIssueIds],
     processedIssueIds,
+    fatalDetected: false,
   };
 }

@@ -606,6 +606,20 @@ export async function runOracle(input: RunOracleInput): Promise<RunOracleResult>
       createdIssues = error.survivingIssues;
     }
 
+    const failureReason = (error as Error).message;
+
+    // Detect tool-call failure: session completed but produced no structured output.
+    // This is a strong signal that the model cannot invoke custom tools (known issue
+    // with models like Gemma 4). Emit a FATAL loop phase log to surface this to the
+    // user in the SSE stream.
+    if (failureReason === "Oracle did not return a final message payload") {
+      ep?.publish(createLoopPhaseLog(
+        "monitor",
+        `FATAL: oracle produced no output — model may not support tool calling. Switch to a reliable model.`,
+        input.issue.id,
+      ));
+    }
+
     ep?.publish(createAgentSessionEnded(sessionId, "oracle", input.issue.id, "failed"));
 
     return {

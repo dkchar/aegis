@@ -337,10 +337,29 @@ async function scoutIssue(
   persistDispatchRecord(deps, state, oracleResult.updatedRecord);
 
   if (oracleResult.updatedRecord.stage === DispatchStage.Failed) {
+    const failureReason = oracleResult.failureReason ?? "unknown error";
+
+    // Detect tool-call failure: model produced no output.
+    // Close the issue to prevent infinite retry loop, and emit a FATAL event.
+    if (failureReason === "Oracle did not return a final message payload") {
+      // Close the issue so it's not retried
+      try {
+        await deps.tracker.closeIssue(issueId, `Oracle produced no output — model may not support tool calling`);
+      } catch {
+        // Best-effort close; the issue may already be closed
+      }
+
+      return {
+        kind: "scout",
+        status: "declined",
+        message: `Scout failed for ${issueId}: ${failureReason}`,
+      };
+    }
+
     return {
       kind: "scout",
       status: "declined",
-      message: `Scout failed for ${issueId}: ${oracleResult.failureReason ?? "unknown error"}`,
+      message: `Scout failed for ${issueId}: ${failureReason}`,
     };
   }
 
