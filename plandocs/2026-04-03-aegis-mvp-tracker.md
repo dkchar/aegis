@@ -10,13 +10,13 @@
 - Operational queue: use `bd ready`; slice and program epics stay `blocked` as coordination units because Beads cannot model task-to-epic blockers.
 - Planning view: `bd swarm validate` still reports epic-level waves and is advisory, not the executable queue.
 
-## 2026-04-13 Infinite Retry Loop Fix and FATAL Event Emission
+## 2026-04-13 Model Selector and Auto-Loop Stop Fix
 
-- **Stopped auto-loop on fatal tool-call failure** — when Oracle produces no output (model can't invoke custom tool), the auto-loop now **disables itself** instead of infinitely retrying. Issue stays open for user to fix model config.
-- **Removed hardcoded gemma-4** from `.pi/settings.json` in todo-manifest.ts — Pi SDK now uses its own default model.
-- FATAL loop phase log emitted to SSE stream — visible in Olympus Monitor column.
-- The root cause was `gemma-4-31b-it` in `.pi/settings.json` having known tool-call bugs.
-- Verification: `npm run build` passes; `npm run mock:seed` produces `.pi/settings.json` without hardcoded model.
+- **Added model selector in Settings panel** — dropdown lists available models from Pi SDK, updates `.aegis/config.json` on change. Users can now switch models without editing files manually.
+- **Fixed fatal detection bug** — loop now checks for actual error message ("Oracle did not return a final message payload") instead of looking for "FATAL" string in result message.
+- **Auto-loop stops on tool-call failure** — when detected, `stopAutoLoop()` is called immediately, preventing infinite retries. Issue stays open for user to fix via model selector.
+- **Removed hardcoded gemma-4** from `.pi/settings.json` in todo-manifest.ts.
+- Verification: `npm run lint`; `npm run build`; `npm run test` pass.
 - Still open: realtime agent session logs not streaming to active sessions, kill command for individual agents.
 
 - Removed hardcoded `gemma-4-31b-it` from mock seed — now flows through `DEFAULT_AEGIS_CONFIG` (`pi:default` lets Pi SDK use `.pi/settings.json` model).
