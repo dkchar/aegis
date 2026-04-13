@@ -276,10 +276,10 @@ describe("reduceDashboardLiveEvent", () => {
       type: "merge.queue_log",
       timestamp: "2026-04-11T10:00:04.000Z",
       sequence: 5,
-      payload: { line: "Merging bd-4" },
+      payload: { issueId: "bd-4", status: "merging", attemptCount: 1 },
     });
 
-    expect(next.mergeQueue!.logs[0]).toBe("Merging bd-4");
+    expect(next.mergeQueue!.logs[0]).toBe("[merging] bd-4 attempt=1");
   });
 
   it("sets active Janus session on janus.session_started", () => {

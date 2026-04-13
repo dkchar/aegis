@@ -175,19 +175,46 @@ export function useSse(options: UseSseOptions = {}): UseSseReturn {
             ...(payload.spend ?? {}),
             metering: (payload.spend?.metering ?? "unknown") as SpendObservation["metering"],
           };
-          // Merge the incoming payload with existing state to preserve
-          // session/loop/mergeQueue/janus data that the server now includes
-          setState((prev) => ({
-            ...(prev ?? {}),
-            status: payload.status,
-            spend,
-            agents,
-            config: payload.config ?? prev?.config ?? null,
-            loop: payload.loop ?? prev?.loop ?? createEmptyDashboardState().loop,
-            sessions: payload.sessions ?? prev?.sessions ?? createEmptyDashboardState().sessions,
-            mergeQueue: payload.mergeQueue ?? prev?.mergeQueue ?? createEmptyDashboardState().mergeQueue,
-            janus: payload.janus ?? prev?.janus ?? createEmptyDashboardState().janus,
-          }));
+          // Deep-merge sessions to preserve client-accumulated log lines
+          // that may not yet be in the server snapshot
+          setState((prev) => {
+            const mergedSessions = (() => {
+              const serverSessions = payload.sessions;
+              const clientSessions = prev?.sessions;
+              if (!serverSessions) return clientSessions ?? createEmptyDashboardState().sessions;
+              if (!clientSessions) return serverSessions;
+
+              // Start with server sessions (authoritative source)
+              const merged = { ...serverSessions };
+              // For active sessions, preserve any client-side log lines that the server
+              // snapshot might not yet have (race condition: live events arrive before
+              // orchestrator.state snapshot is published)
+              if (clientSessions.active) {
+                const mergedActive = { ...(serverSessions.active ?? {}) };
+                for (const [sessionId, clientSession] of Object.entries(clientSessions.active)) {
+                  const serverSession = mergedActive[sessionId];
+                  if (serverSession && clientSession.lines.length > serverSession.lines.length) {
+                    // Client has more lines — use client's line array
+                    mergedActive[sessionId] = { ...serverSession, lines: clientSession.lines };
+                  }
+                }
+                merged.active = mergedActive;
+              }
+              return merged;
+            })();
+
+            return {
+              ...(prev ?? {}),
+              status: payload.status,
+              spend,
+              agents,
+              config: payload.config ?? prev?.config ?? null,
+              loop: payload.loop ?? prev?.loop ?? createEmptyDashboardState().loop,
+              sessions: mergedSessions,
+              mergeQueue: payload.mergeQueue ?? prev?.mergeQueue ?? createEmptyDashboardState().mergeQueue,
+              janus: payload.janus ?? prev?.janus ?? createEmptyDashboardState().janus,
+            };
+          });
           setError(null);
         } catch {
           // Malformed event — skip silently

@@ -109,7 +109,7 @@ describe.skipIf(!bdSupport.supported)("seedMockRun", () => {
     expect(aegisConfig.olympus.open_browser).toBe(false);
   }, 90_000);
 
-  it("makes both foundation lanes ready after the contract closes", async () => {
+  it("makes all three foundation lanes ready after the contract closes", async () => {
     const sandboxRoot = mkdtempSync(path.join(tmpdir(), "aegis-mock-run-"));
     tempRoots.push(sandboxRoot);
 
@@ -136,10 +136,12 @@ describe.skipIf(!bdSupport.supported)("seedMockRun", () => {
     expect(ready.map((issue) => issue.title).sort()).toEqual([
       "[foundation] Lane A",
       "[foundation] Lane B",
+      "[foundation] Lane C",
     ].sort());
     expect(ready.map((issue) => issue.id).sort()).toEqual([
       result.issueIdByKey["foundation.lane_a"],
       result.issueIdByKey["foundation.lane_b"],
+      result.issueIdByKey["foundation.lane_c"],
     ].sort());
   }, 90_000);
 });

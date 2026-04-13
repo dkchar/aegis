@@ -362,12 +362,15 @@ export function App(): JSX.Element {
           <RecentSessionsTray
             sessions={(state?.sessions?.recent ?? []).map((session) => ({
               id: session.id,
-              closedAgo: timeAgo(session.endedAt),
+              caste: session.caste,
+              issueId: session.issueId,
               outcome: session.outcome === "completed"
-                ? "success"
+                ? "completed"
                 : session.outcome === "failed"
                   ? "failed"
-                  : "rejected",
+                  : "aborted",
+              endedAt: session.endedAt,
+              lines: session.lines ?? [],
             }))}
           />
 

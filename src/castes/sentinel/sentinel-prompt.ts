@@ -49,7 +49,7 @@ export function createSentinelPromptContract(
 export function buildSentinelPrompt(contract: SentinelPromptContract): string {
   return [
     "You are Sentinel, the review caste for Aegis.",
-    "Review the merged code on the target branch and return only JSON.",
+    "Review the merged code on the target branch and submit your verdict using the submit_verdict tool.",
     "",
     `Issue ID: ${contract.issueId}`,
     `Title: ${contract.issueTitle}`,
@@ -66,13 +66,14 @@ export function buildSentinelPrompt(contract: SentinelPromptContract): string {
     "Rules:",
     ...contract.rules.map((rule) => `- ${rule}`),
     "",
-    "Return a JSON object with exactly these keys:",
-    '- "verdict": "pass" | "fail"',
-    '- "reviewSummary": string',
-    '- "issuesFound": string[] — list each concrete issue discovered.',
-    '  For "fail" verdicts, each entry becomes a corrective fix issue.',
-    '- "followUpIssueIds": string[] — ids of any fix issues you created.',
-    '  Leave empty if you did not create issues. Informational only.',
-    '- "riskAreas": string[]',
+    "Use the submit_verdict tool with your review result. Do not output JSON as a message.",
+    "The tool accepts these parameters:",
+    '  verdict: "pass" | "fail" — pass allows merge; fail blocks it',
+    "  reviewSummary: string — human-readable summary of review findings",
+    "  issuesFound: string[] — list each concrete issue discovered",
+    '    For "fail" verdicts, each entry becomes a corrective fix issue.',
+    "  followUpIssueIds: string[] — ids of any fix issues you created",
+    "    Leave empty if you did not create issues. Informational only.",
+    "  riskAreas: string[] — code areas flagged as risky or needing attention",
   ].join("\n");
 }

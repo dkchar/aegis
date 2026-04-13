@@ -49,6 +49,7 @@ export interface DashboardStateSnapshot {
       issueId: string;
       outcome: string;
       endedAt: string;
+      lines: string[];
     }>;
   };
   mergeQueue: {
@@ -133,6 +134,7 @@ function moveSessionToRecent(
       issueId,
       outcome,
       endedAt: new Date().toISOString(),
+      lines: [...session.lines], // Preserve session logs for later viewing
     });
     // Cap recent sessions at 20
     state.sessions.recent = state.sessions.recent.slice(0, 20);

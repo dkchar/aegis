@@ -16,8 +16,8 @@ describe("RecentSessionsTray", () => {
 
   it("renders one pill per session", () => {
     const sessions = [
-      { id: "session-1", closedAgo: "2m ago", outcome: "success" as const },
-      { id: "session-2", closedAgo: "5m ago", outcome: "failed" as const },
+      { id: "session-1", caste: "titan" as const, issueId: "aegis-123", outcome: "completed" as const, endedAt: new Date(Date.now() - 120000).toISOString(), lines: [] },
+      { id: "session-2", caste: "oracle" as const, issueId: "aegis-456", outcome: "failed" as const, endedAt: new Date(Date.now() - 300000).toISOString(), lines: [] },
     ];
     render(<RecentSessionsTray sessions={sessions} />);
     // Each session renders a button pill
@@ -26,15 +26,15 @@ describe("RecentSessionsTray", () => {
 
   it("renders pill text with id and closedAgo", () => {
     const sessions = [
-      { id: "session-1", closedAgo: "2m ago", outcome: "success" as const },
+      { id: "session-1", caste: "titan" as const, issueId: "aegis-123", outcome: "completed" as const, endedAt: new Date(Date.now() - 120000).toISOString(), lines: [] },
     ];
     render(<RecentSessionsTray sessions={sessions} />);
-    expect(screen.getAllByText(/session-1 completed 2m ago/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/aegis-123/).length).toBeGreaterThan(0);
   });
 
   it("renders pills as button elements", () => {
     const sessions = [
-      { id: "session-1", closedAgo: "2m ago", outcome: "success" as const },
+      { id: "session-1", caste: "titan" as const, issueId: "aegis-123", outcome: "completed" as const, endedAt: new Date(Date.now() - 120000).toISOString(), lines: [] },
     ];
     render(<RecentSessionsTray sessions={sessions} />);
     const buttons = screen.getAllByRole("button");
@@ -44,10 +44,10 @@ describe("RecentSessionsTray", () => {
 
   it("shows outcome-colored dot for success", () => {
     const sessions = [
-      { id: "s1", closedAgo: "1m ago", outcome: "success" as const },
+      { id: "s1", caste: "titan" as const, issueId: "aegis-123", outcome: "completed" as const, endedAt: new Date(Date.now() - 60000).toISOString(), lines: [] },
     ];
     const { container } = render(<RecentSessionsTray sessions={sessions} />);
-    const pill = container.querySelector(".recent-session-pill");
+    const pill = container.querySelector("button");
     expect(pill).toBeTruthy();
     // The dot should be a child span with backgroundColor matching success color
     const dot = pill?.querySelector("span");

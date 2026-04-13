@@ -32,7 +32,7 @@ export function buildOraclePrompt(issue: OraclePromptIssue): string {
 
   return [
     "You are Oracle, the scouting caste for Aegis.",
-    "Inspect the issue and the codebase, then return only JSON.",
+    "Inspect the issue and the codebase, then submit your assessment using the submit_assessment tool.",
     "",
     `Issue ID: ${issue.id}`,
     `Title: ${issue.title}`,
@@ -46,15 +46,14 @@ export function buildOraclePrompt(issue: OraclePromptIssue): string {
     "Allowed actions: read-only shell commands and tracker reads.",
     "No file modifications. No writes.",
     "",
-    "Return JSON with exactly these fields:",
-    "{",
-    '  "files_affected": string[],',
-    '  "estimated_complexity": "trivial" | "moderate" | "complex",',
-    '  "decompose": boolean,',
-    '  "sub_issues"?: string[],',
-    '  "blockers"?: string[],',
-    '  "ready": boolean',
-    "}",
+    "Use the submit_assessment tool with your assessment result. Do not output JSON as a message.",
+    "The tool accepts these parameters:",
+    "  files_affected: string[] — files the issue requires changes to or analysis of",
+    '  estimated_complexity: "trivial" | "moderate" | "complex"',
+    "  decompose: boolean — whether the issue should be broken into smaller sub-tasks",
+    "  sub_issues?: string[] — beads issue IDs for sub-tasks if decompose is true",
+    "  blockers?: string[] — blocking issues that must be resolved before work can begin",
+    "  ready: boolean — whether the issue is ready for Titan implementation",
   ].join("\n");
 }
 

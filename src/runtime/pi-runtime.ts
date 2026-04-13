@@ -286,7 +286,21 @@ export class PiAgentHandle implements AgentHandle {
           ...base,
           type: "tool_use",
           tool: evt.toolName,
+          toolCallId: evt.toolCallId ?? "",
+          args: (evt as Record<string, unknown>).args as Record<string, unknown> | undefined,
           summary: `Invoking ${evt.toolName}`,
+        });
+        break;
+      }
+
+      case "tool_execution_end": {
+        this._emit({
+          ...base,
+          type: "tool_result",
+          toolCallId: evt.toolCallId ?? "",
+          tool: evt.toolName,
+          result: (evt as Record<string, unknown>).result,
+          isError: (evt as Record<string, unknown>).isError === true,
         });
         break;
       }

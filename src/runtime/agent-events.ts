@@ -52,8 +52,25 @@ export interface ToolUseEvent extends BaseEvent {
   type: "tool_use";
   /** Canonical tool name, e.g. "bash", "read_file", "write_file". */
   tool: string;
+  /** Unique invocation ID from the runtime adapter. */
+  toolCallId: string;
+  /** Tool arguments as parsed/validated by the runtime. */
+  args?: Record<string, unknown>;
   /** Optional human-readable summary of what was invoked. */
   summary?: string;
+}
+
+/** Emitted when a tool execution completes with a result. */
+export interface ToolResultEvent extends BaseEvent {
+  type: "tool_result";
+  /** Matches the toolCallId from the corresponding tool_use event. */
+  toolCallId: string;
+  /** Tool name. */
+  tool: string;
+  /** Tool output content (text or structured result). */
+  result: unknown;
+  /** Whether the tool invocation resulted in an error. */
+  isError: boolean;
 }
 
 /** Emitted when the agent produces a text message (assistant turn). */
@@ -109,6 +126,7 @@ export type AgentEvent =
   | SessionStartedEvent
   | SessionEndedEvent
   | ToolUseEvent
+  | ToolResultEvent
   | MessageEvent
   | ErrorEvent
   | StatsUpdateEvent

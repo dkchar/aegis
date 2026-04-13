@@ -83,7 +83,7 @@ function makeRecord(
   };
 }
 
-function makeEvents(messages: string[] = [], toolUses: string[] = []): AgentEvent[] {
+function makeEvents(messages: string[] = [], toolUses: Array<{ tool: string; args?: Record<string, unknown> }> = []): AgentEvent[] {
   const events: AgentEvent[] = [];
   for (const text of messages) {
     events.push({
@@ -94,13 +94,15 @@ function makeEvents(messages: string[] = [], toolUses: string[] = []): AgentEven
       text,
     });
   }
-  for (const tool of toolUses) {
+  for (const { tool, args } of toolUses) {
     events.push({
       type: "tool_use" as const,
       timestamp: new Date().toISOString(),
       issueId: "test-issue",
       caste: "oracle" as const,
       tool,
+      toolCallId: `call-${tool}-${Date.now()}`,
+      args,
     });
   }
   return events;
@@ -113,13 +115,9 @@ function makeEvents(messages: string[] = [], toolUses: string[] = []): AgentEven
 describe("Reaper full flow — Oracle happy path", () => {
   it("reaps Oracle success, resets failures, persists state", () => {
     const reaper = new ReaperImpl();
-    const assessment = JSON.stringify({
-      files_affected: ["src/core/foo.ts"],
-      estimated_complexity: "moderate",
-      decompose: false,
-      ready: true,
-    });
-    const events = makeEvents([assessment]);
+    const events = makeEvents([], [
+      { tool: "submit_assessment", args: { files_affected: ["src/core/foo.ts"], estimated_complexity: "moderate", decompose: false, ready: true } },
+    ]);
     const record = makeRecord("issue-1", DispatchStage.Scouting, "oracle");
 
     // Simulate a previous failure that was reset
@@ -147,7 +145,8 @@ describe("Reaper full flow — Titan failure with cooldown", () => {
   it("three Titan failures trigger cooldown, persisted to dispatch state", () => {
     const reaper = new ReaperImpl();
     let record = makeRecord("issue-1", DispatchStage.Implementing, "titan");
-    const events = makeEvents([]); // No handoff — artifact failure
+    // No handoff tool call — artifact failure
+    const events = makeEvents([]);
 
     // Failure 1
     let result = reaper.reap("issue-1", "titan", "error", events, record);
@@ -340,18 +339,10 @@ describe("Labor preservation on Titan failure", () => {
 
   it("reaper instructs labor preservation on Titan success (for merge queue)", () => {
     const reaper = new ReaperImpl();
-    const handoff = JSON.stringify({
-      issueId: "issue-1",
-      laborPath: ".aegis/labors/labor-issue-1",
-      candidateBranch: "aegis/issue-1",
-      baseBranch: "main",
-      filesChanged: ["src/foo.ts"],
-      testsAndChecksRun: [],
-      knownRisks: [],
-      followUpWork: [],
-      learningsWrittenToMnemosyne: [],
-    });
-    const events = makeEvents([handoff], ["write_file"]);
+    const events = makeEvents([], [
+      { tool: "submit_handoff", args: { issueId: "issue-1", laborPath: ".aegis/labors/labor-issue-1", candidateBranch: "aegis/issue-1", baseBranch: "main", filesChanged: ["src/foo.ts"], testsAndChecksRun: [], knownRisks: [], followUpWork: [], learningsWrittenToMnemosyne: [] } },
+      { tool: "write_file" },
+    ]);
     const record = makeRecord("issue-1", DispatchStage.Implementing, "titan");
 
     const result = reaper.reap("issue-1", "titan", "completed", events, record);
@@ -371,17 +362,13 @@ describe("Labor preservation on Titan failure", () => {
 describe("No labor cleanup for Oracle and Sentinel", () => {
   it("Oracle reap returns null labor cleanup", () => {
     const reaper = new ReaperImpl();
-    const assessment = JSON.stringify({
-      files_affected: ["src/foo.ts"],
-      estimated_complexity: "trivial",
-      decompose: false,
-      ready: true,
-    });
     const result = reaper.reap(
       "issue-1",
       "oracle",
       "completed",
-      makeEvents([assessment]),
+      makeEvents([], [
+        { tool: "submit_assessment", args: { files_affected: ["src/foo.ts"], estimated_complexity: "trivial", decompose: false, ready: true } },
+      ]),
       makeRecord("issue-1", DispatchStage.Scouting, "oracle"),
     );
 
@@ -390,18 +377,13 @@ describe("No labor cleanup for Oracle and Sentinel", () => {
 
   it("Sentinel reap returns null labor cleanup", () => {
     const reaper = new ReaperImpl();
-    const verdict = JSON.stringify({
-      verdict: "pass",
-      reviewSummary: "OK",
-      issuesFound: false,
-      followUpIssueIds: [],
-      riskAreas: [],
-    });
     const result = reaper.reap(
       "issue-1",
       "sentinel",
       "completed",
-      makeEvents([verdict]),
+      makeEvents([], [
+        { tool: "submit_verdict", args: { verdict: "pass", reviewSummary: "OK", issuesFound: [], followUpIssueIds: [], riskAreas: [] } },
+      ]),
       makeRecord("issue-1", DispatchStage.Reviewing, "sentinel"),
     );
 
@@ -516,13 +498,9 @@ describe("Full cycle with intermediate failures", () => {
     record = { ...record, stage: DispatchStage.Scouting };
 
     // Attempt 3: success
-    const assessment = JSON.stringify({
-      files_affected: ["src/foo.ts"],
-      estimated_complexity: "moderate",
-      decompose: false,
-      ready: true,
-    });
-    result = reaper.reap("issue-1", "oracle", "completed", makeEvents([assessment]), record);
+    result = reaper.reap("issue-1", "oracle", "completed", makeEvents([], [
+      { tool: "submit_assessment", args: { files_affected: ["src/foo.ts"], estimated_complexity: "moderate", decompose: false, ready: true } },
+    ]), record);
     record = updateRecordFromReaper(record, result, NOW + 120_000);
     expect(record.stage).toBe(DispatchStage.Scouted);
     expect(record.consecutiveFailures).toBe(0);

@@ -119,6 +119,7 @@ export interface RecentSessionInfo {
   issueId: string;
   outcome: "completed" | "failed" | "aborted";
   endedAt: string;
+  lines: string[];
 }
 
 export interface SessionsState {

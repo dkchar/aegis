@@ -72,7 +72,10 @@ interface SessionStartedPayload {
 
 interface SessionLogPayload {
   sessionId: string;
+  caste: "oracle" | "titan" | "sentinel" | "janus";
+  issueId: string;
   line: string;
+  level: "info" | "warn" | "error";
 }
 
 interface SessionEndedPayload {
@@ -83,7 +86,9 @@ interface SessionEndedPayload {
 }
 
 interface MergeQueueLogPayload {
-  line: string;
+  issueId: string;
+  status: string;
+  attemptCount: number;
 }
 
 interface JanusStartedPayload {
@@ -173,6 +178,7 @@ function moveSessionToRecent(state: DashboardState, payload: SessionEndedPayload
     issueId: payload.issueId,
     outcome: payload.outcome,
     endedAt: new Date().toISOString(),
+    lines: session?.lines ?? [], // Preserve session logs
   };
 
   const existingRecent = state.sessions?.recent ?? [];
@@ -189,8 +195,9 @@ function moveSessionToRecent(state: DashboardState, payload: SessionEndedPayload
 }
 
 function appendMergeQueueLog(state: DashboardState, payload: MergeQueueLogPayload): DashboardState {
+  const line = `[${payload.status}] ${payload.issueId} attempt=${payload.attemptCount}`;
   const existingLogs = state.mergeQueue?.logs ?? [];
-  const updatedLogs = [payload.line, ...existingLogs].slice(0, MAX_PHASE_LOG_LINES);
+  const updatedLogs = [line, ...existingLogs].slice(0, MAX_PHASE_LOG_LINES);
 
   return {
     ...state,

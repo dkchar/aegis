@@ -53,6 +53,9 @@ function SessionTerminal(props: { session: ActiveSession }): JSX.Element {
         border: `1px solid ${casteColor}44`,
         borderRadius: radius.md,
         overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
+        height: "320px",
       }}
     >
       {/* Terminal title bar */}
@@ -64,6 +67,7 @@ function SessionTerminal(props: { session: ActiveSession }): JSX.Element {
           padding: `${spacing.xs} ${spacing.sm}`,
           background: "#111820",
           borderBottom: `1px solid ${colors.borderDefault}`,
+          flexShrink: 0,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: spacing.xs }}>
@@ -93,7 +97,7 @@ function SessionTerminal(props: { session: ActiveSession }): JSX.Element {
         </span>
       </div>
 
-      {/* Session info bar */}
+      {/* Session info bar with enhanced metadata */}
       <div
         style={{
           display: "flex",
@@ -103,9 +107,12 @@ function SessionTerminal(props: { session: ActiveSession }): JSX.Element {
           fontSize: fontSizes.xs,
           color: colors.textMuted,
           borderBottom: `1px solid ${colors.borderDefault}44`,
+          flexShrink: 0,
         }}
       >
-        <span>{session.issueId} — {session.stage}</span>
+        <span style={{ fontFamily: "monospace", fontSize: "11px" }}>
+          {session.issueId} <span style={{ color: "#484f58" }}>|</span> {session.caste} <span style={{ color: "#484f58" }}>|</span> {session.model}
+        </span>
         {hasStats && (
           <span style={{ fontFamily: "monospace", fontSize: "10px", color: "#6e7681" }}>
             {session.turns != null ? `${session.turns}t ` : ""}
@@ -117,7 +124,7 @@ function SessionTerminal(props: { session: ActiveSession }): JSX.Element {
         )}
       </div>
 
-      {/* Terminal output */}
+      {/* Terminal output with fixed height and scrolling */}
       <div
         style={{
           padding: spacing.sm,
@@ -127,7 +134,9 @@ function SessionTerminal(props: { session: ActiveSession }): JSX.Element {
           fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
           color: "#7ee787",
           lineHeight: 1.6,
-          minHeight: "48px",
+          overflow: "auto",
+          flex: 1,
+          minHeight: 0,
         }}
       >
         {session.lines.length > 0 ? (
@@ -154,18 +163,20 @@ export function ActiveSessionsPanel(props: ActiveSessionsPanelProps): JSX.Elemen
       aria-label="Active Agent Sessions"
       data-testid="active-sessions-panel"
       style={{
-        display: "grid",
-        gap: spacing.sm,
         padding: spacing.md,
         background: colors.bgSecondary,
         border: `1px solid ${colors.borderDefault}`,
         borderRadius: radius.lg,
       }}
     >
-      <h2 style={{ margin: 0, fontSize: fontSizes.md }}>Active Agent Sessions</h2>
+      <h2 style={{ margin: "0 0 12px 0", fontSize: fontSizes.md }}>Active Agent Sessions</h2>
 
       {sessionList.length > 0 ? (
-        <div style={{ display: "grid", gap: spacing.sm }}>
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))",
+          gap: spacing.md,
+        }}>
           {sessionList.map((session) => (
             <SessionTerminal key={session.id} session={session} />
           ))}

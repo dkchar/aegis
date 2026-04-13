@@ -158,20 +158,20 @@ export class ReaperImpl implements Reaper {
   ): ArtifactVerification {
     const checks: ArtifactCheck[] = [];
 
-    // Check for OracleAssessment in messages
-    const assessmentMessages = events.filter(
-      (e) =>
-        e.type === "message" &&
-        this.looksLikeOracleAssessment(e.text),
+    // Check for submit_assessment tool call (structured output via custom tool)
+    const assessmentCalls = events.filter(
+      (e): e is AgentEvent & { type: "tool_use"; tool: string; args?: Record<string, unknown> } =>
+        e.type === "tool_use" &&
+        e.tool === "submit_assessment",
     );
 
-    const hasAssessment = assessmentMessages.length > 0;
+    const hasAssessment = assessmentCalls.length > 0 && assessmentCalls[0]!.args !== undefined;
     checks.push({
       name: "oracle_assessment",
       passed: hasAssessment,
       detail: hasAssessment
-        ? `Found ${assessmentMessages.length} assessment message(s)`
-        : "No valid OracleAssessment found in session messages",
+        ? `Found submit_assessment tool call with validated args`
+        : "No submit_assessment tool call found — Oracle did not produce structured assessment",
     });
 
     // Check no write events (Oracle is read-only)
@@ -203,20 +203,20 @@ export class ReaperImpl implements Reaper {
   ): ArtifactVerification {
     const checks: ArtifactCheck[] = [];
 
-    // Check for Titan handoff artifact in messages
-    const handoffMessages = events.filter(
-      (e) =>
-        e.type === "message" &&
-        this.looksLikeTitanHandoff(e.text),
+    // Check for submit_handoff tool call (structured output via custom tool)
+    const handoffCalls = events.filter(
+      (e): e is AgentEvent & { type: "tool_use"; tool: string; args?: Record<string, unknown> } =>
+        e.type === "tool_use" &&
+        e.tool === "submit_handoff",
     );
 
-    const hasHandoff = handoffMessages.length > 0;
+    const hasHandoff = handoffCalls.length > 0 && handoffCalls[0]!.args !== undefined;
     checks.push({
       name: "titan_handoff",
       passed: hasHandoff,
       detail: hasHandoff
-        ? `Found ${handoffMessages.length} handoff message(s)`
-        : "No valid TitanHandoffArtifact found in session messages",
+        ? `Found submit_handoff tool call with validated args`
+        : "No submit_handoff tool call found — Titan did not produce structured handoff",
     });
 
     // Check for meaningful diff (at least one file changed)
@@ -248,20 +248,20 @@ export class ReaperImpl implements Reaper {
   ): ArtifactVerification {
     const checks: ArtifactCheck[] = [];
 
-    // Check for Sentinel verdict in messages
-    const verdictMessages = events.filter(
-      (e) =>
-        e.type === "message" &&
-        this.looksLikeSentinelVerdict(e.text),
+    // Check for submit_verdict tool call (structured output via custom tool)
+    const verdictCalls = events.filter(
+      (e): e is AgentEvent & { type: "tool_use"; tool: string; args?: Record<string, unknown> } =>
+        e.type === "tool_use" &&
+        e.tool === "submit_verdict",
     );
 
-    const hasVerdict = verdictMessages.length > 0;
+    const hasVerdict = verdictCalls.length > 0 && verdictCalls[0]!.args !== undefined;
     checks.push({
       name: "sentinel_verdict",
       passed: hasVerdict,
       detail: hasVerdict
-        ? `Found ${verdictMessages.length} verdict message(s)`
-        : "No valid SentinelVerdict found in session messages",
+        ? `Found submit_verdict tool call with validated args`
+        : "No submit_verdict tool call found — Sentinel did not produce structured verdict",
     });
 
     return {
@@ -278,7 +278,8 @@ export class ReaperImpl implements Reaper {
   ): ArtifactVerification {
     const checks: ArtifactCheck[] = [];
 
-    // Check for Janus resolution artifact in messages
+    // Janus still uses message-based artifact detection (no custom tool yet)
+    // but with strict matching only (no relaxed fallback)
     const resolutionMessages = events.filter(
       (e) =>
         e.type === "message" &&
@@ -485,19 +486,16 @@ export class ReaperImpl implements Reaper {
 
   /**
    * Extract the sentinel verdict ("pass" or "fail") from session events.
+   * Reads from submit_verdict tool call args (structured output).
    * Returns undefined if no valid verdict is found.
    */
   private extractSentinelVerdict(events: AgentEvent[]): "pass" | "fail" | undefined {
     for (const event of events) {
-      if (event.type === "message" && this.looksLikeSentinelVerdict(event.text)) {
-        try {
-          const parsed = JSON.parse(event.text) as Record<string, unknown>;
-          const verdict = parsed["verdict"];
-          if (verdict === "pass" || verdict === "fail") {
-            return verdict;
-          }
-        } catch {
-          // Continue scanning
+      if (event.type === "tool_use" && event.tool === "submit_verdict") {
+        const args = event.args as Record<string, unknown> | undefined;
+        const verdict = args?.["verdict"];
+        if (verdict === "pass" || verdict === "fail") {
+          return verdict;
         }
       }
     }
@@ -514,19 +512,21 @@ export class ReaperImpl implements Reaper {
       return null;
     }
 
-    // Extract handoff artifact details from events
+    // Extract handoff artifact from submit_handoff tool call
     for (const event of events) {
-      if (event.type === "message" && this.looksLikeTitanHandoff(event.text)) {
-        try {
-          const parsed = JSON.parse(event.text) as Record<string, unknown>;
+      if (event.type === "tool_use" && event.tool === "submit_handoff") {
+        const args = event.args as Record<string, unknown> | undefined;
+        if (!args) continue;
+
+        const candidateBranch = args["candidateBranch"];
+        const baseBranch = args["baseBranch"];
+        if (typeof candidateBranch === "string") {
           return {
             issueId,
-            candidateBranch: parsed["candidateBranch"] as string,
-            targetBranch: (parsed["baseBranch"] as string) || "main",
+            candidateBranch,
+            targetBranch: typeof baseBranch === "string" ? baseBranch : "main",
             handoffArtifactPath: "", // Caller must resolve to actual file path
           };
-        } catch {
-          // Continue scanning
         }
       }
     }

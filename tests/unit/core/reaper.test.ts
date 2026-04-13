@@ -77,7 +77,10 @@ function sentinelVerdictJson(verdict: "pass" | "fail" = "pass"): string {
   });
 }
 
-function makeEvents(messages: string[], toolUses: string[] = []): AgentEvent[] {
+function makeEvents(
+  messages: string[] = [],
+  toolUses: Array<{ tool: string; args?: Record<string, unknown> }> = [],
+): AgentEvent[] {
   const events: AgentEvent[] = [];
   for (const text of messages) {
     events.push({
@@ -88,13 +91,16 @@ function makeEvents(messages: string[], toolUses: string[] = []): AgentEvent[] {
       text,
     });
   }
-  for (const tool of toolUses) {
+  for (const { tool, args } of toolUses) {
     events.push({
       type: "tool_use",
       timestamp: new Date().toISOString(),
       issueId: "test-issue",
       caste: "oracle",
       tool,
+      toolCallId: `call-${tool}-${Date.now()}`,
+      args,
+      summary: `Invoking ${tool}`,
     });
   }
   return events;
@@ -108,7 +114,9 @@ describe("ReaperImpl — Oracle success", () => {
   const reaper = new ReaperImpl();
 
   it("reaps a completed Oracle session as success with valid assessment", () => {
-    const events = makeEvents([oracleAssessmentJson()]);
+    const events = makeEvents([], [
+      { tool: "submit_assessment", args: { files_affected: ["src/foo.ts"], estimated_complexity: "moderate", decompose: false, ready: true } },
+    ]);
     const record = makeRecord("issue-1", DispatchStage.Scouting);
 
     const result = reaper.reap("issue-1", "oracle", "completed", events, record);
@@ -134,7 +142,10 @@ describe("ReaperImpl — Oracle success", () => {
   });
 
   it("detects Oracle write violations", () => {
-    const events = makeEvents([oracleAssessmentJson()], ["write_file"]);
+    const events = makeEvents([], [
+      { tool: "submit_assessment", args: { files_affected: ["src/foo.ts"], estimated_complexity: "moderate", decompose: false, ready: true } },
+      { tool: "write_file" },
+    ]);
     const record = makeRecord("issue-1", DispatchStage.Scouting);
 
     const result = reaper.reap("issue-1", "oracle", "completed", events, record);
@@ -155,7 +166,11 @@ describe("ReaperImpl — Titan", () => {
   const reaper = new ReaperImpl();
 
   it("reaps a successful Titan with handoff artifact", () => {
-    const events = makeEvents([titanHandoffJson()], ["write_file", "edit"]);
+    const events = makeEvents([], [
+      { tool: "submit_handoff", args: { issueId: "aegis-fjm.10", laborPath: ".aegis/labors/labor-aegis-fjm.10", candidateBranch: "aegis/aegis-fjm.10", baseBranch: "main", filesChanged: ["src/core/foo.ts"] } },
+      { tool: "write_file" },
+      { tool: "edit" },
+    ]);
     const record = makeRecord("issue-1", DispatchStage.Implementing);
     record.runningAgent = { ...record.runningAgent!, caste: "titan" };
 
@@ -171,7 +186,10 @@ describe("ReaperImpl — Titan", () => {
   });
 
   it("produces a merge candidate instruction on Titan success", () => {
-    const events = makeEvents([titanHandoffJson()], ["write_file"]);
+    const events = makeEvents([], [
+      { tool: "submit_handoff", args: { issueId: "aegis-fjm.10", laborPath: ".aegis/labors/labor-aegis-fjm.10", candidateBranch: "aegis/aegis-fjm.10", baseBranch: "main", filesChanged: ["src/core/foo.ts"] } },
+      { tool: "write_file" },
+    ]);
     const record = makeRecord("issue-1", DispatchStage.Implementing);
     record.runningAgent = { ...record.runningAgent!, caste: "titan" };
 
@@ -184,7 +202,9 @@ describe("ReaperImpl — Titan", () => {
   });
 
   it("reaps a Titan with no file changes as artifact_failure", () => {
-    const events = makeEvents([titanHandoffJson()], []);
+    const events = makeEvents([], [
+      { tool: "submit_handoff", args: { issueId: "aegis-fjm.10", laborPath: ".aegis/labors/labor-aegis-fjm.10", candidateBranch: "aegis/aegis-fjm.10", baseBranch: "main", filesChanged: ["src/core/foo.ts"] } },
+    ]);
     const record = makeRecord("issue-1", DispatchStage.Implementing);
     record.runningAgent = { ...record.runningAgent!, caste: "titan" };
 
@@ -203,7 +223,9 @@ describe("ReaperImpl — Sentinel", () => {
   const reaper = new ReaperImpl();
 
   it("reaps a Sentinel pass as success (valid verdict artifact)", () => {
-    const events = makeEvents([sentinelVerdictJson("pass")]);
+    const events = makeEvents([], [
+      { tool: "submit_verdict", args: { verdict: "pass", reviewSummary: "Review complete", issuesFound: [], followUpIssueIds: [], riskAreas: [] } },
+    ]);
     const record = makeRecord("issue-1", DispatchStage.Reviewing);
     record.runningAgent = { ...record.runningAgent!, caste: "sentinel" };
 
@@ -220,7 +242,9 @@ describe("ReaperImpl — Sentinel", () => {
   it("reaps a Sentinel fail as success (verdict valid) → failed stage", () => {
     // The verdict itself is valid — the session succeeded at its job.
     // But the verdict is "fail" so the next stage is failed.
-    const events = makeEvents([sentinelVerdictJson("fail")]);
+    const events = makeEvents([], [
+      { tool: "submit_verdict", args: { verdict: "fail", reviewSummary: "Review complete", issuesFound: ["bug found"], followUpIssueIds: ["aegis-123"], riskAreas: ["auth module"] } },
+    ]);
     const record = makeRecord("issue-1", DispatchStage.Reviewing);
     record.runningAgent = { ...record.runningAgent!, caste: "sentinel" };
 
