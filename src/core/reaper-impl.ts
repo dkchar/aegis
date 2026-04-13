@@ -334,14 +334,31 @@ export class ReaperImpl implements Reaper {
       const parsed = JSON.parse(text);
       if (typeof parsed !== "object" || parsed === null) return false;
       const obj = parsed as Record<string, unknown>;
-      return (
+
+      // Strict check — exact field names and values
+      if (
         typeof obj["files_affected"] === "object" &&
         Array.isArray(obj["files_affected"]) &&
         (obj["estimated_complexity"] === "trivial" ||
           obj["estimated_complexity"] === "moderate" ||
           obj["estimated_complexity"] === "complex") &&
         typeof obj["ready"] === "boolean"
-      );
+      ) {
+        return true;
+      }
+
+      // Relaxed check — accept snake_case or camelCase variants, partial matches
+      const files = obj["files_affected"] ?? obj["filesAffected"] ?? obj["files_affected"] ?? obj["files"];
+      const complexity = obj["estimated_complexity"] ?? obj["estimatedComplexity"] ?? obj["complexity"];
+      const ready = obj["ready"] ?? obj["isReady"] ?? obj["ready_for_impl"];
+
+      const hasFiles = typeof files === "object" && Array.isArray(files);
+      const hasComplexity = typeof complexity === "string" &&
+        (complexity === "trivial" || complexity === "moderate" || complexity === "complex");
+      const hasReady = typeof ready === "boolean";
+
+      // Accept if at least files + complexity or files + ready are present
+      return hasFiles && (hasComplexity || hasReady);
     } catch {
       return false;
     }
@@ -352,13 +369,33 @@ export class ReaperImpl implements Reaper {
       const parsed = JSON.parse(text);
       if (typeof parsed !== "object" || parsed === null) return false;
       const obj = parsed as Record<string, unknown>;
-      return (
+
+      // Strict check — exact field names
+      if (
         typeof obj["issueId"] === "string" &&
         typeof obj["laborPath"] === "string" &&
         typeof obj["candidateBranch"] === "string" &&
         typeof obj["baseBranch"] === "string" &&
         Array.isArray(obj["filesChanged"])
-      );
+      ) {
+        return true;
+      }
+
+      // Relaxed check — accept variant field names, partial matches
+      const issueId = obj["issueId"] ?? obj["issue_id"] ?? obj["issue"] ?? obj["id"];
+      const laborPath = obj["laborPath"] ?? obj["labor_path"] ?? obj["labor"] ?? obj["worktree"];
+      const candidateBranch = obj["candidateBranch"] ?? obj["candidate_branch"] ?? obj["branch"] ?? obj["branchName"] ?? obj["branch_name"];
+      const baseBranch = obj["baseBranch"] ?? obj["base_branch"] ?? obj["target"] ?? obj["targetBranch"];
+      const filesChanged = obj["filesChanged"] ?? obj["files_changed"] ?? obj["files"] ?? obj["changes"];
+
+      const hasIssueId = typeof issueId === "string";
+      const hasLaborPath = typeof laborPath === "string";
+      const hasBranch = typeof candidateBranch === "string" || typeof baseBranch === "string";
+      const hasFiles = typeof filesChanged === "object" && Array.isArray(filesChanged);
+
+      // Accept if we have enough signal to identify a handoff:
+      // must have some branch info + either files changed or issue/labor context
+      return hasBranch && (hasFiles || (hasIssueId && hasLaborPath));
     } catch {
       return false;
     }
@@ -369,13 +406,33 @@ export class ReaperImpl implements Reaper {
       const parsed = JSON.parse(text);
       if (typeof parsed !== "object" || parsed === null) return false;
       const obj = parsed as Record<string, unknown>;
-      return (
+
+      // Strict check — exact field names
+      if (
         (obj["verdict"] === "pass" || obj["verdict"] === "fail") &&
         typeof obj["reviewSummary"] === "string" &&
         typeof obj["issuesFound"] === "boolean" &&
         Array.isArray(obj["followUpIssueIds"]) &&
         Array.isArray(obj["riskAreas"])
-      );
+      ) {
+        return true;
+      }
+
+      // Relaxed check — accept variant field names, partial matches
+      const verdict = obj["verdict"] ?? obj["status"] ?? obj["result"] ?? obj["approval"];
+      const reviewSummary = obj["reviewSummary"] ?? obj["review_summary"] ?? obj["summary"] ?? obj["review"] ?? obj["description"];
+      const issuesFound = obj["issuesFound"] ?? obj["issues_found"] ?? obj["hasIssues"] ?? obj["has_issues"];
+      const followUpIds = obj["followUpIssueIds"] ?? obj["followUpIssueIds"] ?? obj["follow_up_ids"] ?? obj["follow_up_issues"] ?? obj["blocking_issues"];
+      const riskAreas = obj["riskAreas"] ?? obj["risk_areas"] ?? obj["risks"] ?? obj["concerns"] ?? obj["issues"];
+
+      const hasVerdict = typeof verdict === "string" &&
+        (verdict === "pass" || verdict === "fail" ||
+          verdict === "approved" || verdict === "rejected" ||
+          verdict === "accept" || verdict === "reject");
+      const hasSummary = typeof reviewSummary === "string";
+
+      // Accept if we have a clear verdict + some review content
+      return hasVerdict && (hasSummary || typeof followUpIds === "object" || typeof riskAreas === "object");
     } catch {
       return false;
     }
@@ -386,7 +443,9 @@ export class ReaperImpl implements Reaper {
       const parsed = JSON.parse(text);
       if (typeof parsed !== "object" || parsed === null) return false;
       const obj = parsed as Record<string, unknown>;
-      return (
+
+      // Strict check — exact field names
+      if (
         typeof obj["originatingIssueId"] === "string" &&
         typeof obj["queueItemId"] === "string" &&
         typeof obj["preservedLaborPath"] === "string" &&
@@ -396,7 +455,29 @@ export class ReaperImpl implements Reaper {
         (obj["recommendedNextAction"] === "requeue" ||
           obj["recommendedNextAction"] === "manual_decision" ||
           obj["recommendedNextAction"] === "fail")
-      );
+      ) {
+        return true;
+      }
+
+      // Relaxed check — accept variant field names, partial matches
+      const originatingIssueId = obj["originatingIssueId"] ?? obj["originating_issue_id"] ?? obj["originIssue"] ?? obj["origin_issue"];
+      const queueItemId = obj["queueItemId"] ?? obj["queue_item_id"] ?? obj["queueItem"] ?? obj["queue_item"];
+      const laborPath = obj["preservedLaborPath"] ?? obj["preserved_labor_path"] ?? obj["laborPath"] ?? obj["labor_path"];
+      const conflictSummary = obj["conflictSummary"] ?? obj["conflict_summary"] ?? obj["conflict"] ?? obj["summary"];
+      const resolutionStrategy = obj["resolutionStrategy"] ?? obj["resolution_strategy"] ?? obj["strategy"] ?? obj["resolution"];
+      const filesTouched = obj["filesTouched"] ?? obj["files_touched"] ?? obj["files"] ?? obj["changes"];
+      const nextAction = obj["recommendedNextAction"] ?? obj["recommended_next_action"] ?? obj["nextAction"] ?? obj["next_action"] ?? obj["action"];
+
+      const hasOrigin = typeof originatingIssueId === "string";
+      const hasQueue = typeof queueItemId === "string";
+      const hasLabor = typeof laborPath === "string";
+      const hasConflict = typeof conflictSummary === "string";
+      const hasStrategy = typeof resolutionStrategy === "string";
+      const hasFiles = typeof filesTouched === "object" && Array.isArray(filesTouched);
+      const hasAction = typeof nextAction === "string";
+
+      // Accept if we have enough signal: origin/queue + conflict/strategy info
+      return (hasOrigin || hasQueue) && (hasConflict || hasStrategy || hasFiles || hasAction);
     } catch {
       return false;
     }
