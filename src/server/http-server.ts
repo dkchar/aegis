@@ -53,6 +53,7 @@ import { handleAppendLearning, resolveMnemosynePath } from "./learning-route.js"
 import { loadConfig } from "../config/load-config.js";
 import { updateConfig as updateProjectConfig } from "../config/save-config.js";
 import { mapBdIssueToReady } from "../tracker/beads-client.js";
+import { writeStopRequest, type RuntimeStopRequest } from "../cli/runtime-state.js";
 
 export const HTTP_SERVER_INITIAL_STATE: ServerLifecycleState = "stopped";
 
@@ -354,6 +355,18 @@ export function createHttpServerController(
     );
   }
 
+  function requestStop() {
+    // Write a stop request file so the server's own stop poller picks it up.
+    // This mirrors the CLI `aegis stop` mechanism.
+    const pid = process.pid;
+    const stopRequest: RuntimeStopRequest = {
+      pid,
+      reason: "olympus",
+      requested_at: new Date().toISOString(),
+    };
+    writeStopRequest(projectRoot, stopRequest);
+  }
+
   function publishScopeSuppressionEvent(allocation: ScopeAllocation) {
     const summary = buildScopeVisibilitySummary(allocation);
     publishEvent(
@@ -515,6 +528,9 @@ export function createHttpServerController(
     },
     resume: async () => {
       resume();
+    },
+    stop: async () => {
+      requestStop();
     },
     getOperatingMode: () => getCurrentMode(),
     getCommandContext: () => ({

@@ -1,6 +1,6 @@
 # Aegis MVP Tracker
 
-- Refreshed: 2026-04-13T16:40:00+01:00
+- Refreshed: 2026-04-13T17:25:00+01:00
 - Source spec: SPECv2.md
 - Design doc: docs/superpowers/specs/2026-04-03-aegis-mvp-slicing-design.md
 - Plan doc: docs/superpowers/plans/2026-04-03-aegis-mvp-slice-plan.md
@@ -9,6 +9,14 @@
 - Program updated: 2026-04-08T14:33:48Z
 - Operational queue: use `bd ready`; slice and program epics stay `blocked` as coordination units because Beads cannot model task-to-epic blockers.
 - Planning view: `bd swarm validate` still reports epic-level waves and is advisory, not the executable queue.
+
+## 2026-04-13 Mock-Run Fix and Olympus Control Actions
+
+- Removed hardcoded `gemma-4-31b-it` from mock seed — now flows through `DEFAULT_AEGIS_CONFIG` (gemini-2.0-flash-exp for structured-output castes).
+- Added `stop` binding to HTTP server — writes runtime-stop-request.json so the server's own poller triggers graceful shutdown (mirrors CLI `aegis stop` mechanism).
+- Added `stop` route handler in routes.ts for the Olympus stop button.
+- Verification on 2026-04-13: `npm run lint`; `npm run build`; `npm run test` (81 tests pass in key suites).
+- Open items: realtime agent session logs still not streaming to active sessions (investigation ongoing — SSE eventIngress subscription confirmed wired, sessionId matching confirmed, may be timing/mock-run specific). Kill command for individual agents needs investigation (sent as `command` action, not control action).
 
 ## 2026-04-13 Runtime Tool-Call Failure Detection and Reaper Fix
 

@@ -171,6 +171,7 @@ export interface RestApiRouterBindings {
   setOperatingMode?: (mode: "conversational" | "auto") => MaybePromise<void>;
   pause?: () => MaybePromise<void>;
   resume?: () => MaybePromise<void>;
+  stop?: () => MaybePromise<void>;
   getOperatingMode?: () => OrchestrationMode;
   getScopeStatus?: () => MaybePromise<ScopeStatusResponse>;
 }
@@ -469,6 +470,19 @@ export function createRestApiRouter(bindings: RestApiRouterBindings): RestApiRou
             server_state: "running",
             mode: bindings.getOperatingMode?.() ?? "conversational",
             message: "Orchestrator resumed",
+          });
+        }
+
+        if (action === "stop" && bindings.stop) {
+          await bindings.stop();
+          return toJsonResponse(200, {
+            ok: true,
+            action: "stop",
+            request_id: request.body.request_id,
+            acknowledged_at: now().toISOString(),
+            server_state: "stopping",
+            mode: bindings.getOperatingMode?.() ?? "conversational",
+            message: "Orchestrator stop requested — shutting down",
           });
         }
 
