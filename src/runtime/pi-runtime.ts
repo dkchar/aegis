@@ -36,8 +36,10 @@ import {
   codingTools,
   readOnlyTools,
   type AgentSession,
+  type ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import { getModels, getProviders, type KnownProvider } from "@mariozechner/pi-ai";
+import { getCustomToolsForCaste } from "./custom-tools.js";
 
 // ---------------------------------------------------------------------------
 // Budget-warning threshold: warn when > 80% of a limit is consumed.
@@ -476,10 +478,12 @@ export class PiRuntime implements AgentRuntime {
   async spawn(opts: SpawnOptions): Promise<AgentHandle> {
     const baseTools = resolveBaseTools(opts.caste);
     const filteredTools = applyToolRestrictions(baseTools, opts.toolRestrictions);
+    const customTools = getCustomToolsForCaste(opts.caste);
 
     const { session } = await createAgentSession({
       cwd: opts.workingDirectory,
       tools: filteredTools,
+      customTools: customTools.length > 0 ? customTools as ToolDefinition[] : undefined,
       model: resolveSessionModel(opts.model),
     });
 

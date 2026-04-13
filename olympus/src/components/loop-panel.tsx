@@ -75,13 +75,14 @@ function PhaseColumn(props: { title: string; lines: string[] }): JSX.Element {
       {/* Terminal output with scrolling */}
       <div
         style={{
-          padding: spacing.sm,
-          display: "grid",
-          gap: spacing.xs,
-          fontSize: fontSizes.xs,
+          padding: spacing.xs,
+          display: "flex",
+          flexDirection: "column",
+          gap: 0,
+          fontSize: "11px",
           fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
           color: "#7ee787",
-          lineHeight: 1.6,
+          lineHeight: 1.25,
           overflow: "auto",
           flex: 1,
           minHeight: 0,
@@ -89,8 +90,8 @@ function PhaseColumn(props: { title: string; lines: string[] }): JSX.Element {
       >
         {lines.length > 0 ? (
           lines.map((line, index) => (
-            <div key={`${title}-${index}`}>
-              <span style={{ color: "#484f58" }}>{"› "}</span>
+            <div key={`${title}-${index}`} style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+              <span style={{ color: "#484f58", userSelect: "none" }}>{"› "}</span>
               <code style={{ color: "#7ee787" }}>{line}</code>
             </div>
           ))

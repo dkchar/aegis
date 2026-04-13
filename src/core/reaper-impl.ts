@@ -158,20 +158,32 @@ export class ReaperImpl implements Reaper {
   ): ArtifactVerification {
     const checks: ArtifactCheck[] = [];
 
-    // Check for submit_assessment tool call (structured output via custom tool)
+    // Primary: Check for submit_assessment tool call (structured output via custom tool)
     const assessmentCalls = events.filter(
       (e): e is AgentEvent & { type: "tool_use"; tool: string; args?: Record<string, unknown> } =>
         e.type === "tool_use" &&
         e.tool === "submit_assessment",
     );
 
-    const hasAssessment = assessmentCalls.length > 0 && assessmentCalls[0]!.args !== undefined;
+    let hasAssessment = assessmentCalls.length > 0 && assessmentCalls[0]!.args !== undefined;
+
+    // Transitional fallback: if no tool call found, check for JSON in messages
+    // (agents may not immediately adopt custom tools; this ensures backward compatibility)
+    if (!hasAssessment) {
+      const assessmentMessages = events.filter(
+        (e) =>
+          e.type === "message" &&
+          this.looksLikeOracleAssessment(e.text),
+      );
+      hasAssessment = assessmentMessages.length > 0;
+    }
+
     checks.push({
       name: "oracle_assessment",
       passed: hasAssessment,
       detail: hasAssessment
-        ? `Found submit_assessment tool call with validated args`
-        : "No submit_assessment tool call found — Oracle did not produce structured assessment",
+        ? `Found submit_assessment tool call or structured assessment in messages`
+        : "No submit_assessment tool call or valid assessment found",
     });
 
     // Check no write events (Oracle is read-only)
@@ -203,20 +215,31 @@ export class ReaperImpl implements Reaper {
   ): ArtifactVerification {
     const checks: ArtifactCheck[] = [];
 
-    // Check for submit_handoff tool call (structured output via custom tool)
+    // Primary: Check for submit_handoff tool call (structured output via custom tool)
     const handoffCalls = events.filter(
       (e): e is AgentEvent & { type: "tool_use"; tool: string; args?: Record<string, unknown> } =>
         e.type === "tool_use" &&
         e.tool === "submit_handoff",
     );
 
-    const hasHandoff = handoffCalls.length > 0 && handoffCalls[0]!.args !== undefined;
+    let hasHandoff = handoffCalls.length > 0 && handoffCalls[0]!.args !== undefined;
+
+    // Transitional fallback: check for JSON in messages
+    if (!hasHandoff) {
+      const handoffMessages = events.filter(
+        (e) =>
+          e.type === "message" &&
+          this.looksLikeTitanHandoff(e.text),
+      );
+      hasHandoff = handoffMessages.length > 0;
+    }
+
     checks.push({
       name: "titan_handoff",
       passed: hasHandoff,
       detail: hasHandoff
-        ? `Found submit_handoff tool call with validated args`
-        : "No submit_handoff tool call found — Titan did not produce structured handoff",
+        ? `Found submit_handoff tool call or structured handoff in messages`
+        : "No submit_handoff tool call or valid handoff found",
     });
 
     // Check for meaningful diff (at least one file changed)

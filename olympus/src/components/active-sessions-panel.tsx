@@ -83,7 +83,7 @@ function SessionTerminal(props: { session: ActiveSession }): JSX.Element {
             }}
           />
           <span style={{ fontSize: fontSizes.xs, fontWeight: 700, color: "#8b949e" }}>
-            {session.id}
+            {session.id.length > 28 ? session.id.slice(0, 25) + "…" : session.id}
           </span>
         </div>
         <span
