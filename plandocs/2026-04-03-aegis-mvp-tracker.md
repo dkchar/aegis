@@ -1,6 +1,6 @@
 # Aegis MVP Tracker
 
-- Refreshed: 2026-04-12T22:12:10+01:00
+- Refreshed: 2026-04-13T16:40:00+01:00
 - Source spec: SPECv2.md
 - Design doc: docs/superpowers/specs/2026-04-03-aegis-mvp-slicing-design.md
 - Plan doc: docs/superpowers/plans/2026-04-03-aegis-mvp-slice-plan.md
@@ -9,6 +9,18 @@
 - Program updated: 2026-04-08T14:33:48Z
 - Operational queue: use `bd ready`; slice and program epics stay `blocked` as coordination units because Beads cannot model task-to-epic blockers.
 - Planning view: `bd swarm validate` still reports epic-level waves and is advisory, not the executable queue.
+
+## 2026-04-13 Runtime Tool-Call Failure Detection and Reaper Fix
+
+- Closed non-epic follow-up in this batch: `aegis-vkh` (reaper declining Oracle sessions).
+- Scope of the fix:
+  - the reaper now detects `tool_call_failure` when a session completes but produces no structured output (no custom tool call AND no valid message fallback). This catches models with broken tool calling at runtime rather than relying on a static blocklist.
+  - fatal monitor events now carry a `fatal` flag and actionable user message identifying the caste, the missing tool, and the recommendation to switch models.
+  - the orchestrator kills the auto-loop immediately when it sees a fatal monitor event, preventing wasted retries on models that cannot invoke tools.
+  - sentinel verification now has the same transitional message fallback as oracle and titan (checks message JSON when no tool call is found).
+  - default models changed from `pi:default` to `google:gemini-2.0-flash-exp` — a model with confirmed tool-call reliability, free tier access, and good rate limits.
+- Verification on 2026-04-13: `npm run lint`; `npm run build`; `npm run test` (1446 tests, 0 failed). New unit tests added for `tool_call_failure` detection and non-tool-call caste exclusion.
+- Queue parity on 2026-04-13: `bd ready --json` returned 2 issues (`aegis-bv9`, `aegis-vkh`); `aegis-vkh` updated with root cause analysis.
 
 ## 2026-04-12 Auto-Loop Backlog Sweep Parity
 
