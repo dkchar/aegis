@@ -4,6 +4,25 @@
 - **`plandocs/2026-04-03-aegis-mvp-tracker.md`** — slice tracker. Shows which slices are closed, blocked, and what their gates require.
 - **`plandocs/codebase-structure.md`** — file-by-file structure reference. Read this before exploring the codebase.
 
+## Online Documentation Rule
+
+**ALWAYS check official online docs before implementing changes to external dependencies.**
+Do not guess API signatures, model names, or config formats from memory.
+
+When working with:
+- **Pi SDK** (`@mariozechner/pi-ai`, `@mariozechner/pi-coding-agent`): use `getProviders()`/`getModels()` at runtime to discover models — never hardcode model IDs. Check `github.com/badlogic/pi-mono` for latest API changes.
+- **Beads CLI** (`bd`): check `docs/QUICKSTART.md` and `README.md` in the project.
+- **Any npm package**: check the npm page or GitHub repo for current API.
+- **context7 MCP**: use `context7` tool to fetch current docs for any library. Invoke it before writing code that depends on external APIs.
+
+Use web search or web fetch to get current docs when:
+- Adding new model references (Pi SDK model catalog is updated every release)
+- Changing provider configurations
+- Using a package API you haven't looked at recently
+- Any time you're uncertain about an external dependency's current behavior
+
+**Hardcoding external model IDs, provider names, or API endpoints is forbidden.** Always resolve dynamically from the SDK, config, or runtime API.
+
 ## What Aegis Is
 
 A thin, deterministic multi-agent orchestrator. It coordinates AI coding agents (Pi SDK first) through a pluggable runtime adapter, uses Beads (`bd` CLI) as the issue tracker, persists orchestration state locally under `.aegis/`, and serves a browser dashboard called Olympus.

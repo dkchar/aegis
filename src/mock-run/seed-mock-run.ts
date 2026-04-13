@@ -171,8 +171,8 @@ function createDatabaseName(prefix: string) {
 function buildMockRunConfig(options?: { uncapped?: boolean }) {
   const uncapped = options?.uncapped ?? true;
 
-  // Use all defaults — no hardcoded models. The orchestrator defaults
-  // (gemini-2.0-flash-exp for structured-output castes) flow through.
+  // Use all defaults — no hardcoded models. Defaults flow through
+  // DEFAULT_AEGIS_CONFIG and Pi SDK uses .pi/settings.json model.
   const baseConfig = {
     ...DEFAULT_AEGIS_CONFIG,
     olympus: {
