@@ -100,13 +100,17 @@ The daemon is the main runtime surface:
 - `aegis stop`
 
 The daemon normally runs in auto-processing posture.
-Manual control and debugging come from explicit phase and caste commands once later rebuild phases land, not from a separate conversational mode.
+Manual control and debugging come from explicit phase commands now, with caste and merge commands returning in later phases.
 
-As of completed Phase A-C work, the only live operator commands are:
+As of completed Phase D work, the live operator commands are:
 - `aegis init`
 - `aegis start`
 - `aegis status`
 - `aegis stop`
+- `aegis poll`
+- `aegis dispatch`
+- `aegis monitor`
+- `aegis reap`
 
 ## Truth planes
 
@@ -212,9 +216,9 @@ Emergency MVP rule:
 - a tiny deterministic fake runtime is allowed only if it materially improves CI seam testing
 - do not widen the runtime contract beyond stripped-MVP needs
 
-Phase A-C note:
-- the stripped bootstrap base may keep startup/runtime validation logic close to the daemon shell until loop modules are rebuilt
-- restoring the full dedicated runtime shell is later-phase work, not a Phase B/C requirement by itself
+Phase D note:
+- the rebuilt loop shell may still use a tiny deterministic `phase_d_shell` runtime for seam tests and mock-run proof
+- real Pi-backed caste execution still returns in Phase E
 
 ### Tracker
 
@@ -225,26 +229,16 @@ Emergency MVP rule:
 - a tiny deterministic fake tracker is allowed only if it materially improves CI seam testing
 - do not hardcode orchestration semantics to Beads naming patterns
 
-Phase A-C note:
-- the stripped bootstrap base may keep Beads bootstrap probes close to the daemon shell until loop modules return
-- richer tracker-shell separation comes back with the loop rebuild phases
+Phase D note:
+- the rebuilt loop shell keeps Beads bootstrap probes and tracker access close to the daemon entrypoints
+- richer tracker-shell separation can continue to tighten in later phases without reintroducing naming heuristics
 
 ## Command surface
 
-### Current Phase A-C command surface
+### Current Phase D command surface
 
 Live now:
 - `aegis init`
-- `aegis start`
-- `aegis status`
-- `aegis stop`
-
-This is the only supported operator surface for the stripped bootstrap base.
-
-### Phase D+ target command surface
-
-Planned later:
-
 - `aegis start`
 - `aegis status`
 - `aegis stop`
@@ -252,6 +246,13 @@ Planned later:
 - `aegis dispatch`
 - `aegis monitor`
 - `aegis reap`
+
+This is the supported operator surface for the rebuilt Phase D loop shell.
+
+### Future Phase Command Targets
+
+Planned later:
+
 - `aegis merge next`
 - `aegis scout <issue-id>`
 - `aegis implement <issue-id>`
@@ -360,18 +361,19 @@ In mock runs they should be treated as ephemeral and cleaned up after successful
 
 - structured logs under `.aegis/logs/`
 
-### Current Phase A-C observability
+### Current Phase D observability
 
-The stripped bootstrap base currently guarantees:
-- terminal output for `init`, `start`, `status`, and `stop`
+The rebuilt loop shell currently guarantees:
+- terminal output for `init`, `start`, `status`, `stop`, `poll`, `dispatch`, `monitor`, and `reap`
 - persisted `.aegis/runtime-state.json`
-- persisted daemon lifecycle logs under `.aegis/logs/`
+- persisted `.aegis/dispatch-state.json`
+- persisted structured phase logs under `.aegis/logs/`
 
-Phase and caste logs are intentionally deferred until the loop modules are rebuilt.
+Real caste artifacts and provider-backed session telemetry are still deferred to later phases.
 
-### Phase D+ observability target
+### Future Observability Target
 
-When loop phases return, durable logs must include:
+When Phase E/F capability returns, durable logs must include:
 
 Minimum:
 - timestamp
@@ -450,15 +452,15 @@ Real conflict behavior belongs in mock-run acceptance instead.
 
 ### User and QA proof
 
-### Current Phase A-C proof scope
+### Current Phase D proof scope
 
-The seeded mock-run flow currently proves the stripped bootstrap base:
+The seeded mock-run flow currently proves the Phase D loop shell:
 - daemon starts and is observable from the terminal
-- daemon status and stop work against seeded state
-- stripped config, runtime-state files, and daemon logs are written correctly
-- no Olympus or browser-first artifact is required by the packaged CLI surface
+- direct phase commands reuse the same loop code as the daemon
+- stripped config, runtime-state files, dispatch-state files, and phase logs are written correctly
+- the deterministic `phase_d_shell` runtime can drive ready work to the explicit `phase_d_complete` placeholder stage without requiring browser/UI infrastructure
 
-It does not yet prove the rebuilt orchestration loop, concurrency, merge behavior, or Janus behavior.
+It does not yet prove real Pi-backed caste execution, artifact enforcement, merge behavior, or Janus behavior.
 
 ### Full MVP proof target
 

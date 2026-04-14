@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { formatStatusSnapshot, getAegisStatus } from "./cli/status.js";
+import { formatPhaseCommandResult, runDirectPhaseCommand } from "./cli/phase-command.js";
 import { parseStartOverrides, startAegis } from "./cli/start.js";
 import { stopAegis } from "./cli/stop.js";
 import { initProject } from "./config/init-project.js";
@@ -67,6 +68,17 @@ export async function runCli(
   if (command === "status") {
     const snapshot = await getAegisStatus(root);
     console.log(formatStatusSnapshot(snapshot));
+    return manifest;
+  }
+
+  if (
+    command === "poll"
+    || command === "dispatch"
+    || command === "monitor"
+    || command === "reap"
+  ) {
+    const result = await runDirectPhaseCommand(root, command);
+    console.log(formatPhaseCommandResult(result));
     return manifest;
   }
 

@@ -24,13 +24,18 @@ Target truth planes:
 - merge queue truth: `.aegis/merge-queue.json`
 - durable observability: `.aegis/logs/`, with structured caste artifacts returning in later phases
 
-Current Phase A-C surface:
+Current Phase D surface:
 - `aegis init`
 - `aegis start`
 - `aegis status`
 - `aegis stop`
+- `aegis poll`
+- `aegis dispatch`
+- `aegis monitor`
+- `aegis reap`
 - `.aegis/runtime-state.json`
-- daemon lifecycle logs under `.aegis/logs/`
+- `.aegis/dispatch-state.json`
+- structured phase logs under `.aegis/logs/`
 
 Out of scope unless explicitly reopened:
 - Olympus UI
@@ -45,7 +50,7 @@ Out of scope unless explicitly reopened:
 - No in-place mutation of dispatch or merge state records. Return new objects.
 - Use atomic writes for durable state and artifacts via tmp -> rename.
 - Keep tracker semantics generic. Never infer orchestration meaning from issue naming.
-- Keep the code understandable at a glance. Phase A-C is intentionally limited to the stripped bootstrap surface. Preserve clear boundaries for `poller`, `triage`, `dispatcher`, `monitor`, `reaper`, `runtime`, `merge`, and `tracker` as those modules return in later phases.
+- Keep the code understandable at a glance. Phase D restores the loop shell while leaving Phase E/F caste, artifact, and merge work explicit. Preserve clear boundaries for `poller`, `triage`, `dispatcher`, `monitor`, `reaper`, `runtime`, `merge`, and `tracker`.
 - Prefer Windows-safe path/process handling: `path.join()`, `spawnSync`, `execFile`, and `execFileSync`.
 - Do not reintroduce cut systems as compatibility code or stubs.
 
@@ -56,28 +61,28 @@ Out of scope unless explicitly reopened:
 - Prefer clean deterministic tests over brittle git/installable simulations.
 - Do not claim a behavior or gate passes without running the relevant command and seeing it pass.
 
-## Current Phase A-C Available Commands
+## Current Phase D Available Commands
 
-Current stripped-base commands:
+Current loop-shell commands:
 
 ```bash
 aegis init
 aegis start
 aegis status
 aegis stop
-```
-
-During Phase A-C, treat anything else as future work, not as a supported operator path.
-
-## Future Phase Command Targets
-
-These commands belong to later loop-rebuild phases and are not part of the current stripped bootstrap base:
-
-```bash
 aegis poll
 aegis dispatch
 aegis monitor
 aegis reap
+```
+
+Phase D intentionally stops at the deterministic loop shell. Real caste prompts, artifact enforcement, merge queue execution, and recovery verbs remain future work.
+
+## Future Phase Command Targets
+
+These commands still belong to later rebuild phases and are not part of the current Phase D shell:
+
+```bash
 aegis merge next
 aegis scout <issue-id>
 aegis implement <issue-id>
@@ -89,24 +94,27 @@ aegis requeue <issue-id>
 
 ## Mock Run
 
-Use `aegis-mock-run/` as the stripped bootstrap proof surface during Phase A-C.
+Use `aegis-mock-run/` as the Phase D proof surface.
 
 Current proof scope:
 - stripped config and repo initialization
-- daemon start, status, and stop behavior
-- runtime-state persistence
-- daemon lifecycle logs
+- daemon start, status, stop, and direct phase commands
+- dispatch-state persistence
+- structured phase logs
+- deterministic `phase_d_shell` runtime progression to the explicit `phase_d_complete` placeholder stage
 
 Deferred to later phases:
-- full `poll -> triage -> dispatch -> monitor -> reap` proof
-- bounded concurrency proof
-- Janus and merge-queue proof
+- real Pi-backed caste execution and artifact enforcement
+- merge queue and Janus proof
+- full post-merge Sentinel behavior
 
 Typical flow:
 
 ```bash
 npm run mock:seed
 npm run mock:run -- node ../dist/index.js start
+npm run mock:run -- node ../dist/index.js dispatch
+npm run mock:run -- node ../dist/index.js reap
 npm run mock:run -- node ../dist/index.js status
 npm run mock:run -- node ../dist/index.js stop
 ```

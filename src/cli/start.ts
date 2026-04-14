@@ -7,12 +7,25 @@ import path from "node:path";
 import { getModels, getProviders, type KnownProvider } from "@mariozechner/pi-ai";
 
 import { loadConfig } from "../config/load-config.js";
+import { runDaemonCycle as defaultRunDaemonCycle, runLoopPhase } from "../core/loop-runner.js";
+import {
+  loadDispatchState,
+  reconcileDispatchState,
+  saveDispatchState,
+} from "../core/dispatch-state.js";
 import {
   AEGIS_DIRECTORY,
   MODEL_KEYS,
   RUNTIME_STATE_FILES,
   type AegisConfig,
 } from "../config/schema.js";
+import {
+  clearRuntimeCommandArtifacts,
+  clearRuntimeCommandRequest,
+  readRuntimeCommandRequests,
+  writeRuntimeCommandResponse,
+  type RuntimeCommandResponse,
+} from "./runtime-command.js";
 import {
   formatStartupPreflight,
   runStartupPreflight,
@@ -88,6 +101,7 @@ export interface StartCommandOptions {
   verifyGitRepo?: () => void;
   probeBeadsCli?: () => StartupPreflightProbeResult;
   registerSignalHandlers?: boolean;
+  runDaemonCycle?: (root: string) => Promise<void>;
 }
 
 export interface TrackerProbeResult {
@@ -233,7 +247,7 @@ function verifyGitRepository(root: string) {
 }
 
 function verifyRuntimeAdapter(config: AegisConfig): StartupPreflightProbeResult {
-  if (config.runtime !== "pi") {
+  if (config.runtime !== "pi" && config.runtime !== "phase_d_shell") {
     return {
       ok: false,
       detail: `Unsupported runtime adapter: ${config.runtime}`,
@@ -532,8 +546,20 @@ export async function startAegis(
   let hasStopped = false;
   let stopRequestPoller: NodeJS.Timeout | null = null;
   let heartbeatTimer: NodeJS.Timeout | null = null;
+  let daemonLoopTimer: NodeJS.Timeout | null = null;
+  let cycleInFlight = false;
+  const runDaemonCycle = options.runDaemonCycle ?? ((candidateRoot: string) =>
+    defaultRunDaemonCycle(candidateRoot, {
+      sessionProvenanceId: String(process.pid),
+    }));
 
   clearStopRequest(repoRoot);
+  clearRuntimeCommandArtifacts(repoRoot);
+  const reconciledDispatchState = reconcileDispatchState(
+    loadDispatchState(repoRoot),
+    String(process.pid),
+  );
+  saveDispatchState(repoRoot, reconciledDispatchState);
   writeRuntimeState(runningState, repoRoot);
   appendDaemonLog(
     repoRoot,
@@ -555,7 +581,12 @@ export async function startAegis(
         clearInterval(heartbeatTimer);
         heartbeatTimer = null;
       }
+      if (daemonLoopTimer) {
+        clearInterval(daemonLoopTimer);
+        daemonLoopTimer = null;
+      }
       clearStopRequest(repoRoot);
+      clearRuntimeCommandArtifacts(repoRoot);
       runningState = toStoppedRuntimeState(runningState, reason);
       writeRuntimeState(runningState, repoRoot);
       appendDaemonLog(repoRoot, `[daemon][stop] reason=${reason}`);
@@ -583,13 +614,67 @@ export async function startAegis(
         console.error(`Failed to stop Aegis gracefully: ${details}`);
         process.exit(1);
       },
-    );
+      );
   };
 
-  stopRequestPoller = setInterval(handleExternalStopRequest, STOP_REQUEST_POLL_MS);
+  const handlePhaseCommandRequest = async () => {
+    const request = readRuntimeCommandRequests(repoRoot)[0];
+    if (!request || request.target_pid !== process.pid || cycleInFlight) {
+      return;
+    }
+
+    try {
+      const result = await runLoopPhase(repoRoot, request.phase, {
+        sessionProvenanceId: String(process.pid),
+      });
+      const response: RuntimeCommandResponse = {
+        request_id: request.request_id,
+        phase: request.phase,
+        completed_at: new Date().toISOString(),
+        result,
+      };
+      writeRuntimeCommandResponse(repoRoot, response);
+      clearRuntimeCommandRequest(repoRoot, request.request_id);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      const response: RuntimeCommandResponse = {
+        request_id: request.request_id,
+        phase: request.phase,
+        completed_at: new Date().toISOString(),
+        error: detail,
+      };
+      writeRuntimeCommandResponse(repoRoot, response);
+      clearRuntimeCommandRequest(repoRoot, request.request_id);
+    }
+  };
+
+  stopRequestPoller = setInterval(() => {
+    handleExternalStopRequest();
+    void handlePhaseCommandRequest();
+  }, STOP_REQUEST_POLL_MS);
   heartbeatTimer = setInterval(() => {
     appendDaemonLog(repoRoot, "[daemon][heartbeat] mode=auto");
   }, HEARTBEAT_LOG_INTERVAL_MS);
+  const runCycleSafely = async () => {
+    if (cycleInFlight || hasStopped) {
+      return;
+    }
+
+    cycleInFlight = true;
+    try {
+      await runDaemonCycle(repoRoot);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      appendDaemonLog(repoRoot, `[daemon][cycle_error] ${detail}`);
+    } finally {
+      cycleInFlight = false;
+    }
+  };
+
+  await runCycleSafely();
+  daemonLoopTimer = setInterval(() => {
+    void runCycleSafely();
+  }, resolvedConfig.thresholds.poll_interval_seconds * 1_000);
 
   if (options.registerSignalHandlers !== false) {
     registerLifecycleSignalHandlers(() => runtime.stop("signal"));

@@ -278,6 +278,13 @@ describe("S00 project skeleton contract", () => {
   });
 
   it("keeps the stripped source tree free of hidden legacy orchestration modules", () => {
+    expect(existsSync(path.join(repoRoot, "src", "core", "poller.ts"))).toBe(true);
+    expect(existsSync(path.join(repoRoot, "src", "core", "triage.ts"))).toBe(true);
+    expect(existsSync(path.join(repoRoot, "src", "core", "dispatcher.ts"))).toBe(true);
+    expect(existsSync(path.join(repoRoot, "src", "core", "monitor.ts"))).toBe(true);
+    expect(existsSync(path.join(repoRoot, "src", "core", "reaper.ts"))).toBe(true);
+    expect(existsSync(path.join(repoRoot, "src", "runtime", "agent-runtime.ts"))).toBe(true);
+    expect(existsSync(path.join(repoRoot, "src", "tracker", "tracker.ts"))).toBe(true);
     expect(existsSync(path.join(repoRoot, "src", "castes"))).toBe(false);
     expect(existsSync(path.join(repoRoot, "src", "labor"))).toBe(false);
     expect(existsSync(path.join(repoRoot, "src", "merge"))).toBe(false);
@@ -306,11 +313,12 @@ describe("S00 project skeleton contract", () => {
       "utf8",
     );
 
-    expect(agentsGuide).toContain("Current Phase A-C Available Commands");
+    expect(agentsGuide).toContain("Current Phase D Available Commands");
+    expect(agentsGuide).toContain("aegis poll");
     expect(agentsGuide).toContain("Future Phase Command Targets");
-    expect(designDoc).toContain("### Current Phase A-C command surface");
-    expect(designDoc).toContain("### Phase D+ target command surface");
-    expect(designDoc).toContain("### Current Phase A-C proof scope");
+    expect(designDoc).toContain("### Current Phase D command surface");
+    expect(designDoc).toContain("### Future Phase Command Targets");
+    expect(designDoc).toContain("### Current Phase D proof scope");
     expect(designDoc).toContain("### Full MVP proof target");
   });
 

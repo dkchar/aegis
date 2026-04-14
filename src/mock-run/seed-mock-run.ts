@@ -173,6 +173,7 @@ export function buildMockRunConfig(options?: { uncapped?: boolean }) {
 
   const baseConfig = {
     ...DEFAULT_AEGIS_CONFIG,
+    runtime: "phase_d_shell",
     models: {
       ...DEFAULT_AEGIS_CONFIG.models,
       oracle: "pi:gemma-4-31b-it",
