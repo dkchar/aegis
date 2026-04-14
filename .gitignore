@@ -32,6 +32,8 @@ node_modules/
 .worktrees/
 CLAUDE.md
 !AGENTS.md
+.agents/
+skills-lock.json
 
 # Planning artifacts
 
