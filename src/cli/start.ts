@@ -7,6 +7,7 @@ import path from "node:path";
 import { getModels, getProviders, type KnownProvider } from "@mariozechner/pi-ai";
 
 import { loadConfig } from "../config/load-config.js";
+import { runCasteCommand as defaultRunCasteCommand } from "../core/caste-runner.js";
 import { runDaemonCycle as defaultRunDaemonCycle, runLoopPhase } from "../core/loop-runner.js";
 import {
   loadDispatchState,
@@ -19,13 +20,17 @@ import {
   RUNTIME_STATE_FILES,
   type AegisConfig,
 } from "../config/schema.js";
+import { BeadsTrackerClient } from "../tracker/beads-tracker.js";
 import {
   clearRuntimeCommandArtifacts,
   clearRuntimeCommandRequest,
   readRuntimeCommandRequests,
   writeRuntimeCommandResponse,
+  type RuntimeCasteAction,
+  type RuntimeCommandRequest,
   type RuntimeCommandResponse,
 } from "./runtime-command.js";
+import { createCasteRuntime } from "../runtime/create-caste-runtime.js";
 import {
   formatStartupPreflight,
   runStartupPreflight,
@@ -102,6 +107,7 @@ export interface StartCommandOptions {
   probeBeadsCli?: () => StartupPreflightProbeResult;
   registerSignalHandlers?: boolean;
   runDaemonCycle?: (root: string) => Promise<void>;
+  runCasteCommand?: (root: string, action: RuntimeCasteAction, issueId: string) => Promise<unknown>;
 }
 
 export interface TrackerProbeResult {
@@ -552,6 +558,17 @@ export async function startAegis(
     defaultRunDaemonCycle(candidateRoot, {
       sessionProvenanceId: String(process.pid),
     }));
+  const runCasteCommand = options.runCasteCommand ?? ((candidateRoot: string, action: RuntimeCasteAction, issueId: string) =>
+    defaultRunCasteCommand({
+      root: candidateRoot,
+      action,
+      issueId,
+      tracker: new BeadsTrackerClient(),
+      runtime: createCasteRuntime(loadConfig(candidateRoot).runtime, {}, {
+        root: candidateRoot,
+        issueId,
+      }),
+    }));
 
   clearStopRequest(repoRoot);
   clearRuntimeCommandArtifacts(repoRoot);
@@ -617,20 +634,25 @@ export async function startAegis(
       );
   };
 
-  const handlePhaseCommandRequest = async () => {
-    const request = readRuntimeCommandRequests(repoRoot)[0];
+  const handleRuntimeCommandRequest = async () => {
+    const request = readRuntimeCommandRequests(repoRoot)[0] as RuntimeCommandRequest | undefined;
     if (!request || request.target_pid !== process.pid || cycleInFlight || hasStopped) {
       return;
     }
 
     cycleInFlight = true;
     try {
-      const result = await runLoopPhase(repoRoot, request.phase, {
-        sessionProvenanceId: String(process.pid),
-      });
+      const result = request.command_kind === "caste"
+        ? await runCasteCommand(repoRoot, request.action, request.issue_id)
+        : await runLoopPhase(repoRoot, request.phase, {
+          sessionProvenanceId: String(process.pid),
+        });
       const response: RuntimeCommandResponse = {
         request_id: request.request_id,
-        phase: request.phase,
+        command_kind: request.command_kind,
+        ...(request.command_kind === "caste"
+          ? { action: request.action, issue_id: request.issue_id }
+          : { phase: request.phase }),
         completed_at: new Date().toISOString(),
         result,
       };
@@ -640,7 +662,10 @@ export async function startAegis(
       const detail = error instanceof Error ? error.message : String(error);
       const response: RuntimeCommandResponse = {
         request_id: request.request_id,
-        phase: request.phase,
+        command_kind: request.command_kind,
+        ...(request.command_kind === "caste"
+          ? { action: request.action, issue_id: request.issue_id }
+          : { phase: request.phase }),
         completed_at: new Date().toISOString(),
         error: detail,
       };
@@ -653,7 +678,7 @@ export async function startAegis(
 
   stopRequestPoller = setInterval(() => {
     handleExternalStopRequest();
-    void handlePhaseCommandRequest();
+    void handleRuntimeCommandRequest();
   }, STOP_REQUEST_POLL_MS);
   heartbeatTimer = setInterval(() => {
     appendDaemonLog(repoRoot, "[daemon][heartbeat] mode=auto");

@@ -8,14 +8,5 @@
     ".aegis/config.json",
     ".aegis/dispatch-state.json",
     ".aegis/merge-queue.json"
-  ],
-  "gitIgnoreEntries": [
-    ".aegis/config.json",
-    ".aegis/dispatch-state.json",
-    ".aegis/merge-queue.json",
-    ".aegis/runtime-state.json",
-    ".aegis/runtime-stop-request.json",
-    ".aegis/labors/",
-    ".aegis/logs/"
   ]
 }

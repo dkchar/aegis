@@ -9,7 +9,9 @@ Purpose: Define the emergency recovery contract for rewriting Aegis into a worki
 - Phase A complete on 2026-04-13.
 - Phase B complete on 2026-04-13.
 - Phase C complete on 2026-04-13.
-- Phases D through G remain open.
+- Phase D complete on 2026-04-14.
+- Phase E complete on 2026-04-14.
+- Phases F and G remain open.
 
 ## Scope and source of truth
 
@@ -532,11 +534,26 @@ Status:
 
 ### Phase D: Core loop rebuild
 
+Status:
+- complete on 2026-04-14
+
 - rebuild `poller`, `triage`, `dispatcher`, `monitor`, and `reaper`
 - make each phase legible and separately loggable
 - make daemon and direct commands share execution paths
 
 ### Phase E: Caste and artifact enforcement
+
+Status:
+- complete on 2026-04-14
+
+Current surface on 2026-04-14:
+- `aegis scout <issue-id>`
+- `aegis implement <issue-id>`
+- `aegis review <issue-id>`
+- `aegis process <issue-id>`
+- strict Oracle/Titan/Sentinel/Janus artifact parsing and atomic persistence under `.aegis/`
+- daemon-routed caste commands serialize through the same runtime-command transport as phase commands
+- `process <issue-id>` stops cleanly at the Phase F merge-queue boundary once an issue reaches `implemented`
 
 - rebuild Oracle, Titan, Sentinel, and Janus around strict artifacts
 - implement tool-first with strict JSON fallback

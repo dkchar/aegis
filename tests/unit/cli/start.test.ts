@@ -275,4 +275,95 @@ describe("startAegis daemon loop", () => {
 
     await result.runtime.stop();
   });
+
+  it("serializes daemon-routed caste commands with an in-flight daemon cycle", async () => {
+    vi.useFakeTimers();
+    const root = createTempRoot();
+    initProject(root);
+
+    const configPath = path.join(root, ".aegis", "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8")) as {
+      runtime: string;
+      thresholds: { poll_interval_seconds: number };
+    };
+
+    writeFileSync(
+      configPath,
+      `${JSON.stringify({
+        ...config,
+        runtime: "phase_d_shell",
+        thresholds: {
+          ...config.thresholds,
+          poll_interval_seconds: 1,
+        },
+      }, null, 2)}\n`,
+      "utf8",
+    );
+
+    let releaseCycle: (() => void) | undefined;
+    let cycleCount = 0;
+    const runDaemonCycle = vi.fn(() => {
+      cycleCount += 1;
+      if (cycleCount === 1) {
+        return Promise.resolve();
+      }
+
+      return new Promise<void>((resolve) => {
+        releaseCycle = () => {
+          resolve();
+        };
+      });
+    });
+    const runCasteCommand = vi.fn(async () => ({
+      action: "scout",
+      issueId: "aegis-123",
+      stage: "scouted",
+    }));
+
+    const startModule = await import("../../../src/cli/start.js");
+    const result = await startModule.startAegis(root, {}, {
+      verifyTracker: () => undefined,
+      verifyGitRepo: () => undefined,
+      probeBeadsCli: () => ({
+        ok: true,
+        detail: "Beads CLI is available.",
+      }),
+      registerSignalHandlers: false,
+      runDaemonCycle,
+      runCasteCommand,
+    });
+
+    await vi.advanceTimersByTimeAsync(1_100);
+    expect(runDaemonCycle).toHaveBeenCalledTimes(2);
+
+    const commandDirectory = path.join(root, ".aegis", "runtime-commands");
+    mkdirSync(commandDirectory, { recursive: true });
+    writeFileSync(
+      path.join(commandDirectory, "request-2.request.json"),
+      `${JSON.stringify({
+        request_id: "request-2",
+        command_kind: "caste",
+        action: "scout",
+        issue_id: "aegis-123",
+        target_pid: process.pid,
+        requested_at: "2026-04-14T12:00:00.000Z",
+      }, null, 2)}\n`,
+      "utf8",
+    );
+
+    await vi.advanceTimersByTimeAsync(500);
+    expect(
+      existsSync(path.join(commandDirectory, "request-2.response.json")),
+    ).toBe(false);
+
+    releaseCycle?.();
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(runCasteCommand).toHaveBeenCalledWith(root, "scout", "aegis-123");
+    expect(
+      existsSync(path.join(commandDirectory, "request-2.response.json")),
+    ).toBe(true);
+
+    await result.runtime.stop();
+  });
 });
