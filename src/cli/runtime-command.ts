@@ -5,19 +5,37 @@ import { randomUUID } from "node:crypto";
 import type { LoopPhase, LoopPhaseResult } from "../core/loop-runner.js";
 
 const COMMAND_DIRECTORY = ".aegis/runtime-commands";
+export type RuntimeCasteAction = "scout" | "implement" | "review" | "process";
 
-export interface RuntimeCommandRequest {
+export interface PhaseRuntimeCommandRequest {
   request_id: string;
+  command_kind: "phase";
   phase: LoopPhase;
   target_pid: number;
   requested_at: string;
 }
 
+export interface CasteRuntimeCommandRequest {
+  request_id: string;
+  command_kind: "caste";
+  action: RuntimeCasteAction;
+  issue_id: string;
+  target_pid: number;
+  requested_at: string;
+}
+
+export type RuntimeCommandRequest =
+  | PhaseRuntimeCommandRequest
+  | CasteRuntimeCommandRequest;
+
 export interface RuntimeCommandResponse {
   request_id: string;
-  phase: LoopPhase;
+  command_kind: "phase" | "caste";
+  phase?: LoopPhase;
+  action?: RuntimeCasteAction;
+  issue_id?: string;
   completed_at: string;
-  result?: LoopPhaseResult;
+  result?: unknown;
   error?: string;
 }
 
@@ -106,6 +124,7 @@ export async function requestPhaseCommandFromDaemon(
 ): Promise<LoopPhaseResult> {
   const request: RuntimeCommandRequest = {
     request_id: randomUUID(),
+    command_kind: "phase",
     phase,
     target_pid: targetPid,
     requested_at: new Date().toISOString(),
@@ -125,7 +144,7 @@ export async function requestPhaseCommandFromDaemon(
       if (!response.result) {
         throw new Error(`Daemon returned no result for ${phase}`);
       }
-      return response.result;
+      return response.result as LoopPhaseResult;
     }
 
     await new Promise<void>((resolve) => {
@@ -136,4 +155,44 @@ export async function requestPhaseCommandFromDaemon(
   clearRuntimeCommandResponse(root, request.request_id);
   clearRuntimeCommandRequest(root, request.request_id);
   throw new Error(`Timed out waiting for daemon response to ${phase}`);
+}
+
+export async function requestCasteCommandFromDaemon(
+  root: string,
+  action: RuntimeCasteAction,
+  issueId: string,
+  targetPid: number,
+  timeoutMs = 10_000,
+): Promise<unknown> {
+  const request: RuntimeCommandRequest = {
+    request_id: randomUUID(),
+    command_kind: "caste",
+    action,
+    issue_id: issueId,
+    target_pid: targetPid,
+    requested_at: new Date().toISOString(),
+  };
+
+  writeRuntimeCommandRequest(root, request);
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const response = readRuntimeCommandResponse(root, request.request_id);
+    if (response?.request_id === request.request_id) {
+      clearRuntimeCommandResponse(root, request.request_id);
+      clearRuntimeCommandRequest(root, request.request_id);
+      if (response.error) {
+        throw new Error(response.error);
+      }
+      return response.result;
+    }
+
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 50);
+    });
+  }
+
+  clearRuntimeCommandResponse(root, request.request_id);
+  clearRuntimeCommandRequest(root, request.request_id);
+  throw new Error(`Timed out waiting for daemon response to ${action}`);
 }

@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { formatStatusSnapshot, getAegisStatus } from "./cli/status.js";
+import { formatCasteCommandResult, runDirectCasteCommand } from "./cli/caste-command.js";
 import { formatPhaseCommandResult, runDirectPhaseCommand } from "./cli/phase-command.js";
 import { parseStartOverrides, startAegis } from "./cli/start.js";
 import { stopAegis } from "./cli/stop.js";
@@ -79,6 +80,25 @@ export async function runCli(
   ) {
     const result = await runDirectPhaseCommand(root, command);
     console.log(formatPhaseCommandResult(result));
+    return manifest;
+  }
+
+  if (
+    command === "scout"
+    || command === "implement"
+    || command === "review"
+    || command === "process"
+  ) {
+    const issueId = argv[1];
+
+    if (!issueId) {
+      console.error(`Missing issue id for ${command}`);
+      process.exitCode = 1;
+      return manifest;
+    }
+
+    const result = await runDirectCasteCommand(root, command, issueId);
+    console.log(formatCasteCommandResult(result));
     return manifest;
   }
 

@@ -34,6 +34,12 @@ export const DEFAULT_GITIGNORE_ENTRIES = [
   ".aegis/runtime-stop-request.json",
   ".aegis/labors/",
   ".aegis/logs/",
+  ".aegis/oracle/",
+  ".aegis/titan/",
+  ".aegis/sentinel/",
+  ".aegis/janus/",
+  ".aegis/merge-artifacts/",
+  ".aegis/transcripts/",
 ] as const;
 
 export interface InitProjectPlan {

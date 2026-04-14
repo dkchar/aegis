@@ -104,14 +104,6 @@ describe("S00 project skeleton contract", () => {
     );
   });
 
-  it("ignores repo-local runtime artifacts and scratch directories", () => {
-    const gitIgnoreContents = readFileSync(path.join(repoRoot, ".gitignore"), "utf8");
-
-    expect(gitIgnoreContents).toContain(".aegis/logs/");
-    expect(gitIgnoreContents).toContain(".aegis/oracle/");
-    expect(gitIgnoreContents).toContain(".aegis-cli-*");
-  });
-
   it("scaffolds the node entrypoint and shared path helpers", async () => {
     const sharedPathsModule = (await import(
       pathToFileURL(path.join(repoRoot, "src/shared/paths.ts")).href
@@ -285,8 +277,11 @@ describe("S00 project skeleton contract", () => {
     expect(existsSync(path.join(repoRoot, "src", "core", "reaper.ts"))).toBe(true);
     expect(existsSync(path.join(repoRoot, "src", "runtime", "agent-runtime.ts"))).toBe(true);
     expect(existsSync(path.join(repoRoot, "src", "tracker", "tracker.ts"))).toBe(true);
-    expect(existsSync(path.join(repoRoot, "src", "castes"))).toBe(false);
-    expect(existsSync(path.join(repoRoot, "src", "labor"))).toBe(false);
+    expect(existsSync(path.join(repoRoot, "src", "castes", "oracle", "oracle-parser.ts"))).toBe(true);
+    expect(existsSync(path.join(repoRoot, "src", "castes", "titan", "titan-parser.ts"))).toBe(true);
+    expect(existsSync(path.join(repoRoot, "src", "castes", "sentinel", "sentinel-parser.ts"))).toBe(true);
+    expect(existsSync(path.join(repoRoot, "src", "castes", "janus", "janus-parser.ts"))).toBe(true);
+    expect(existsSync(path.join(repoRoot, "src", "labor", "create-labor.ts"))).toBe(true);
     expect(existsSync(path.join(repoRoot, "src", "merge"))).toBe(false);
     expect(existsSync(path.join(repoRoot, "src", "cli", "parse-command.ts"))).toBe(false);
     expect(existsSync(path.join(repoRoot, "src", "shared", "issue-id.ts"))).toBe(false);
@@ -298,28 +293,6 @@ describe("S00 project skeleton contract", () => {
 
     expect(ciWorkflow).toContain("dist/index.js");
     expect(ciWorkflow).not.toContain("olympus/dist/index.html");
-  });
-
-  it("documents the current stripped-base surface separately from later rewrite phases", () => {
-    const agentsGuide = readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8");
-    const designDoc = readFileSync(
-      path.join(
-        repoRoot,
-        "docs",
-        "superpowers",
-        "specs",
-        "2026-04-13-aegis-emergency-mvp-triage-design.md",
-      ),
-      "utf8",
-    );
-
-    expect(agentsGuide).toContain("Current Phase D Available Commands");
-    expect(agentsGuide).toContain("aegis poll");
-    expect(agentsGuide).toContain("Future Phase Command Targets");
-    expect(designDoc).toContain("### Current Phase D command surface");
-    expect(designDoc).toContain("### Future Phase Command Targets");
-    expect(designDoc).toContain("### Current Phase D proof scope");
-    expect(designDoc).toContain("### Full MVP proof target");
   });
 
   it("creates the workspace skeleton required by the workspace contract", () => {

@@ -15,7 +15,11 @@ export interface DispatchRecord {
   stage: string;
   runningAgent: AgentAssignment | null;
   oracleAssessmentRef: string | null;
+  titanHandoffRef?: string | null;
+  titanClarificationRef?: string | null;
   sentinelVerdictRef: string | null;
+  janusArtifactRef?: string | null;
+  failureTranscriptRef?: string | null;
   fileScope: { files: string[] } | null;
   failureCount: number;
   consecutiveFailures: number;

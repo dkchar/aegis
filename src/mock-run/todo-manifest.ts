@@ -15,6 +15,7 @@ export const TODO_BASELINE_FILES: Record<string, string> = {
     ".aegis/logs/",
     ".aegis/mock-run-manifest.json",
     ".aegis/oracle/",
+    ".aegis/titan/",
     ".aegis/sentinel/",
     ".aegis/janus/",
     ".aegis/merge-artifacts/",
