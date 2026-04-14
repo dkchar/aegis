@@ -15,14 +15,22 @@ If older code or docs conflict with the emergency MVP triage design, the triage 
 
 Aegis is currently being rewritten as a terminal-first deterministic multi-agent orchestrator.
 
-Core loop:
+Target core loop:
 - `poll -> triage -> dispatch -> monitor -> reap`
 
-Truth planes:
+Target truth planes:
 - task truth: Beads
 - orchestration truth: `.aegis/dispatch-state.json`
 - merge queue truth: `.aegis/merge-queue.json`
-- durable observability: `.aegis/logs/` plus structured caste artifacts
+- durable observability: `.aegis/logs/`, with structured caste artifacts returning in later phases
+
+Current Phase A-C surface:
+- `aegis init`
+- `aegis start`
+- `aegis status`
+- `aegis stop`
+- `.aegis/runtime-state.json`
+- daemon lifecycle logs under `.aegis/logs/`
 
 Out of scope unless explicitly reopened:
 - Olympus UI
@@ -36,9 +44,8 @@ Out of scope unless explicitly reopened:
 
 - No in-place mutation of dispatch or merge state records. Return new objects.
 - Use atomic writes for durable state and artifacts via tmp -> rename.
-- Keep runtime-specific imports inside `src/runtime/*`.
 - Keep tracker semantics generic. Never infer orchestration meaning from issue naming.
-- Keep the code understandable at a glance. Preserve clear boundaries for `poller`, `triage`, `dispatcher`, `monitor`, `reaper`, `runtime`, `merge`, and `tracker`.
+- Keep the code understandable at a glance. Phase A-C is intentionally limited to the stripped bootstrap surface. Preserve clear boundaries for `poller`, `triage`, `dispatcher`, `monitor`, `reaper`, `runtime`, `merge`, and `tracker` as those modules return in later phases.
 - Prefer Windows-safe path/process handling: `path.join()`, `spawnSync`, `execFile`, and `execFileSync`.
 - Do not reintroduce cut systems as compatibility code or stubs.
 
@@ -49,9 +56,51 @@ Out of scope unless explicitly reopened:
 - Prefer clean deterministic tests over brittle git/installable simulations.
 - Do not claim a behavior or gate passes without running the relevant command and seeing it pass.
 
+## Current Phase A-C Available Commands
+
+Current stripped-base commands:
+
+```bash
+aegis init
+aegis start
+aegis status
+aegis stop
+```
+
+During Phase A-C, treat anything else as future work, not as a supported operator path.
+
+## Future Phase Command Targets
+
+These commands belong to later loop-rebuild phases and are not part of the current stripped bootstrap base:
+
+```bash
+aegis poll
+aegis dispatch
+aegis monitor
+aegis reap
+aegis merge next
+aegis scout <issue-id>
+aegis implement <issue-id>
+aegis review <issue-id>
+aegis process <issue-id>
+aegis restart <issue-id>
+aegis requeue <issue-id>
+```
+
 ## Mock Run
 
-Use `aegis-mock-run/` as the end-to-end proof surface for the stripped terminal loop.
+Use `aegis-mock-run/` as the stripped bootstrap proof surface during Phase A-C.
+
+Current proof scope:
+- stripped config and repo initialization
+- daemon start, status, and stop behavior
+- runtime-state persistence
+- daemon lifecycle logs
+
+Deferred to later phases:
+- full `poll -> triage -> dispatch -> monitor -> reap` proof
+- bounded concurrency proof
+- Janus and merge-queue proof
 
 Typical flow:
 

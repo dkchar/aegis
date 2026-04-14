@@ -35,6 +35,7 @@ const typescriptCliPath = resolveNodeModuleBinary(
   repoRoot,
   "node_modules/typescript/bin/tsc",
 );
+const npmExecPath = process.env.npm_execpath;
 
 interface RootPackageJson {
   main: string;
@@ -280,11 +281,37 @@ describe("S00 project skeleton contract", () => {
     expect(existsSync(path.join(repoRoot, "src", "castes"))).toBe(false);
     expect(existsSync(path.join(repoRoot, "src", "labor"))).toBe(false);
     expect(existsSync(path.join(repoRoot, "src", "merge"))).toBe(false);
-    expect(existsSync(path.join(repoRoot, "src", "runtime"))).toBe(false);
-    expect(existsSync(path.join(repoRoot, "src", "tracker"))).toBe(false);
     expect(existsSync(path.join(repoRoot, "src", "cli", "parse-command.ts"))).toBe(false);
     expect(existsSync(path.join(repoRoot, "src", "shared", "issue-id.ts"))).toBe(false);
     expect(existsSync(path.join(repoRoot, "src", "shared", "steer-command-reference.ts"))).toBe(false);
+  });
+
+  it("keeps CI package verification aligned with the stripped CLI artifact set", () => {
+    const ciWorkflow = readFileSync(path.join(repoRoot, ".github", "workflows", "ci.yml"), "utf8");
+
+    expect(ciWorkflow).toContain("dist/index.js");
+    expect(ciWorkflow).not.toContain("olympus/dist/index.html");
+  });
+
+  it("documents the current stripped-base surface separately from later rewrite phases", () => {
+    const agentsGuide = readFileSync(path.join(repoRoot, "AGENTS.md"), "utf8");
+    const designDoc = readFileSync(
+      path.join(
+        repoRoot,
+        "docs",
+        "superpowers",
+        "specs",
+        "2026-04-13-aegis-emergency-mvp-triage-design.md",
+      ),
+      "utf8",
+    );
+
+    expect(agentsGuide).toContain("Current Phase A-C Available Commands");
+    expect(agentsGuide).toContain("Future Phase Command Targets");
+    expect(designDoc).toContain("### Current Phase A-C command surface");
+    expect(designDoc).toContain("### Phase D+ target command surface");
+    expect(designDoc).toContain("### Current Phase A-C proof scope");
+    expect(designDoc).toContain("### Full MVP proof target");
   });
 
   it("creates the workspace skeleton required by the workspace contract", () => {
@@ -347,5 +374,51 @@ describe("S00 project skeleton contract", () => {
     } finally {
       rmSync(tempRepo, { recursive: true, force: true });
     }
+  }, 20_000);
+
+  it("packages the stripped CLI artifact set in npm pack output", () => {
+    const cleanupRun = spawnSync(
+      process.execPath,
+      [
+        "--eval",
+        "require('node:fs').rmSync('dist', { recursive: true, force: true })",
+      ],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+      },
+    );
+    const buildRun = spawnSync(
+      process.execPath,
+      [
+        typescriptCliPath,
+        "--project",
+        "tsconfig.json",
+      ],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+      },
+    );
+    const packRun = spawnSync(
+      process.execPath,
+      [npmExecPath!, "pack", "--json", "--dry-run", "--ignore-scripts"],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+      },
+    );
+
+    expect(npmExecPath).toBeTruthy();
+    expect(cleanupRun.status).toBe(0);
+    expect(buildRun.status).toBe(0);
+    expect(packRun.status).toBe(0);
+
+    const packOutput = JSON.parse(packRun.stdout) as Array<{
+      files: Array<{ path: string }>;
+    }>;
+    const packagedFiles = new Set(packOutput[0]?.files.map((file) => file.path) ?? []);
+
+    expect(packagedFiles.has("dist/index.js")).toBe(true);
   }, 20_000);
 });

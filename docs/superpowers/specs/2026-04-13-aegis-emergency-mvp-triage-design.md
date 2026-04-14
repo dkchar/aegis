@@ -86,7 +86,7 @@ Deletion rule:
 
 ## Emergency MVP product shape
 
-The stripped MVP is a terminal-only orchestrator that a human or QA agent can inspect fully through:
+The stripped MVP target is a terminal-only orchestrator that a human or QA agent can inspect fully through:
 - live terminal output
 - `.aegis/logs/`
 - `.aegis/dispatch-state.json`
@@ -100,7 +100,13 @@ The daemon is the main runtime surface:
 - `aegis stop`
 
 The daemon normally runs in auto-processing posture.
-Manual control and debugging come from explicit phase and caste commands, not from a separate conversational mode.
+Manual control and debugging come from explicit phase and caste commands once later rebuild phases land, not from a separate conversational mode.
+
+As of completed Phase A-C work, the only live operator commands are:
+- `aegis init`
+- `aegis start`
+- `aegis status`
+- `aegis stop`
 
 ## Truth planes
 
@@ -206,6 +212,10 @@ Emergency MVP rule:
 - a tiny deterministic fake runtime is allowed only if it materially improves CI seam testing
 - do not widen the runtime contract beyond stripped-MVP needs
 
+Phase A-C note:
+- the stripped bootstrap base may keep startup/runtime validation logic close to the daemon shell until loop modules are rebuilt
+- restoring the full dedicated runtime shell is later-phase work, not a Phase B/C requirement by itself
+
 ### Tracker
 
 Preserve the minimal tracker abstraction.
@@ -215,31 +225,38 @@ Emergency MVP rule:
 - a tiny deterministic fake tracker is allowed only if it materially improves CI seam testing
 - do not hardcode orchestration semantics to Beads naming patterns
 
+Phase A-C note:
+- the stripped bootstrap base may keep Beads bootstrap probes close to the daemon shell until loop modules return
+- richer tracker-shell separation comes back with the loop rebuild phases
+
 ## Command surface
 
-### Primary daemon commands
+### Current Phase A-C command surface
 
+Live now:
+- `aegis init`
 - `aegis start`
 - `aegis status`
 - `aegis stop`
 
-### Phase/debug commands
+This is the only supported operator surface for the stripped bootstrap base.
 
+### Phase D+ target command surface
+
+Planned later:
+
+- `aegis start`
+- `aegis status`
+- `aegis stop`
 - `aegis poll`
 - `aegis dispatch`
 - `aegis monitor`
 - `aegis reap`
 - `aegis merge next`
-
-### Caste/workflow commands
-
 - `aegis scout <issue-id>`
 - `aegis implement <issue-id>`
 - `aegis review <issue-id>`
 - `aegis process <issue-id>`
-
-### Minimal recovery commands
-
 - `aegis restart <issue-id>`
 - `aegis requeue <issue-id>`
 
@@ -343,7 +360,18 @@ In mock runs they should be treated as ephemeral and cleaned up after successful
 
 - structured logs under `.aegis/logs/`
 
-### Required log content
+### Current Phase A-C observability
+
+The stripped bootstrap base currently guarantees:
+- terminal output for `init`, `start`, `status`, and `stop`
+- persisted `.aegis/runtime-state.json`
+- persisted daemon lifecycle logs under `.aegis/logs/`
+
+Phase and caste logs are intentionally deferred until the loop modules are rebuilt.
+
+### Phase D+ observability target
+
+When loop phases return, durable logs must include:
 
 Minimum:
 - timestamp
@@ -422,7 +450,19 @@ Real conflict behavior belongs in mock-run acceptance instead.
 
 ### User and QA proof
 
-The seeded mock-run flow becomes the main end-to-end proving ground.
+### Current Phase A-C proof scope
+
+The seeded mock-run flow currently proves the stripped bootstrap base:
+- daemon starts and is observable from the terminal
+- daemon status and stop work against seeded state
+- stripped config, runtime-state files, and daemon logs are written correctly
+- no Olympus or browser-first artifact is required by the packaged CLI surface
+
+It does not yet prove the rebuilt orchestration loop, concurrency, merge behavior, or Janus behavior.
+
+### Full MVP proof target
+
+Once later phases are complete, the seeded mock-run flow becomes the main end-to-end proving ground.
 
 A passing emergency MVP should demonstrate:
 - daemon starts and is observable entirely from the terminal
