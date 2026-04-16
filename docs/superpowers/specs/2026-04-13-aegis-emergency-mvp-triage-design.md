@@ -12,7 +12,7 @@ Purpose: Define the emergency recovery contract for rewriting Aegis into a worki
 - Phase D complete on 2026-04-14.
 - Phase E complete on 2026-04-14.
 - Phase F complete on 2026-04-14.
-- Phase G remains open.
+- Phase G complete on 2026-04-16.
 
 ## Scope and source of truth
 
@@ -465,15 +465,23 @@ Real conflict behavior belongs in mock-run acceptance instead.
 
 ### User and QA proof
 
-### Current Phase D proof scope
+### Current Phase G proof scope
 
-The seeded mock-run flow currently proves the Phase D loop shell:
-- daemon starts and is observable from the terminal
+The seeded mock-run acceptance surface currently proves the end-to-end emergency MVP loop:
+- daemon starts and is observable entirely from the terminal
 - direct phase commands reuse the same loop code as the daemon
 - stripped config, runtime-state files, dispatch-state files, and phase logs are written correctly
 - the deterministic `scripted` runtime can drive ready work to the explicit `scouted` stage without requiring browser/UI infrastructure
 
-It does not yet prove real Pi-backed caste execution, artifact enforcement, merge behavior, or Janus behavior.
+CI stays seam-only:
+- lint
+- default deterministic tests
+- build
+
+Seeded mock-run acceptance is the end-to-end proof surface.
+
+It proves the deterministic scripted runtime, merge queue execution, and Janus escalation behavior through the terminal operator boundary.
+Real Pi-backed caste execution and provider-backed session telemetry remain deferred to later phases.
 
 ### Full MVP proof target
 
@@ -591,8 +599,11 @@ Current surface on 2026-04-14:
 
 ### Phase G: Proof reset
 
-- reduce CI to deterministic seam tests
-- move end-to-end proof to seeded mock-run acceptance
+Status:
+- complete on 2026-04-16
+
+- CI reduced to deterministic seam tests
+- end-to-end proof moved to seeded mock-run acceptance
 
 ## Deferred work management
 

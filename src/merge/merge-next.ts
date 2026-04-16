@@ -54,12 +54,129 @@ export interface MergeNextResult {
   detail?: string;
 }
 
-class ScriptedMergeExecutor implements MergeExecutor {
-  async execute(_root: string, _item: MergeQueueItem): Promise<MergeExecutorResult> {
+interface ScriptedMergeOutcome {
+  outcome: MergeExecutionOutcome;
+  detail: string;
+}
+
+interface ScriptedMergeRule {
+  issueId?: string;
+  candidateBranch?: string;
+  outcomes: ScriptedMergeOutcome[];
+}
+
+interface ScriptedMergePlan {
+  rules: ScriptedMergeRule[];
+}
+
+const SCRIPTED_MERGE_PLAN_ENV = "AEGIS_SCRIPTED_MERGE_PLAN";
+
+function parseScriptedMergePlan(raw: string): ScriptedMergePlan | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return null;
+    }
+
+    const rules = (parsed as Record<string, unknown>).rules;
+    if (!Array.isArray(rules)) {
+      return null;
+    }
+
+    const normalizedRules = rules.flatMap((rule) => {
+      if (typeof rule !== "object" || rule === null || Array.isArray(rule)) {
+        return [];
+      }
+
+      const candidateRule = rule as Record<string, unknown>;
+      const outcomes = candidateRule.outcomes;
+      if (!Array.isArray(outcomes) || outcomes.length === 0) {
+        return [];
+      }
+
+      const normalizedOutcomes = outcomes.flatMap((outcome) => {
+        if (typeof outcome !== "object" || outcome === null || Array.isArray(outcome)) {
+          return [];
+        }
+
+        const candidateOutcome = outcome as Record<string, unknown>;
+        if (
+          (candidateOutcome.outcome !== "merged"
+            && candidateOutcome.outcome !== "stale_branch"
+            && candidateOutcome.outcome !== "conflict")
+          || typeof candidateOutcome.detail !== "string"
+        ) {
+          return [];
+        }
+
+        return [{
+          outcome: candidateOutcome.outcome as MergeExecutionOutcome,
+          detail: candidateOutcome.detail,
+        }];
+      });
+
+      if (normalizedOutcomes.length === 0) {
+        return [];
+      }
+
+      return [{
+        issueId: typeof candidateRule.issueId === "string" ? candidateRule.issueId : undefined,
+        candidateBranch: typeof candidateRule.candidateBranch === "string" ? candidateRule.candidateBranch : undefined,
+        outcomes: normalizedOutcomes,
+      }];
+    });
+
+    return normalizedRules.length > 0 ? { rules: normalizedRules } : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveScriptedMergeOutcome(item: MergeQueueItem): MergeExecutorResult {
+  const rawPlan = process.env[SCRIPTED_MERGE_PLAN_ENV];
+  if (!rawPlan) {
     return {
       outcome: "merged",
       detail: "Deterministic scripted merge succeeded.",
     };
+  }
+
+  const plan = parseScriptedMergePlan(rawPlan);
+  if (!plan) {
+    return {
+      outcome: "merged",
+      detail: "Deterministic scripted merge succeeded.",
+    };
+  }
+
+  const rule = plan.rules.find((candidate) =>
+    (candidate.issueId === undefined || candidate.issueId === item.issueId)
+    && (candidate.candidateBranch === undefined || candidate.candidateBranch === item.candidateBranch));
+
+  if (!rule) {
+    return {
+      outcome: "merged",
+      detail: "Deterministic scripted merge succeeded.",
+    };
+  }
+
+  const selectedOutcome = rule.outcomes[Math.min(item.attempts, rule.outcomes.length - 1)];
+  if (!selectedOutcome) {
+    return {
+      outcome: "merged",
+      detail: "Deterministic scripted merge succeeded.",
+    };
+  }
+
+  return {
+    outcome: selectedOutcome.outcome,
+    detail: selectedOutcome.detail,
+  };
+}
+
+class ScriptedMergeExecutor implements MergeExecutor {
+  async execute(_root: string, item: MergeQueueItem): Promise<MergeExecutorResult> {
+    return resolveScriptedMergeOutcome(item);
   }
 }
 

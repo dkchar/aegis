@@ -187,4 +187,29 @@ export class BeadsTrackerClient implements TrackerClient {
       );
     });
   }
+
+  async closeIssue(id: string, root = process.cwd()): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.execFileImpl(
+        "bd",
+        ["close", id, "--reason", "Completed", "--json"],
+        {
+          cwd: root,
+          encoding: "utf8",
+          maxBuffer: 10 * 1024 * 1024,
+          windowsHide: true,
+        },
+        (error, stdout, stderr) => {
+          if (error) {
+            const detail = stderr?.trim() ? ` ${stderr.trim()}` : "";
+            reject(new Error(`bd close failed:${detail}`));
+            return;
+          }
+
+          void stdout;
+          resolve();
+        },
+      );
+    });
+  }
 }

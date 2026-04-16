@@ -21,6 +21,7 @@ import {
 
 interface TrackerLike {
   getIssue(id: string, root?: string): Promise<AegisIssue>;
+  closeIssue?(id: string, root?: string): Promise<void>;
 }
 
 export interface RunCasteCommandInput {
@@ -205,6 +206,11 @@ async function runReview(
     issueId: issue.id,
     artifact: verdict,
   });
+
+  if (verdict.verdict === "pass" && input.tracker.closeIssue) {
+    await input.tracker.closeIssue(issue.id, input.root);
+  }
+
   saveRecord(input.root, issue.id, {
     ...clearDownstreamArtifactRefs(record),
     stage: verdict.verdict === "pass" ? "reviewed" : "failed",

@@ -370,4 +370,115 @@ describe("runCasteCommand", () => {
       }),
     })).rejects.toThrow("Review requires a merged issue.");
   });
+
+  it("closes the tracker issue after a successful Sentinel review", async () => {
+    const root = createTempRoot();
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: {
+        "aegis-999": {
+          issueId: "aegis-999",
+          stage: "merged",
+          runningAgent: null,
+          oracleAssessmentRef: path.join(".aegis", "oracle", "aegis-999.json"),
+          titanHandoffRef: path.join(".aegis", "titan", "aegis-999.json"),
+          sentinelVerdictRef: null,
+          fileScope: null,
+          failureCount: 0,
+          consecutiveFailures: 0,
+          failureWindowStartMs: null,
+          cooldownUntil: null,
+          sessionProvenanceId: "test",
+          updatedAt: "2026-04-14T12:00:00.000Z",
+        },
+      },
+    });
+
+    const closeIssue = vi.fn(async () => undefined);
+
+    const result = await runCasteCommand({
+      root,
+      action: "review",
+      issueId: "aegis-999",
+      tracker: {
+        getIssue: vi.fn(async () => createIssue("aegis-999")),
+        closeIssue,
+      },
+      runtime: new ScriptedCasteRuntime({
+        sentinel: () => ({
+          output: JSON.stringify({
+            verdict: "pass",
+            reviewSummary: "looks good",
+            issuesFound: [],
+            followUpIssueIds: [],
+            riskAreas: [],
+          }),
+        }),
+      }),
+    });
+
+    expect(result).toMatchObject({
+      action: "review",
+      issueId: "aegis-999",
+      stage: "reviewed",
+    });
+    expect(closeIssue).toHaveBeenCalledWith("aegis-999", root);
+  });
+
+  it("does not persist reviewed when tracker close fails after a passing review", async () => {
+    const root = createTempRoot();
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: {
+        "aegis-1000": {
+          issueId: "aegis-1000",
+          stage: "merged",
+          runningAgent: null,
+          oracleAssessmentRef: path.join(".aegis", "oracle", "aegis-1000.json"),
+          titanHandoffRef: path.join(".aegis", "titan", "aegis-1000.json"),
+          sentinelVerdictRef: null,
+          fileScope: null,
+          failureCount: 0,
+          consecutiveFailures: 0,
+          failureWindowStartMs: null,
+          cooldownUntil: null,
+          sessionProvenanceId: "test",
+          updatedAt: "2026-04-14T12:00:00.000Z",
+        },
+      },
+    });
+
+    await expect(runCasteCommand({
+      root,
+      action: "review",
+      issueId: "aegis-1000",
+      tracker: {
+        getIssue: vi.fn(async () => createIssue("aegis-1000")),
+        closeIssue: vi.fn(async () => {
+          throw new Error("bd close failed");
+        }),
+      },
+      runtime: new ScriptedCasteRuntime({
+        sentinel: () => ({
+          output: JSON.stringify({
+            verdict: "pass",
+            reviewSummary: "looks good",
+            issuesFound: [],
+            followUpIssueIds: [],
+            riskAreas: [],
+          }),
+        }),
+      }),
+    })).rejects.toThrow("bd close failed");
+
+    const state = JSON.parse(
+      readFileSync(path.join(root, ".aegis", "dispatch-state.json"), "utf8"),
+    ) as {
+      records: Record<string, { stage: string }>;
+    };
+
+    expect(state.records["aegis-1000"]).toMatchObject({
+      stage: "merged",
+    });
+  });
 });

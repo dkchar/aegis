@@ -1,4 +1,4 @@
-name: CI
+name: Seam-only CI
 
 on:
   push:
@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  merge-gate:
-    name: Lint, Test, Build, and Pack
+  seam-gate:
+    name: Lint, Test, Build
     runs-on: ubuntu-latest
 
     steps:
@@ -33,9 +33,3 @@ jobs:
 
       - name: Run builds
         run: npm run build
-
-      - name: Verify package contents
-        shell: bash
-        run: |
-          npm pack --json --dry-run --ignore-scripts > pack-output.json
-          node -e "const fs = require('node:fs'); const raw = fs.readFileSync('pack-output.json', 'utf8').replace(/^\\uFEFF/, ''); const info = JSON.parse(raw)[0]; const files = new Set(info.files.map((file) => file.path)); for (const required of ['dist/index.js']) { if (!files.has(required)) { console.error('Missing packaged file: ' + required); process.exit(1); } }"

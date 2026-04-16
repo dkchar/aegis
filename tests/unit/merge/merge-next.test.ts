@@ -219,4 +219,85 @@ describe("runMergeNext", () => {
       readFileSync(path.join(root, ".aegis", "merge-queue.json"), "utf8"),
     ).items[0].janusInvocations).toBe(1);
   });
+
+  it("selects scripted merge outcomes by issue, branch, and queue attempt", async () => {
+    const root = createTempRoot();
+    writeState(root, "aegis-321");
+
+    const previousPlan = process.env.AEGIS_SCRIPTED_MERGE_PLAN;
+    process.env.AEGIS_SCRIPTED_MERGE_PLAN = JSON.stringify({
+      rules: [
+        {
+          issueId: "aegis-321",
+          candidateBranch: "aegis/aegis-321",
+          outcomes: [
+            { outcome: "stale_branch", detail: "attempt-0" },
+            { outcome: "stale_branch", detail: "attempt-1" },
+            { outcome: "conflict", detail: "attempt-2" },
+          ],
+        },
+      ],
+    });
+
+    try {
+      const first = await runMergeNext(root, {
+        tracker: {
+          getIssue: vi.fn(async () => createIssue("aegis-321")),
+        },
+      });
+
+      expect(first).toMatchObject({
+        issueId: "aegis-321",
+        queueItemId: "queue-aegis-321",
+        tier: "T2",
+        stage: "queued_for_merge",
+        status: "requeued",
+        detail: "attempt-0",
+      });
+
+      const second = await runMergeNext(root, {
+        tracker: {
+          getIssue: vi.fn(async () => createIssue("aegis-321")),
+        },
+      });
+
+      expect(second).toMatchObject({
+        issueId: "aegis-321",
+        queueItemId: "queue-aegis-321",
+        tier: "T2",
+        stage: "queued_for_merge",
+        status: "requeued",
+        detail: "attempt-1",
+      });
+
+      const third = await runMergeNext(root, {
+        tracker: {
+          getIssue: vi.fn(async () => createIssue("aegis-321")),
+        },
+      });
+
+      expect(third).toMatchObject({
+        issueId: "aegis-321",
+        queueItemId: "queue-aegis-321",
+        tier: "T3",
+        stage: "queued_for_merge",
+        status: "janus_requeued",
+        detail: "attempt-2",
+      });
+      expect(JSON.parse(
+        readFileSync(path.join(root, ".aegis", "merge-queue.json"), "utf8"),
+      ).items[0]).toMatchObject({
+        attempts: 3,
+        janusInvocations: 1,
+        lastTier: "T3",
+        status: "queued",
+      });
+    } finally {
+      if (previousPlan === undefined) {
+        delete process.env.AEGIS_SCRIPTED_MERGE_PLAN;
+      } else {
+        process.env.AEGIS_SCRIPTED_MERGE_PLAN = previousPlan;
+      }
+    }
+  });
 });
