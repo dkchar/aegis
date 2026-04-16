@@ -1,73 +1,36 @@
-# Phase G Proof Reset Handoff Prompt
+# Phase G Proof Reset Handoff Note
 
-Use this prompt for next agent/session.
+Use this note for follow-up work after the emergency MVP rewrite.
 
-```text
-You are continuing Aegis emergency MVP rewrite on current main.
+Emergency rewrite phases are complete.
 
 Read first:
-- docs/superpowers/specs/2026-04-13-aegis-emergency-mvp-triage-design.md
-- docs/superpowers/specs/2026-04-13-aegis-emergency-triage-discovery.md
-- docs/superpowers/specs/2026-04-13-aegis-emergency-deferred-items.md
-- docs/superpowers/plans/2026-04-14-phase-f-merge-queue-rebuild.md
+- `docs/superpowers/specs/2026-04-13-aegis-emergency-mvp-triage-design.md`
+- `docs/superpowers/specs/2026-04-13-aegis-emergency-triage-discovery.md`
+- `docs/superpowers/specs/2026-04-13-aegis-emergency-deferred-items.md`
 
 Current state:
+- Phase A complete.
+- Phase B complete.
+- Phase C complete.
 - Phase D complete.
 - Phase E complete.
 - Phase F complete.
-- Current operator surface includes:
-  - aegis init/start/status/stop
-  - aegis poll/dispatch/monitor/reap
-  - aegis scout/implement/review/process
-  - aegis merge next
-- Queue truth lives in .aegis/merge-queue.json with atomic persistence.
-- Merge targets resolve from .aegis/config.json -> git.base_branch.
-- Sentinel remains post-merge only.
-- Source of truth says next phase is Phase G: proof reset.
+- Phase G complete on 2026-04-16.
+- CI is seam-only.
+- Seeded mock-run acceptance is the end-to-end proof surface.
 
-Your job:
-- implement Phase G only
-- keep scope tight
-- do not reopen deferred systems
-- do not mix in restart/requeue or other future recovery surfaces unless spec is explicitly reopened
+Fresh follow-up work belongs in new addenda and Beads issues, not by reopening Phase G.
 
-Phase G goals from spec:
-- reduce CI to deterministic seam tests
-- move end-to-end proof to seeded mock-run acceptance
-
-Likely deliverables:
-- review current test suite against seam-only CI contract
-- remove or reshape any tests that still depend on brittle installable/local-environment behavior
-- tighten mock-run proof instructions and acceptance notes where Phase G needs them
-- update docs so proof expectations, CI scope, and handoff notes match reality exactly
+Use this rule for post-triage work:
+- file a new addendum when the next recovery slice needs policy or scope clarification
+- file a new Beads issue when implementation work is needed
+- keep Phase G closed unless the source-of-truth spec is explicitly reopened
 
 Rules:
-- no in-place mutation of dispatch or merge state records
-- use atomic writes for durable state and artifacts
-- keep tracker semantics generic
-- preserve clear boundaries: poller, triage, dispatcher, monitor, reaper, runtime, merge, tracker
-- prefer deterministic seam tests over brittle git-conflict or installable simulations
-- keep names generic, but push toward more self-documenting and readable identifiers; do not encode temporary phase/doc/branch names in shipped code or persisted config
-- leave exact naming interpretation to the implementing agent if a cleaner generic name is warranted
+- do not reintroduce deferred systems
+- do not drift back into UI, SSE, economics, Mnemosyne, or eval harness work
+- keep CI on deterministic seam tests
+- keep end-to-end proof in seeded mock-run acceptance
 
-Good verification target:
-- npm test
-- npm run build
-- npm run lint
-- seeded mock-run proof only where Phase G changes proof expectations or scripts
-
-Bad scope drift:
-- UI / SSE / browser work
-- economics / budgets / quotas
-- Mnemosyne / Lethe
-- Beads-native messaging
-- eval harness / benchmark corpus
-- restart/requeue implementation
-- broad architecture cleanup not required for Phase G
-
-Success shape:
-- PR diff is only Phase G proof-reset cleanup
-- CI surface stays deterministic
-- mock-run proof expectations are explicit and reproducible
-- docs and handoff state match implementation exactly
-```
+If a later task needs a new operator surface or recovery phase, start from a fresh addendum and issue chain instead of rewriting this handoff note.

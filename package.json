@@ -16,8 +16,10 @@
     "dev": "tsx src/index.ts",
     "mock:seed": "tsx src/mock-run/seed-mock-run.ts",
     "mock:run": "tsx src/mock-run/mock-run.ts",
+    "mock:acceptance": "tsx src/mock-run/acceptance.ts",
     "start": "node dist/index.js",
-    "test": "vitest run --config vitest.config.ts",
+    "test": "vitest run --config vitest.config.ts --project default",
+    "test:acceptance": "vitest run --config vitest.config.ts --project acceptance",
     "test:watch": "vitest --config vitest.config.ts",
     "lint": "tsc --project tsconfig.tests.json --noEmit",
     "prepack": "npm run build"

@@ -46,4 +46,27 @@ describe("BeadsTrackerClient", () => {
       childIds: ["aegis-124"],
     });
   });
+
+  it("closes an issue through bd close with the completed reason", async () => {
+    const execFile = vi.fn(
+      (
+        _command: string,
+        _args: readonly string[],
+        _options: object,
+        callback: (error: Error | null, stdout: string, stderr: string) => void,
+      ) => {
+        callback(null, JSON.stringify({ id: "aegis-123", status: "closed" }), "");
+      },
+    );
+    const tracker = new BeadsTrackerClient({ execFile });
+
+    await tracker.closeIssue("aegis-123", "repo");
+
+    expect(execFile).toHaveBeenCalledWith(
+      "bd",
+      ["close", "aegis-123", "--reason", "Completed", "--json"],
+      expect.objectContaining({ cwd: "repo" }),
+      expect.any(Function),
+    );
+  });
 });
