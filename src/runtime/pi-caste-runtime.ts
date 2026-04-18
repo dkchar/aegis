@@ -3,8 +3,16 @@ import {
   createCodingTools,
   createReadOnlyTools,
   type AgentSessionEvent,
+  type ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 
+import {
+  createOracleEmitAssessmentTool,
+  enforceOracleToolPayloadContract,
+  extractOracleAssessmentFromToolEvent,
+  ORACLE_EMIT_ASSESSMENT_TOOL_NAME,
+  stringifyOracleAssessment,
+} from "../castes/oracle/oracle-tool-contract.js";
 import type {
   CasteName,
   CasteRunInput,
@@ -60,6 +68,39 @@ function resolveTools(caste: CasteName, workingDirectory: string) {
   return createReadOnlyTools(workingDirectory);
 }
 
+function resolveCustomTools(caste: CasteName): ToolDefinition[] | undefined {
+  if (caste === "oracle") {
+    return [createOracleEmitAssessmentTool()];
+  }
+
+  return undefined;
+}
+
+function installPayloadContractHook(caste: CasteName, session: Awaited<ReturnType<typeof createAgentSession>>["session"]) {
+  if (caste !== "oracle") {
+    return;
+  }
+
+  const existingOnPayload = session.agent.onPayload;
+  session.agent.onPayload = async (payload, model) => {
+    const existingPayload = existingOnPayload
+      ? await existingOnPayload(payload, model)
+      : undefined;
+    const effectivePayload = existingPayload === undefined ? payload : existingPayload;
+    const enforcedPayload = enforceOracleToolPayloadContract(effectivePayload);
+
+    if (enforcedPayload !== undefined) {
+      return enforcedPayload;
+    }
+
+    if (existingPayload !== undefined) {
+      return effectivePayload;
+    }
+
+    return undefined;
+  };
+}
+
 export class PiCasteRuntime implements CasteRuntime {
   constructor(
     private readonly modelConfigs: Partial<Record<CasteName, ResolvedConfiguredCasteModel>> = {},
@@ -76,18 +117,27 @@ export class PiCasteRuntime implements CasteRuntime {
       role: "user",
       content: input.prompt,
     }];
+    const customTools = resolveCustomTools(input.caste);
     const { session } = await createAgentSession({
       cwd: input.workingDirectory,
       model: modelConfig.model,
       thinkingLevel: modelConfig.thinkingLevel,
       tools: resolveTools(input.caste, input.workingDirectory),
+      ...(customTools ? { customTools } : {}),
     });
+    installPayloadContractHook(input.caste, session);
     const messages: string[] = [];
     const toolsUsed: string[] = [];
+    let oracleStructuredOutput: string | null = null;
 
     try {
       await new Promise<void>((resolve, reject) => {
         const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
+          const oracleAssessment = extractOracleAssessmentFromToolEvent(event);
+          if (oracleAssessment) {
+            oracleStructuredOutput = stringifyOracleAssessment(oracleAssessment);
+          }
+
           if (event.type === "tool_execution_start") {
             toolsUsed.push(event.toolName);
             return;
@@ -113,6 +163,12 @@ export class PiCasteRuntime implements CasteRuntime {
               reject(new Error(state.error));
               return;
             }
+            if (input.caste === "oracle" && !oracleStructuredOutput) {
+              reject(new Error(
+                `Oracle tool contract violation: missing '${ORACLE_EMIT_ASSESSMENT_TOOL_NAME}' output.`,
+              ));
+              return;
+            }
             resolve();
           }
         });
@@ -130,7 +186,7 @@ export class PiCasteRuntime implements CasteRuntime {
         modelId: modelConfig.modelId,
         thinkingLevel: modelConfig.thinkingLevel,
         status: "succeeded",
-        outputText: messages.at(-1) ?? "",
+        outputText: oracleStructuredOutput ?? messages.at(-1) ?? "",
         toolsUsed,
         messageLog,
         startedAt,
@@ -145,7 +201,7 @@ export class PiCasteRuntime implements CasteRuntime {
         modelId: modelConfig.modelId,
         thinkingLevel: modelConfig.thinkingLevel,
         status: "failed",
-        outputText: messages.at(-1) ?? "",
+        outputText: oracleStructuredOutput ?? messages.at(-1) ?? "",
         toolsUsed,
         messageLog,
         startedAt,
