@@ -3,8 +3,8 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { isProcessRunning, readRuntimeState, type RuntimeStateRecord } from "../cli/runtime-state.js";
+import { resolveDefaultMockRepoRoot } from "./mock-paths.js";
 
-const MOCK_DIR = path.join(process.cwd(), "aegis-mock-run");
 const MOCK_START_TIMEOUT_MS = 10_000;
 const MOCK_START_POLL_MS = 100;
 
@@ -79,7 +79,7 @@ export async function runMockCommand(
   const executeFile = options.execFileSync ?? execFileSync;
   const spawnProcess = options.spawn ?? spawn;
   const waitForDaemonStart = options.waitForDaemonStart ?? waitForMockDaemonStart;
-  const mockDir = options.mockDir ?? MOCK_DIR;
+  const mockDir = options.mockDir ?? resolveDefaultMockRepoRoot();
   const startTimeoutMs = options.startTimeoutMs ?? MOCK_START_TIMEOUT_MS;
 
   if (isMockAegisStartCommand(args)) {

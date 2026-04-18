@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { loadDispatchState, type DispatchRecord } from "../core/dispatch-state.js";
 import { loadMergeQueueState, type MergeQueueItem } from "../merge/merge-state.js";
 import { runMockCommand, type RunMockCommandOptions } from "./mock-run.js";
+import { resolveDefaultMockWorkspaceRoot } from "./mock-paths.js";
 import { seedMockRun, type SeedMockRunResult } from "./seed-mock-run.js";
 import { BeadsTrackerClient } from "../tracker/beads-tracker.js";
 import type { RuntimeStateRecord } from "../cli/runtime-state.js";
@@ -382,7 +383,9 @@ async function withTemporaryEnv<T>(
 export async function runMockAcceptance(
   options: MockAcceptanceDependencies = {},
 ): Promise<MockAcceptanceResult> {
-  const workspaceRoot = path.resolve(options.cwd ?? process.cwd());
+  const workspaceRoot = options.cwd
+    ? path.resolve(options.cwd)
+    : resolveDefaultMockWorkspaceRoot();
   const seed = await (options.seedMockRun ?? seedMockRun)({ workspaceRoot });
   const happyIssueId = requireIssueId(seed, HAPPY_PATH_ISSUE_KEY);
   const janusIssueId = requireIssueId(seed, JANUS_ISSUE_KEY);

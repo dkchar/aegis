@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { resolveDefaultMockRepoRoot } from "../../../src/mock-run/mock-paths.js";
 import { runMockCommand } from "../../../src/mock-run/mock-run.js";
 
 describe("runMockCommand", () => {
@@ -61,5 +62,22 @@ describe("runMockCommand", () => {
     expect(consoleLog).toHaveBeenCalledWith("Aegis started in auto mode (pid 4242)");
 
     consoleLog.mockRestore();
+  });
+
+  it("defaults mock-run cwd to ../aegis-qa/aegis-mock-run from current cwd", async () => {
+    const execFileSync = vi.fn();
+
+    await runMockCommand(["node", "../dist/index.js", "status"], {
+      execFileSync,
+    });
+
+    expect(execFileSync).toHaveBeenCalledWith(
+      process.execPath,
+      ["../dist/index.js", "status"],
+      expect.objectContaining({
+        cwd: resolveDefaultMockRepoRoot(),
+        stdio: "inherit",
+      }),
+    );
   });
 });

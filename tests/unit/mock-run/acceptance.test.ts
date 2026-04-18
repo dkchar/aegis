@@ -193,6 +193,10 @@ describe("runMockAcceptance", () => {
       now: "2026-04-16T00:00:00.000Z",
     });
 
+    expect(seedMockRun).toHaveBeenCalledWith({
+      workspaceRoot: path.resolve("/workspace"),
+    });
+
     expect(sequence).toEqual([
       "seed",
       "start",

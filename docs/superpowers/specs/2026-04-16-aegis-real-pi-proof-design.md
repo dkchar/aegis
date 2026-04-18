@@ -27,7 +27,7 @@ Current stripped MVP does not yet prove:
 - configured per-caste Pi model selection is truly used at runtime
 - configured provider is authenticated and usable before live work begins
 - real Oracle, Titan, Sentinel, and Janus sessions can operate on seeded Beads issues
-- real issue implementation in observable mock-run scratchpad git worktrees
+- real issue implementation in observable mock-run labor git worktrees
 - visible parallel live-agent execution across multiple ready issues
 
 Real agentic execution is part of MVP. Scripted runtime alone is not sufficient end-state proof.
@@ -40,7 +40,7 @@ Real agentic execution is part of MVP. Scripted runtime alone is not sufficient 
 - use exact configured provider/model refs for each caste
 - allow all castes to use `openai-codex:gpt-5.4-mini` with `medium` thinking as initial default
 - execute real work against seeded Beads issue graph that visibly demonstrates bounded parallelism
-- implement work inside mock-run scratchpad git worktrees so changed files, branches, and merges are inspectable
+- implement work inside mock-run labor git worktrees so changed files, branches, and merges are inspectable
 - avoid automated proof tests that spend paid model tokens in CI
 
 ## Non-goals
@@ -117,7 +117,7 @@ Live-ready mock-run default:
 - `runtime: "pi"`
 - all caste models set to `openai-codex:gpt-5.4-mini`
 - all caste thinking levels set to `medium`
-- `labor.base_path` pointed at mock-run scratchpad root
+- `labor.base_path` pointed at configured mock-run labor root (seeded profile currently uses `scratchpad/`)
 
 ## Provider authentication and model validation
 
@@ -146,7 +146,7 @@ Each executable issue must run in real git worktree, not in-place folder mutatio
 
 For mock-run:
 - root repo stays at `aegis-mock-run/`
-- live issue worktrees live under `aegis-mock-run/scratchpad/<issue-id>/`
+- live issue worktrees live under configured `labor.base_path` (seeded profile currently uses `aegis-mock-run/scratchpad/<issue-id>/`)
 - each worktree uses candidate branch derived from issue id
 
 For non-mock repos:
@@ -258,7 +258,7 @@ Goal:
 - prove real implementation, merge, and post-merge review for executable seeded issues
 
 Required outcomes:
-- Titan runs live in scratchpad git worktree and edits real files
+- Titan runs live in labor git worktree and edits real files
 - merge queue performs real git merge in mock-run repo
 - Sentinel runs live after merge success and closes issue on pass
 - artifacts include changed-files manifest and diff references
@@ -363,7 +363,7 @@ Control:
 Emergency MVP is not complete until all are true:
 - Aegis config selects live provider, model, and thinking level per caste
 - preflight blocks unauthenticated or unusable live model refs before work starts
-- live castes operate on real seeded Beads issues in mock-run scratchpad git worktrees
+- live castes operate on real seeded Beads issues in mock-run labor git worktrees
 - daemon visibly processes independent ready issues in parallel
 - real merge and real post-merge review occur
 - real Janus conflict path occurs
@@ -376,4 +376,4 @@ Consistency checks:
 - phase order matches user-approved substrate-first approach
 - seeded Beads graph is reused for parallelism proof
 - provider-auth validation uses exact configured model refs
-- scratchpad requirement and real git worktree requirement are both satisfied by worktrees under mock-run scratchpad root
+- labor-worktree requirement is explicit; mock-run seeded profile satisfies it via `labor.base_path: "scratchpad"`

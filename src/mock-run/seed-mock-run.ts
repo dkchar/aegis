@@ -6,6 +6,7 @@ import path from "node:path";
 import { DEFAULT_AEGIS_CONFIG } from "../config/defaults.js";
 import { initProject } from "../config/init-project.js";
 import { resolveProjectRelativePath } from "../config/load-config.js";
+import { resolveDefaultMockWorkspaceRoot } from "./mock-paths.js";
 import { TODO_MOCK_RUN_MANIFEST } from "./todo-manifest.js";
 import type { MockRunIssueDefinition } from "./types.js";
 
@@ -270,7 +271,7 @@ export async function seedMockRun(options: SeedMockRunOptions = {}): Promise<See
     );
   }
 
-  const workspaceRoot = path.resolve(options.workspaceRoot ?? process.cwd());
+  const workspaceRoot = path.resolve(options.workspaceRoot ?? resolveDefaultMockWorkspaceRoot());
   const repoName = options.repoName ?? TODO_MOCK_RUN_MANIFEST.repoName;
   const beadsPrefix = options.beadsPrefix ?? TODO_MOCK_RUN_MANIFEST.beadsPrefix;
   const repoRoot = path.join(workspaceRoot, repoName);
