@@ -101,6 +101,58 @@ describe("streamDaemonView", () => {
     expect(lines.some((line) => line.includes("old.json"))).toBe(false);
   });
 
+  it("prints Janus phase detail payloads for stream-visible conflict resolution context", async () => {
+    const root = createTempRoot();
+    const lines: string[] = [];
+
+    await streamDaemonView(root, {
+      maxPolls: 2,
+      pollIntervalMs: 0,
+      writeLine: (line) => {
+        lines.push(line);
+      },
+      sleep: async () => {
+        writePhaseFile(root, "janus-started.json", {
+          timestamp: "2026-04-19T16:10:00.000Z",
+          phase: "dispatch",
+          issueId: "aegis-janus-1",
+          action: "janus_resolution_started",
+          outcome: "running",
+          detail: JSON.stringify({
+            queueItemId: "queue-aegis-janus-1",
+            mergeOutcome: "conflict",
+            mergeDetail: "Merge conflict in src/index.ts",
+            attempt: 3,
+            tier: "T3",
+            janusInvocation: 1,
+          }),
+        });
+        writePhaseFile(root, "janus-completed.json", {
+          timestamp: "2026-04-19T16:10:03.000Z",
+          phase: "dispatch",
+          issueId: "aegis-janus-1",
+          action: "janus_resolution_completed",
+          outcome: "failed",
+          detail: JSON.stringify({
+            queueItemId: "queue-aegis-janus-1",
+            conflictSummary: "conflicting migrations remain unresolved",
+            resolutionStrategy: "escalate to manual decision",
+            recommendedNextAction: "manual_decision",
+          }),
+        });
+      },
+    });
+
+    expect(lines.some((line) =>
+      line.includes("action=janus_resolution_started")
+      && line.includes("detail={\"queueItemId\":\"queue-aegis-janus-1\""),
+    )).toBe(true);
+    expect(lines.some((line) =>
+      line.includes("action=janus_resolution_completed")
+      && line.includes("\"recommendedNextAction\":\"manual_decision\""),
+    )).toBe(true);
+  });
+
   it("reports invalid phase entries instead of throwing", async () => {
     const root = createTempRoot();
     const lines: string[] = [];

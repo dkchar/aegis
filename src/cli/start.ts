@@ -247,6 +247,7 @@ function verifyGitRepository(root: string) {
   const gitProbe = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], {
     cwd: root,
     encoding: "utf8",
+    windowsHide: true,
   });
 
   if (gitProbe.status !== 0 || gitProbe.stdout.trim() !== "true") {

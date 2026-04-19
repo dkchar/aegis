@@ -121,6 +121,7 @@ export async function runMockCommand(
     cwd: mockDir,
     stdio: "inherit",
     env: { ...process.env },
+    windowsHide: true,
   });
 }
 

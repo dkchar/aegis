@@ -234,7 +234,9 @@ class GitMergeExecutor implements MergeExecutor {
 
 function createDefaultExecutor(root: string): MergeExecutor {
   const config = loadConfig(root);
+  const scriptedPlanOverride = parseScriptedMergePlan(process.env[SCRIPTED_MERGE_PLAN_ENV] ?? "") !== null;
   return config.runtime === "scripted"
+    || scriptedPlanOverride
     ? new ScriptedMergeExecutor()
     : new GitMergeExecutor();
 }
@@ -363,6 +365,8 @@ export async function runMergeNext(
   }
 
   if (decision.action === "janus") {
+    const janusInvocation = queueItem.janusInvocations + 1;
+    const attemptNumber = queueItem.attempts + 1;
     updateDispatchStage(root, queueItem.issueId, dispatchRecord, "resolving_integration", now);
     const janus = await runCasteCommand({
       root,
@@ -370,16 +374,27 @@ export async function runMergeNext(
       issueId: queueItem.issueId,
       tracker,
       runtime,
+      janusContext: {
+        queueItemId: queueItem.queueItemId,
+        mergeOutcome: attempt.outcome,
+        mergeDetail: attempt.detail,
+        attempt: attemptNumber,
+        tier: "T3",
+        janusInvocation,
+      },
       now,
     });
+    const recommendation = janus.janusRecommendation
+      ?? (janus.stage === "queued_for_merge" ? "requeue" : "manual_decision");
     const requeued = janus.stage === "queued_for_merge";
+    const janusDetail = `${attempt.detail} Janus recommended ${recommendation}.`;
     const afterJanusState = updateMergeQueueItem(mergingQueueState, queueItem.queueItemId, (item) => ({
       ...item,
       status: requeued ? "queued" : "failed",
       attempts: item.attempts + 1,
       janusInvocations: item.janusInvocations + 1,
       lastTier: "T3",
-      lastError: requeued ? null : attempt.detail,
+      lastError: janusDetail,
       updatedAt: now,
     }));
     saveMergeQueueState(root, afterJanusState);
@@ -391,7 +406,7 @@ export async function runMergeNext(
       queueItemId: queueItem.queueItemId,
       tier: "T3",
       stage: janus.stage,
-      detail: attempt.detail,
+      detail: janusDetail,
     };
   }
 

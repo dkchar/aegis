@@ -92,4 +92,37 @@ describe("ScriptedCasteRuntime", () => {
       }
     }
   });
+
+  it("can force deterministic Janus recommendation through env override", async () => {
+    const previous = process.env.AEGIS_SCRIPTED_JANUS_NEXT_ACTION;
+    process.env.AEGIS_SCRIPTED_JANUS_NEXT_ACTION = "manual_decision";
+
+    try {
+      const runtime = createDefaultScriptedCasteRuntime({
+        janus: {
+          reference: "openai-codex:gpt-5.4-mini",
+          provider: "openai-codex",
+          modelId: "gpt-5.4-mini",
+          thinkingLevel: "medium",
+        },
+      });
+
+      const result = await runtime.run({
+        caste: "janus",
+        issueId: "aegis-janus",
+        root: "repo",
+        workingDirectory: "repo",
+        prompt: "janus prompt",
+      });
+
+      expect(result.status).toBe("succeeded");
+      expect(result.outputText).toContain("\"recommendedNextAction\":\"manual_decision\"");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AEGIS_SCRIPTED_JANUS_NEXT_ACTION;
+      } else {
+        process.env.AEGIS_SCRIPTED_JANUS_NEXT_ACTION = previous;
+      }
+    }
+  });
 });

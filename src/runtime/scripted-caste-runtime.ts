@@ -123,6 +123,14 @@ function parseForcedIssueSet(value: string | undefined) {
   );
 }
 
+function parseForcedJanusAction(value: string | undefined): "requeue" | "manual_decision" | "fail" {
+  if (value === "manual_decision" || value === "fail" || value === "requeue") {
+    return value;
+  }
+
+  return "requeue";
+}
+
 export function createScriptedModelConfigs(
   configuredModels: Record<CasteName, string>,
   thinkingLevels: Record<CasteName, AegisThinkingLevel>,
@@ -141,6 +149,7 @@ export function createDefaultScriptedCasteRuntime(
   issueId = "issue",
 ): CasteRuntime {
   const forcedSentinelFailures = parseForcedIssueSet(process.env.AEGIS_SCRIPTED_SENTINEL_FAIL_ISSUES);
+  const forcedJanusAction = parseForcedJanusAction(process.env.AEGIS_SCRIPTED_JANUS_NEXT_ACTION);
 
   return new ScriptedCasteRuntime(modelConfigs, {
     oracle: () => ({
@@ -201,7 +210,7 @@ export function createDefaultScriptedCasteRuntime(
         filesTouched: [],
         validationsRun: [],
         residualRisks: [],
-        recommendedNextAction: "requeue",
+        recommendedNextAction: forcedJanusAction,
       }),
       toolsUsed: ["read_file"],
     }),

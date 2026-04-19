@@ -39,12 +39,22 @@ interface TrackerLike {
   ): Promise<string>;
 }
 
+export interface JanusConflictContext {
+  queueItemId: string;
+  mergeOutcome: "merged" | "stale_branch" | "conflict";
+  mergeDetail: string;
+  attempt: number;
+  tier: "T3";
+  janusInvocation: number;
+}
+
 export interface RunCasteCommandInput {
   root: string;
   action: RuntimeCasteAction;
   issueId: string;
   tracker: TrackerLike;
   runtime: CasteRuntime;
+  janusContext?: JanusConflictContext;
   resolveBaseBranch?: () => string;
   resolveLaborBasePath?: () => string;
   ensureLabor?: (plan: LaborCreationPlan) => void;
@@ -57,6 +67,7 @@ export interface CasteCommandResult {
   stage: string;
   artifactRefs?: string[];
   queueItemId?: string;
+  janusRecommendation?: "requeue" | "manual_decision" | "fail";
   nextAction?: "merge_next";
 }
 
@@ -205,12 +216,24 @@ async function createSentinelFollowUpIssues(
   return [...verdict.followUpIssueIds, ...createdIssueIds];
 }
 
-function buildJanusPrompt(issue: AegisIssue) {
+function buildJanusPrompt(issue: AegisIssue, janusContext?: JanusConflictContext) {
   const description = issue.description?.trim() || "No description provided.";
+  const contextLines = janusContext
+    ? [
+      `Merge queue item: ${janusContext.queueItemId}`,
+      `Merge tier: ${janusContext.tier}`,
+      `Merge attempt: ${janusContext.attempt}`,
+      `Janus invocation: ${janusContext.janusInvocation}`,
+      `Merge outcome: ${janusContext.mergeOutcome}`,
+      `Merge detail: ${janusContext.mergeDetail}`,
+    ]
+    : [];
+
   return [
     `Process integration conflict for issue ${issue.id}.`,
     `Title: ${issue.title}`,
     `Description: ${description}`,
+    ...contextLines,
     `Call tool '${JANUS_EMIT_RESOLUTION_TOOL_NAME}' exactly once as final step after conflict analysis is complete.`,
     "Return only JSON. No markdown fences. No prose before or after JSON.",
     "JSON schema keys: originatingIssueId, queueItemId, preservedLaborPath, conflictSummary, resolutionStrategy, filesTouched, validationsRun, residualRisks, recommendedNextAction.",
@@ -561,6 +584,7 @@ async function runJanus(
     issueId: issue.id,
     action: "janus_resolution_started",
     outcome: "running",
+    detail: input.janusContext ? JSON.stringify(input.janusContext) : undefined,
   });
 
   const runInput = {
@@ -568,7 +592,7 @@ async function runJanus(
     issueId: issue.id,
     root: input.root,
     workingDirectory: input.root,
-    prompt: buildJanusPrompt(issue),
+    prompt: buildJanusPrompt(issue, input.janusContext),
   } satisfies CasteRunInput;
   const gitProofPair = captureGitProofPair(runInput.workingDirectory);
   const session = await input.runtime.run(runInput);
@@ -618,7 +642,15 @@ async function runJanus(
     outcome: stage,
     sessionId: session.sessionId,
     detail: JSON.stringify({
+      queueItemId: artifact.queueItemId,
+      conflictSummary: artifact.conflictSummary,
+      resolutionStrategy: artifact.resolutionStrategy,
       recommendedNextAction: artifact.recommendedNextAction,
+      mergeOutcome: input.janusContext?.mergeOutcome ?? null,
+      mergeDetail: input.janusContext?.mergeDetail ?? null,
+      attempt: input.janusContext?.attempt ?? null,
+      tier: input.janusContext?.tier ?? null,
+      janusInvocation: input.janusContext?.janusInvocation ?? null,
     }),
   });
 
@@ -626,6 +658,7 @@ async function runJanus(
     action: input.action,
     issueId: issue.id,
     stage,
+    janusRecommendation: artifact.recommendedNextAction,
     artifactRefs: [artifactRef, transcriptRef],
   };
 }

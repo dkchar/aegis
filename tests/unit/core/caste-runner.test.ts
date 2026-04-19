@@ -896,6 +896,14 @@ describe("runCasteCommand", () => {
       root,
       action: "process",
       issueId: "aegis-janus-1",
+      janusContext: {
+        queueItemId: "queue-aegis-janus-1",
+        mergeOutcome: "conflict",
+        mergeDetail: "Merge conflict in src/index.ts",
+        attempt: 3,
+        tier: "T3",
+        janusInvocation: 1,
+      },
       tracker: {
         getIssue: vi.fn(async () => createIssue("aegis-janus-1")),
       },
@@ -932,11 +940,29 @@ describe("runCasteCommand", () => {
           detail?: string;
         })
       .filter((entry) => entry.issueId === "aegis-janus-1");
+    const started = phaseActions.find((entry) => entry.action === "janus_resolution_started");
+    const completed = phaseActions.find((entry) => entry.action === "janus_resolution_completed");
+    expect(started).toBeTruthy();
+    expect(completed).toBeTruthy();
+    expect(completed?.outcome).toBe("queued_for_merge");
 
-    expect(phaseActions.some((entry) => entry.action === "janus_resolution_started")).toBe(true);
-    expect(phaseActions.some((entry) =>
-      entry.action === "janus_resolution_completed" && entry.outcome === "queued_for_merge",
-    )).toBe(true);
+    const startedDetail = JSON.parse(started?.detail ?? "{}") as Record<string, unknown>;
+    expect(startedDetail).toMatchObject({
+      queueItemId: "queue-aegis-janus-1",
+      mergeOutcome: "conflict",
+      mergeDetail: "Merge conflict in src/index.ts",
+      attempt: 3,
+      tier: "T3",
+      janusInvocation: 1,
+    });
+
+    const completedDetail = JSON.parse(completed?.detail ?? "{}") as Record<string, unknown>;
+    expect(completedDetail).toMatchObject({
+      queueItemId: "queue-aegis-janus-1",
+      conflictSummary: "deterministic conflict context",
+      resolutionStrategy: "keep both changes",
+      recommendedNextAction: "requeue",
+    });
   });
 
   it("does not persist reviewed when tracker close fails after a passing review", async () => {

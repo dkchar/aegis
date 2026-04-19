@@ -16,6 +16,7 @@ import {
   StartupPreflightBlockedError,
 } from "../../../src/cli/startup-preflight.js";
 import { verifyTrackerRepository } from "../../../src/cli/start.js";
+import { readRuntimeState } from "../../../src/cli/runtime-state.js";
 
 const tempRoots: string[] = [];
 
@@ -119,6 +120,77 @@ describe("startAegis daemon loop", () => {
 
     await vi.advanceTimersByTimeAsync(1_100);
     expect(runDaemonCycle).toHaveBeenCalledTimes(2);
+
+    await result.runtime.stop();
+  });
+
+  it("keeps daemon merge pass active across Janus requeue and fail-closed outcomes", async () => {
+    vi.useFakeTimers();
+    const root = createTempRoot();
+    initProject(root);
+
+    const configPath = path.join(root, ".aegis", "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8")) as {
+      runtime: string;
+      thresholds: { poll_interval_seconds: number };
+    };
+
+    writeFileSync(
+      configPath,
+      `${JSON.stringify({
+        ...config,
+        runtime: "scripted",
+        thresholds: {
+          ...config.thresholds,
+          poll_interval_seconds: 1,
+        },
+      }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const runDaemonCycle = vi.fn(async () => undefined);
+    const runMergeCommand = vi.fn()
+      .mockResolvedValueOnce({
+        action: "merge_next",
+        status: "janus_requeued",
+        issueId: "aegis-janus-1",
+        queueItemId: "queue-aegis-janus-1",
+        tier: "T3",
+        stage: "queued_for_merge",
+      })
+      .mockResolvedValueOnce({
+        action: "merge_next",
+        status: "failed",
+        issueId: "aegis-janus-1",
+        queueItemId: "queue-aegis-janus-1",
+        tier: "T3",
+        stage: "failed",
+      });
+
+    const startModule = await import("../../../src/cli/start.js");
+    const result = await startModule.startAegis(root, {}, {
+      verifyTracker: () => undefined,
+      verifyGitRepo: () => undefined,
+      probeBeadsCli: () => ({
+        ok: true,
+        detail: "Beads CLI is available.",
+      }),
+      registerSignalHandlers: false,
+      runDaemonCycle,
+      runMergeCommand,
+    });
+
+    expect(runDaemonCycle).toHaveBeenCalledTimes(1);
+    expect(runMergeCommand).toHaveBeenCalledTimes(1);
+    expect(runMergeCommand).toHaveBeenNthCalledWith(1, root, "next");
+
+    await vi.advanceTimersByTimeAsync(1_100);
+    expect(runDaemonCycle).toHaveBeenCalledTimes(2);
+    expect(runMergeCommand).toHaveBeenCalledTimes(2);
+    expect(runMergeCommand).toHaveBeenNthCalledWith(2, root, "next");
+
+    const runtimeState = readRuntimeState(root);
+    expect(runtimeState?.server_state).toBe("running");
 
     await result.runtime.stop();
   });

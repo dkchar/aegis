@@ -32,7 +32,7 @@ const CONTRACT_FIXTURES: ContractFixture[] = [
       ready: true,
     },
     outputSnippet: "\"estimated_complexity\":\"moderate\"",
-    expectedActiveTools: ["read", "grep", "find", "ls", ORACLE_EMIT_ASSESSMENT_TOOL_NAME],
+    expectedActiveTools: ["read", "find", "ls", "grep", ORACLE_EMIT_ASSESSMENT_TOOL_NAME],
   },
   {
     caste: "titan",
@@ -64,7 +64,7 @@ const CONTRACT_FIXTURES: ContractFixture[] = [
       riskAreas: [],
     },
     outputSnippet: "\"verdict\":\"pass\"",
-    expectedActiveTools: ["read", "grep", "find", "ls", SENTINEL_EMIT_VERDICT_TOOL_NAME],
+    expectedActiveTools: ["read", "find", "ls", "grep", SENTINEL_EMIT_VERDICT_TOOL_NAME],
   },
   {
     caste: "janus",
@@ -83,7 +83,7 @@ const CONTRACT_FIXTURES: ContractFixture[] = [
       recommendedNextAction: "manual_decision",
     },
     outputSnippet: "\"recommendedNextAction\":\"manual_decision\"",
-    expectedActiveTools: ["read", "grep", "find", "ls", JANUS_EMIT_RESOLUTION_TOOL_NAME],
+    expectedActiveTools: ["read", "find", "ls", "grep", JANUS_EMIT_RESOLUTION_TOOL_NAME],
   },
 ];
 
@@ -130,19 +130,20 @@ const mockedAgent = vi.hoisted(() => {
       { name: "edit" },
       { name: "write" },
     ]),
-    createReadOnlyTools: vi.fn(() => [
-      { name: "read" },
-      { name: "grep" },
-      { name: "find" },
-      { name: "ls" },
-    ]),
+    createReadTool: vi.fn(() => ({ name: "read" })),
+    createFindTool: vi.fn(() => ({ name: "find" })),
+    createLsTool: vi.fn(() => ({ name: "ls" })),
+    createGrepTool: vi.fn(() => ({ name: "grep" })),
   };
 });
 
 vi.mock("@mariozechner/pi-coding-agent", () => ({
   createAgentSession: mockedAgent.createAgentSession,
   createCodingTools: mockedAgent.createCodingTools,
-  createReadOnlyTools: mockedAgent.createReadOnlyTools,
+  createReadTool: mockedAgent.createReadTool,
+  createFindTool: mockedAgent.createFindTool,
+  createLsTool: mockedAgent.createLsTool,
+  createGrepTool: mockedAgent.createGrepTool,
 }));
 
 function configureToolSuccess(fixture: ContractFixture) {
@@ -243,7 +244,10 @@ describe("PiCasteRuntime", () => {
     mockedAgent.listeners.splice(0, mockedAgent.listeners.length);
     mockedAgent.createAgentSession.mockClear();
     mockedAgent.createCodingTools.mockClear();
-    mockedAgent.createReadOnlyTools.mockClear();
+    mockedAgent.createReadTool.mockClear();
+    mockedAgent.createFindTool.mockClear();
+    mockedAgent.createLsTool.mockClear();
+    mockedAgent.createGrepTool.mockClear();
     mockedAgent.session.subscribe.mockClear();
     mockedAgent.session.prompt.mockReset();
     mockedAgent.session.setActiveToolsByName.mockClear();
@@ -388,9 +392,67 @@ describe("PiCasteRuntime", () => {
       });
     }
 
-    expect(mockedAgent.createCodingTools).toHaveBeenCalledWith("repo/titan");
-    expect(mockedAgent.createReadOnlyTools).toHaveBeenCalledWith("repo/oracle");
-    expect(mockedAgent.createReadOnlyTools).toHaveBeenCalledWith("repo/sentinel");
-    expect(mockedAgent.createReadOnlyTools).toHaveBeenCalledWith("repo/janus");
+    expect(mockedAgent.createCodingTools).toHaveBeenCalledWith(
+      "repo/titan",
+      expect.objectContaining({
+        bash: expect.objectContaining({
+          operations: expect.any(Object),
+        }),
+      }),
+    );
+    expect(mockedAgent.createReadTool).toHaveBeenCalledWith(
+      "repo/oracle",
+    );
+    expect(mockedAgent.createReadTool).toHaveBeenCalledWith(
+      "repo/sentinel",
+    );
+    expect(mockedAgent.createReadTool).toHaveBeenCalledWith(
+      "repo/janus",
+    );
+    expect(mockedAgent.createFindTool).toHaveBeenCalledWith(
+      "repo/oracle",
+      expect.objectContaining({
+        operations: expect.objectContaining({
+          exists: expect.any(Function),
+          glob: expect.any(Function),
+        }),
+      }),
+    );
+    expect(mockedAgent.createFindTool).toHaveBeenCalledWith(
+      "repo/sentinel",
+      expect.objectContaining({
+        operations: expect.objectContaining({
+          exists: expect.any(Function),
+          glob: expect.any(Function),
+        }),
+      }),
+    );
+    expect(mockedAgent.createFindTool).toHaveBeenCalledWith(
+      "repo/janus",
+      expect.objectContaining({
+        operations: expect.objectContaining({
+          exists: expect.any(Function),
+          glob: expect.any(Function),
+        }),
+      }),
+    );
+    expect(mockedAgent.createLsTool).toHaveBeenCalledWith(
+      "repo/oracle",
+    );
+    expect(mockedAgent.createLsTool).toHaveBeenCalledWith(
+      "repo/sentinel",
+    );
+    expect(mockedAgent.createLsTool).toHaveBeenCalledWith(
+      "repo/janus",
+    );
+    expect(mockedAgent.createGrepTool).toHaveBeenCalledWith(
+      "repo/oracle",
+    );
+    expect(mockedAgent.createGrepTool).toHaveBeenCalledWith(
+      "repo/sentinel",
+    );
+    expect(mockedAgent.createGrepTool).toHaveBeenCalledWith(
+      "repo/janus",
+    );
   });
 });
