@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { emptyDispatchState, saveDispatchState } from "../../../src/core/dispatch-state.js";
 import { runCasteCommand } from "../../../src/core/caste-runner.js";
 import { ScriptedCasteRuntime } from "../../../src/runtime/scripted-caste-runtime.js";
+import type { CasteSessionResult } from "../../../src/runtime/caste-runtime.js";
 import type { AegisIssue } from "../../../src/tracker/issue-model.js";
 
 const tempRoots: string[] = [];
@@ -45,6 +46,35 @@ function runGit(root: string, args: string[]) {
     encoding: "utf8",
     windowsHide: true,
   });
+}
+
+function createTitanSessionResult(
+  outputText: string,
+  sessionId: string,
+): CasteSessionResult {
+  return {
+    sessionId,
+    caste: "titan",
+    modelRef: "openai-codex:gpt-5.4-mini",
+    provider: "openai-codex",
+    modelId: "gpt-5.4-mini",
+    thinkingLevel: "medium",
+    status: "succeeded",
+    outputText,
+    toolsUsed: ["read"],
+    messageLog: [
+      {
+        role: "user",
+        content: "prompt",
+      },
+      {
+        role: "assistant",
+        content: outputText,
+      },
+    ],
+    startedAt: "2026-04-19T00:00:00.000Z",
+    finishedAt: "2026-04-19T00:00:01.000Z",
+  };
 }
 
 describe("runCasteCommand", () => {
@@ -276,6 +306,94 @@ describe("runCasteCommand", () => {
           status_after_ref: null,
           changed_files_manifest_ref: null,
           diff_ref: null,
+        },
+      });
+  });
+
+  it("retries Titan once when first artifact is clarification", async () => {
+    const root = createTempRoot();
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: {
+        "aegis-125": {
+          issueId: "aegis-125",
+          stage: "scouted",
+          runningAgent: null,
+          oracleAssessmentRef: path.join(".aegis", "oracle", "aegis-125.json"),
+          sentinelVerdictRef: null,
+          fileScope: null,
+          failureCount: 0,
+          consecutiveFailures: 0,
+          failureWindowStartMs: null,
+          cooldownUntil: null,
+          sessionProvenanceId: "test",
+          updatedAt: "2026-04-14T12:00:00.000Z",
+        },
+      },
+    });
+
+    const clarificationOutput = JSON.stringify({
+      outcome: "clarification",
+      summary: "workspace ambiguous",
+      files_changed: [],
+      tests_and_checks_run: [],
+      known_risks: [],
+      follow_up_work: [],
+      learnings_written_to_mnemosyne: [],
+      blocking_question: "Which stack?",
+      handoff_note: "Need defaults.",
+    });
+    const successOutput = JSON.stringify({
+      outcome: "success",
+      summary: "implemented on retry",
+      files_changed: ["src/index.ts"],
+      tests_and_checks_run: [],
+      known_risks: [],
+      follow_up_work: [],
+      learnings_written_to_mnemosyne: [],
+    });
+
+    const runtimeRun = vi
+      .fn()
+      .mockResolvedValueOnce(createTitanSessionResult(clarificationOutput, "session-1"))
+      .mockResolvedValueOnce(createTitanSessionResult(successOutput, "session-2"));
+
+    const result = await runCasteCommand({
+      root,
+      action: "implement",
+      issueId: "aegis-125",
+      tracker: {
+        getIssue: vi.fn(async () => createIssue("aegis-125")),
+      },
+      runtime: {
+        run: runtimeRun,
+      },
+      resolveBaseBranch: () => "main",
+      resolveLaborBasePath: () => ".aegis/labors",
+      ensureLabor: vi.fn(),
+    });
+
+    expect(runtimeRun).toHaveBeenCalledTimes(2);
+    const retryPrompt = (runtimeRun.mock.calls[1]?.[0] as { prompt: string }).prompt;
+    expect(retryPrompt).toContain("AUTOMATIC RETRY CONTEXT");
+    expect(result).toMatchObject({
+      action: "implement",
+      issueId: "aegis-125",
+      stage: "implemented",
+      artifactRefs: [
+        path.join(".aegis", "titan", "aegis-125.json"),
+        path.join(".aegis", "transcripts", "aegis-125--titan.json"),
+        path.join(".aegis", "transcripts", "aegis-125--titan-retry-1.json"),
+      ],
+    });
+
+    expect(JSON.parse(readFileSync(path.join(root, ".aegis", "titan", "aegis-125.json"), "utf8")))
+      .toMatchObject({
+        outcome: "success",
+        summary: "implemented on retry",
+        session: {
+          transcriptRef: path.join(".aegis", "transcripts", "aegis-125--titan-retry-1.json"),
+          sessionId: "session-2",
         },
       });
   });

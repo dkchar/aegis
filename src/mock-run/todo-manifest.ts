@@ -30,7 +30,6 @@ export const TODO_BASELINE_FILES: Record<string, string> = {
     ".aegis/runtime-state.json",
     ".aegis/runtime-stop-request.json",
     ".aegis/labors/",
-    "scratchpad/",
     ".aegis/logs/",
     ".aegis/mock-run-manifest.json",
     ".aegis/oracle/",

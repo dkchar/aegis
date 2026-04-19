@@ -117,7 +117,7 @@ Live-ready mock-run default:
 - `runtime: "pi"`
 - all caste models set to `openai-codex:gpt-5.4-mini`
 - all caste thinking levels set to `medium`
-- `labor.base_path` pointed at configured mock-run labor root (seeded profile currently uses `scratchpad/`)
+- `labor.base_path` pointed at configured mock-run labor root (seeded profile uses `.aegis/labors/`)
 
 ## Provider authentication and model validation
 
@@ -146,7 +146,7 @@ Each executable issue must run in real git worktree, not in-place folder mutatio
 
 For mock-run:
 - root repo stays at `aegis-mock-run/`
-- live issue worktrees live under configured `labor.base_path` (seeded profile currently uses `aegis-mock-run/scratchpad/<issue-id>/`)
+- live issue worktrees live under configured `labor.base_path` (seeded profile uses `aegis-mock-run/.aegis/labors/<issue-id>/`)
 - each worktree uses candidate branch derived from issue id
 
 For non-mock repos:
@@ -376,4 +376,4 @@ Consistency checks:
 - phase order matches user-approved substrate-first approach
 - seeded Beads graph is reused for parallelism proof
 - provider-auth validation uses exact configured model refs
-- labor-worktree requirement is explicit; mock-run seeded profile satisfies it via `labor.base_path: "scratchpad"`
+- labor-worktree requirement is explicit; mock-run seeded profile satisfies it via `labor.base_path: ".aegis/labors"`

@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { DEFAULT_AEGIS_CONFIG } from "../../../src/config/defaults.js";
 import { CONFIG_TOP_LEVEL_KEYS } from "../../../src/config/schema.js";
-import { buildMockRunConfig } from "../../../src/mock-run/seed-mock-run.js";
+import {
+  buildMockRunConfig,
+  MOCK_RUN_LABOR_BASE_PATH,
+} from "../../../src/mock-run/seed-mock-run.js";
 
 describe("buildMockRunConfig", () => {
   it("builds a live-ready mock-run config from central defaults", () => {
@@ -12,7 +15,7 @@ describe("buildMockRunConfig", () => {
     expect(config.runtime).toBe("pi");
     expect(config.models).toEqual(DEFAULT_AEGIS_CONFIG.models);
     expect(config.thinking).toEqual(DEFAULT_AEGIS_CONFIG.thinking);
-    expect(config.labor.base_path).toBe("scratchpad");
+    expect(config.labor.base_path).toBe(MOCK_RUN_LABOR_BASE_PATH);
     expect(config.concurrency).toEqual({
       max_agents: 10,
       max_oracles: 5,
@@ -32,7 +35,7 @@ describe("buildMockRunConfig", () => {
     expect(config.runtime).toBe("scripted");
     expect(config.models).toEqual(DEFAULT_AEGIS_CONFIG.models);
     expect(config.thinking).toEqual(DEFAULT_AEGIS_CONFIG.thinking);
-    expect(config.labor.base_path).toBe("scratchpad");
+    expect(config.labor.base_path).toBe(MOCK_RUN_LABOR_BASE_PATH);
     expect(config.concurrency).toEqual(DEFAULT_AEGIS_CONFIG.concurrency);
   });
 });

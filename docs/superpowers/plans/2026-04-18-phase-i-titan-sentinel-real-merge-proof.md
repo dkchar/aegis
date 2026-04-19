@@ -13,7 +13,7 @@
 ## Plan augmentation (2026-04-18)
 
 - Enforce `labor.base_path` as runtime source of truth for labor/worktree placement (no hardcoded `.aegis/labors` usage in planner/runner paths).
-- Set seeded mock-run live default labor root to `scratchpad/` to satisfy Phase I labor-worktree proof while keeping labor placement config-driven.
+- Set seeded mock-run live default labor root to `.aegis/labors/` to satisfy Phase I labor-worktree proof while keeping labor placement config-driven.
 - Add deterministic seam proving `runtime: "pi"` chooses real git merge path (with scripted Sentinel to avoid token usage in CI).
 - Harden Titan/Sentinel/Janus prompts to require strict JSON-schema outputs and reduce live parser drift.
 - Enforce Oracle-style function-tool contracts for Titan/Sentinel/Janus in Pi runtime so live runs emit machine-parseable artifacts without relying on free-text JSON compliance.

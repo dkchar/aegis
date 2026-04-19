@@ -29,6 +29,8 @@ export interface MockRunBdSupport {
   reason: string;
 }
 
+export const MOCK_RUN_LABOR_BASE_PATH = ".aegis/labors";
+
 interface MockRunManifestFile {
   /** Relative path from the manifest file to the repo root (always "..") */
   repoRoot: string;
@@ -181,7 +183,7 @@ export function buildMockRunConfig(options?: {
     runtime,
     labor: {
       ...DEFAULT_AEGIS_CONFIG.labor,
-      base_path: "scratchpad",
+      base_path: MOCK_RUN_LABOR_BASE_PATH,
     },
   };
 

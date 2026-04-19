@@ -254,7 +254,6 @@ function resolveTools(caste: CasteName, workingDirectory: string, root: string) 
 interface CasteToolContract {
   label: string;
   toolName: string;
-  payloadEnforcement: "always" | "none";
   createTool: () => ToolDefinition;
   enforcePayloadContract: (payload: unknown) => unknown | undefined;
   extractStructuredOutput: (event: AgentSessionEvent) => string | null;
@@ -264,7 +263,6 @@ const CASTE_TOOL_CONTRACTS: Record<CasteName, CasteToolContract> = {
   oracle: {
     label: "Oracle",
     toolName: ORACLE_EMIT_ASSESSMENT_TOOL_NAME,
-    payloadEnforcement: "always",
     createTool: createOracleEmitAssessmentTool,
     enforcePayloadContract: enforceOracleToolPayloadContract,
     extractStructuredOutput(event) {
@@ -275,7 +273,6 @@ const CASTE_TOOL_CONTRACTS: Record<CasteName, CasteToolContract> = {
   titan: {
     label: "Titan",
     toolName: TITAN_EMIT_ARTIFACT_TOOL_NAME,
-    payloadEnforcement: "always",
     createTool: createTitanEmitArtifactTool,
     enforcePayloadContract: enforceTitanToolPayloadContract,
     extractStructuredOutput(event) {
@@ -286,7 +283,6 @@ const CASTE_TOOL_CONTRACTS: Record<CasteName, CasteToolContract> = {
   sentinel: {
     label: "Sentinel",
     toolName: SENTINEL_EMIT_VERDICT_TOOL_NAME,
-    payloadEnforcement: "always",
     createTool: createSentinelEmitVerdictTool,
     enforcePayloadContract: enforceSentinelToolPayloadContract,
     extractStructuredOutput(event) {
@@ -297,7 +293,6 @@ const CASTE_TOOL_CONTRACTS: Record<CasteName, CasteToolContract> = {
   janus: {
     label: "Janus",
     toolName: JANUS_EMIT_RESOLUTION_TOOL_NAME,
-    payloadEnforcement: "always",
     createTool: createJanusEmitResolutionTool,
     enforcePayloadContract: enforceJanusToolPayloadContract,
     extractStructuredOutput(event) {
@@ -314,6 +309,7 @@ function resolveCustomTools(caste: CasteName): ToolDefinition[] {
 function installPayloadContractHook(
   contract: CasteToolContract,
   session: Awaited<ReturnType<typeof createAgentSession>>["session"],
+  shouldEnforce: () => boolean,
 ) {
 
   const existingOnPayload = session.agent.onPayload;
@@ -322,6 +318,13 @@ function installPayloadContractHook(
       ? await existingOnPayload(payload, model)
       : undefined;
     const effectivePayload = existingPayload === undefined ? payload : existingPayload;
+    if (!shouldEnforce()) {
+      if (existingPayload !== undefined) {
+        return effectivePayload;
+      }
+
+      return undefined;
+    }
     const enforcedPayload = contract.enforcePayloadContract(effectivePayload);
 
     if (enforcedPayload !== undefined) {
@@ -334,6 +337,15 @@ function installPayloadContractHook(
 
     return undefined;
   };
+}
+
+function createContractRepairPrompt(contract: CasteToolContract) {
+  return [
+    `Tool contract repair required: no '${contract.toolName}' output was captured.`,
+    `Call '${contract.toolName}' now with the final artifact payload.`,
+    "Do not call any other tools.",
+    "Do not return prose or markdown.",
+  ].join("\n");
 }
 
 export class PiCasteRuntime implements CasteRuntime {
@@ -367,15 +379,27 @@ export class PiCasteRuntime implements CasteRuntime {
       customTools,
     });
     session.setActiveToolsByName(activeToolNames);
-    if (toolContract.payloadEnforcement === "always") {
-      installPayloadContractHook(toolContract, session);
-    }
+    let enforceContractPayload = false;
+    installPayloadContractHook(toolContract, session, () => enforceContractPayload);
     const messages: string[] = [];
     const toolsUsed: string[] = [];
     let structuredOutput: string | null = null;
 
     try {
       await new Promise<void>((resolve, reject) => {
+        let settled = false;
+        let repairAttempted = false;
+
+        const settle = (action: () => void) => {
+          if (settled) {
+            return;
+          }
+
+          settled = true;
+          unsubscribe();
+          action();
+        };
+
         const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
           const casteOutput = toolContract.extractStructuredOutput(event);
           if (casteOutput) {
@@ -401,24 +425,53 @@ export class PiCasteRuntime implements CasteRuntime {
           }
 
           if (event.type === "agent_end") {
-            unsubscribe();
             const state = session.state as { error?: string | null };
             if (state.error) {
-              reject(new Error(state.error));
+              const errorMessage = typeof state.error === "string"
+                ? state.error
+                : "Unknown Pi session error.";
+              settle(() => {
+                reject(new Error(errorMessage));
+              });
               return;
             }
-            if (!structuredOutput) {
+
+            if (structuredOutput) {
+              settle(() => {
+                resolve();
+              });
+              return;
+            }
+
+            if (!repairAttempted) {
+              repairAttempted = true;
+              enforceContractPayload = true;
+              const repairPrompt = createContractRepairPrompt(toolContract);
+              messageLog.push({
+                role: "user",
+                content: repairPrompt,
+              });
+
+              void session.prompt(repairPrompt).catch((error: unknown) => {
+                settle(() => {
+                  reject(error);
+                });
+              });
+              return;
+            }
+
+            settle(() => {
               reject(new Error(
                 `${toolContract.label} tool contract violation: missing '${toolContract.toolName}' output.`,
               ));
-              return;
-            }
-            resolve();
+            });
           }
         });
 
         void session.prompt(input.prompt).catch((error: unknown) => {
-          reject(error);
+          settle(() => {
+            reject(error);
+          });
         });
       });
 

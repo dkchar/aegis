@@ -13,7 +13,6 @@ interface ContractFixture {
   caste: CasteName;
   label: string;
   toolName: string;
-  expectsPayloadForce: boolean;
   detailsKey: string;
   detailsValue: Record<string, unknown>;
   outputSnippet: string;
@@ -25,7 +24,6 @@ const CONTRACT_FIXTURES: ContractFixture[] = [
     caste: "oracle",
     label: "Oracle",
     toolName: ORACLE_EMIT_ASSESSMENT_TOOL_NAME,
-    expectsPayloadForce: true,
     detailsKey: "assessment",
     detailsValue: {
       files_affected: ["src/index.ts"],
@@ -40,7 +38,6 @@ const CONTRACT_FIXTURES: ContractFixture[] = [
     caste: "titan",
     label: "Titan",
     toolName: TITAN_EMIT_ARTIFACT_TOOL_NAME,
-    expectsPayloadForce: true,
     detailsKey: "artifact",
     detailsValue: {
       outcome: "success",
@@ -58,7 +55,6 @@ const CONTRACT_FIXTURES: ContractFixture[] = [
     caste: "sentinel",
     label: "Sentinel",
     toolName: SENTINEL_EMIT_VERDICT_TOOL_NAME,
-    expectsPayloadForce: true,
     detailsKey: "verdict",
     detailsValue: {
       verdict: "pass",
@@ -74,12 +70,11 @@ const CONTRACT_FIXTURES: ContractFixture[] = [
     caste: "janus",
     label: "Janus",
     toolName: JANUS_EMIT_RESOLUTION_TOOL_NAME,
-    expectsPayloadForce: true,
     detailsKey: "artifact",
     detailsValue: {
       originatingIssueId: "aegis-1",
       queueItemId: "queue-aegis-1",
-      preservedLaborPath: "scratchpad/aegis-1",
+      preservedLaborPath: ".aegis/labors/aegis-1",
       conflictSummary: "conflict",
       resolutionStrategy: "manual",
       filesTouched: [],
@@ -192,12 +187,48 @@ function configureToolSuccess(fixture: ContractFixture) {
 }
 
 function configureMissingToolOutput() {
-  mockedAgent.session.prompt.mockImplementationOnce(async () => {
+  mockedAgent.session.prompt.mockImplementation(async () => {
     const listener = mockedAgent.listeners.at(-1);
     if (!listener) {
       return;
     }
 
+    listener({ type: "agent_end" });
+  });
+}
+
+function configureRepairThenToolSuccess(fixture: ContractFixture) {
+  let promptCount = 0;
+  mockedAgent.session.prompt.mockImplementation(async () => {
+    const listener = mockedAgent.listeners.at(-1);
+    if (!listener) {
+      return;
+    }
+
+    promptCount += 1;
+    if (promptCount === 1) {
+      listener({ type: "agent_end" });
+      return;
+    }
+
+    listener({
+      type: "tool_execution_start",
+      toolCallId: "call-1",
+      toolName: fixture.toolName,
+      args: {},
+    });
+    listener({
+      type: "tool_execution_end",
+      toolCallId: "call-1",
+      toolName: fixture.toolName,
+      isError: false,
+      result: {
+        content: [{ type: "text", text: `${fixture.label} payload captured.` }],
+        details: {
+          [fixture.detailsKey]: fixture.detailsValue,
+        },
+      },
+    });
     listener({ type: "agent_end" });
   });
 }
@@ -250,7 +281,7 @@ describe("PiCasteRuntime", () => {
     })).rejects.toThrow('Missing configured Pi model for caste "oracle".');
   });
 
-  it("captures structured tool outputs for all castes and only forces payload where configured", async () => {
+  it("captures structured tool outputs for all castes without forcing payload on normal turn", async () => {
     for (const fixture of CONTRACT_FIXTURES) {
       mockedAgent.session.agent.onPayload = undefined;
       configureToolSuccess(fixture);
@@ -290,18 +321,7 @@ describe("PiCasteRuntime", () => {
           {},
         )
         : undefined;
-      if (fixture.expectsPayloadForce) {
-        expect(transformedPayload).toEqual({
-          tool_choice: {
-            type: "function",
-            name: fixture.toolName,
-          },
-          parallel_tool_calls: false,
-          tools: [],
-        });
-      } else {
-        expect(transformedPayload).toBeUndefined();
-      }
+      expect(transformedPayload).toBeUndefined();
 
       const passthroughAfterToolResult = onPayload
         ? await onPayload(
@@ -324,10 +344,37 @@ describe("PiCasteRuntime", () => {
     }
   });
 
-  it("fails run when forced tool output is missing", async () => {
+  it("retries once with contract repair prompt when first run misses tool output", async () => {
+    const fixture = CONTRACT_FIXTURES.find((candidate) => candidate.caste === "titan");
+    if (!fixture) {
+      throw new Error("Missing titan fixture.");
+    }
+
+    configureRepairThenToolSuccess(fixture);
+    const runtime = createSingleCasteRuntime(fixture.caste);
+
+    const result = await runtime.run({
+      caste: fixture.caste,
+      issueId: "aegis-123",
+      root: "repo",
+      workingDirectory: "repo",
+      prompt: `${fixture.caste} run`,
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.outputText).toContain(fixture.outputSnippet);
+    expect(mockedAgent.session.prompt).toHaveBeenCalledTimes(2);
+    expect(result.messageLog.some((entry) => (
+      entry.role === "user"
+      && entry.content.includes("Tool contract repair required")
+    ))).toBe(true);
+  });
+
+  it("fails run when tool output is still missing after repair", async () => {
     for (const fixture of CONTRACT_FIXTURES) {
       configureMissingToolOutput();
       const runtime = createSingleCasteRuntime(fixture.caste);
+      const promptCallsBefore = mockedAgent.session.prompt.mock.calls.length;
 
       const result = await runtime.run({
         caste: fixture.caste,
@@ -341,6 +388,7 @@ describe("PiCasteRuntime", () => {
       expect(result.error).toBe(
         `${fixture.label} tool contract violation: missing '${fixture.toolName}' output.`,
       );
+      expect(mockedAgent.session.prompt.mock.calls.length - promptCallsBefore).toBe(2);
     }
   });
 
@@ -376,14 +424,14 @@ describe("PiCasteRuntime", () => {
       caste: "titan",
       issueId: "aegis-123",
       root: "repo/aegis-mock-run",
-      workingDirectory: "repo/aegis-mock-run/scratchpad/aegis-123",
+      workingDirectory: "repo/aegis-mock-run/.aegis/labors/aegis-123",
       prompt: "titan run",
     });
 
     expect(result.status).toBe("succeeded");
     expect(mockedAgent.createCodingTools).not.toHaveBeenCalled();
     expect(mockedAgent.createReadTool).toHaveBeenCalledWith(
-      "repo/aegis-mock-run/scratchpad/aegis-123",
+      "repo/aegis-mock-run/.aegis/labors/aegis-123",
       expect.objectContaining({ operations: expect.any(Object) }),
     );
     expect(mockedAgent.createBashTool).not.toHaveBeenCalled();
@@ -394,11 +442,11 @@ describe("PiCasteRuntime", () => {
       TITAN_EMIT_ARTIFACT_TOOL_NAME,
     ]);
     expect(mockedAgent.createEditTool).toHaveBeenCalledWith(
-      "repo/aegis-mock-run/scratchpad/aegis-123",
+      "repo/aegis-mock-run/.aegis/labors/aegis-123",
       expect.objectContaining({ operations: expect.any(Object) }),
     );
     expect(mockedAgent.createWriteTool).toHaveBeenCalledWith(
-      "repo/aegis-mock-run/scratchpad/aegis-123",
+      "repo/aegis-mock-run/.aegis/labors/aegis-123",
       expect.objectContaining({ operations: expect.any(Object) }),
     );
   });
@@ -433,7 +481,7 @@ describe("PiCasteRuntime", () => {
       caste: "titan",
       issueId: "aegis-123",
       root: "repo/aegis-mock-run",
-      workingDirectory: "repo/aegis-mock-run/scratchpad/aegis-123",
+      workingDirectory: "repo/aegis-mock-run/.aegis/labors/aegis-123",
       prompt: "titan run",
     });
     expect(runResult.status).toBe("succeeded");

@@ -90,9 +90,28 @@ function buildTitanPrompt(issue: AegisIssue, laborPath: string) {
     `Labels: ${labels}`,
     `Working directory: ${laborPath}`,
     `Call tool '${TITAN_EMIT_ARTIFACT_TOOL_NAME}' exactly once as final step after all file edits and checks complete.`,
+    "If required project files do not exist, create minimal versions that satisfy the issue contract.",
+    "Treat ordinary naming/tooling ambiguity as solvable: choose reasonable defaults and proceed.",
+    "Use outcome=clarification only for hard blockers (missing required credentials/access, missing mandatory external inputs, or conflicting non-resolvable requirements).",
     "Return only JSON. No markdown fences. No prose before or after JSON.",
     "JSON schema keys: outcome, summary, files_changed, tests_and_checks_run, known_risks, follow_up_work, learnings_written_to_mnemosyne, blocking_question, handoff_note.",
     "If work is blocked, set outcome to clarification and include blocking_question plus handoff_note.",
+  ].join("\n");
+}
+
+function buildTitanClarificationRetryPrompt(
+  issue: AegisIssue,
+  laborPath: string,
+  clarificationSummary: string,
+) {
+  return [
+    buildTitanPrompt(issue, laborPath),
+    "",
+    "AUTOMATIC RETRY CONTEXT:",
+    `Previous run returned clarification: ${clarificationSummary}`,
+    "Assume default stack when unspecified: Node.js + TypeScript + node:test.",
+    "Proceed with best-effort implementation now and emit success/failure artifact.",
+    "Only return clarification if a hard blocker still exists after applying defaults.",
   ].join("\n");
 }
 
@@ -141,11 +160,12 @@ function persistSessionArtifact(
   action: RuntimeCasteAction,
   runInput: CasteRunInput,
   session: CasteSessionResult,
+  options: { artifactId?: string } = {},
 ) {
   return persistArtifact(root, {
     family: "transcripts",
     issueId: runInput.issueId,
-    artifactId: runInput.caste,
+    artifactId: options.artifactId ?? runInput.caste,
     artifact: {
       issueId: runInput.issueId,
       caste: runInput.caste,
@@ -278,9 +298,42 @@ async function runImplement(
     prompt: buildTitanPrompt(issue, labor.laborPath),
   } satisfies CasteRunInput;
   const gitProofPair = captureGitProofPair(labor.laborPath);
-  const session = await input.runtime.run(runInput);
+  const transcriptRefs: string[] = [];
+
+  const runTitanSession = async (candidateInput: CasteRunInput) => {
+    const session = await input.runtime.run(candidateInput);
+    const attemptIndex = transcriptRefs.length;
+    const transcriptArtifactId = attemptIndex === 0
+      ? candidateInput.caste
+      : `${candidateInput.caste}-retry-${attemptIndex}`;
+    const transcriptRef = persistSessionArtifact(input.root, input.action, candidateInput, session, {
+      artifactId: transcriptArtifactId,
+    });
+    transcriptRefs.push(transcriptRef);
+    assertSuccessfulSession(candidateInput, session);
+    const artifact = parseTitanArtifact(session.outputText);
+
+    return {
+      runInput: candidateInput,
+      session,
+      transcriptRef,
+      artifact,
+    };
+  };
+
+  const firstAttempt = await runTitanSession(runInput);
+  const finalAttempt = firstAttempt.artifact.outcome === "clarification"
+    ? await runTitanSession({
+      ...runInput,
+      prompt: buildTitanClarificationRetryPrompt(
+        issue,
+        labor.laborPath,
+        firstAttempt.artifact.summary,
+      ),
+    })
+    : firstAttempt;
+
   const completedGitProof = completeGitProofPair(labor.laborPath, gitProofPair);
-  const transcriptRef = persistSessionArtifact(input.root, input.action, runInput, session);
   const gitProofRefs = persistGitProofArtifacts(
     input.root,
     "titan",
@@ -288,8 +341,7 @@ async function runImplement(
     labor.laborPath,
     completedGitProof,
   );
-  assertSuccessfulSession(runInput, session);
-  const artifact = parseTitanArtifact(session.outputText);
+  const artifact = finalAttempt.artifact;
   const artifactRef = persistArtifact(input.root, {
     family: "titan",
     issueId: issue.id,
@@ -304,7 +356,11 @@ async function runImplement(
         changed_files_manifest_ref: gitProofRefs.changedFilesManifestRef,
         diff_ref: gitProofRefs.diffRef,
       },
-      session: createSessionMetadata(transcriptRef, runInput, session),
+      session: createSessionMetadata(
+        finalAttempt.transcriptRef,
+        finalAttempt.runInput,
+        finalAttempt.session,
+      ),
     },
   });
   saveRecord(input.root, issue.id, {
@@ -319,7 +375,7 @@ async function runImplement(
     action: input.action,
     issueId: issue.id,
     stage: artifact.outcome === "success" ? "implemented" : "failed",
-    artifactRefs: [artifactRef, transcriptRef],
+    artifactRefs: [artifactRef, ...transcriptRefs],
   };
 }
 
