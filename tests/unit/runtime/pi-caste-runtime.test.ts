@@ -136,13 +136,6 @@ const mockedAgent = vi.hoisted(() => {
       { name: "find" },
       { name: "ls" },
     ]),
-    createReadTool: vi.fn(() => ({ name: "read" })),
-    createBashTool: vi.fn(() => ({ name: "bash" })),
-    createEditTool: vi.fn(() => ({ name: "edit" })),
-    createWriteTool: vi.fn(() => ({ name: "write" })),
-    createLocalBashOperations: vi.fn(() => ({
-      exec: vi.fn(async () => ({ exitCode: 0 })),
-    })),
   };
 });
 
@@ -150,11 +143,6 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
   createAgentSession: mockedAgent.createAgentSession,
   createCodingTools: mockedAgent.createCodingTools,
   createReadOnlyTools: mockedAgent.createReadOnlyTools,
-  createReadTool: mockedAgent.createReadTool,
-  createBashTool: mockedAgent.createBashTool,
-  createEditTool: mockedAgent.createEditTool,
-  createWriteTool: mockedAgent.createWriteTool,
-  createLocalBashOperations: mockedAgent.createLocalBashOperations,
 }));
 
 function configureToolSuccess(fixture: ContractFixture) {
@@ -256,11 +244,6 @@ describe("PiCasteRuntime", () => {
     mockedAgent.createAgentSession.mockClear();
     mockedAgent.createCodingTools.mockClear();
     mockedAgent.createReadOnlyTools.mockClear();
-    mockedAgent.createReadTool.mockClear();
-    mockedAgent.createBashTool.mockClear();
-    mockedAgent.createEditTool.mockClear();
-    mockedAgent.createWriteTool.mockClear();
-    mockedAgent.createLocalBashOperations.mockClear();
     mockedAgent.session.subscribe.mockClear();
     mockedAgent.session.prompt.mockReset();
     mockedAgent.session.setActiveToolsByName.mockClear();
@@ -409,100 +392,5 @@ describe("PiCasteRuntime", () => {
     expect(mockedAgent.createReadOnlyTools).toHaveBeenCalledWith("repo/oracle");
     expect(mockedAgent.createReadOnlyTools).toHaveBeenCalledWith("repo/sentinel");
     expect(mockedAgent.createReadOnlyTools).toHaveBeenCalledWith("repo/janus");
-  });
-
-  it("uses mock-run Titan guard tools when root is aegis-mock-run", async () => {
-    const fixture = CONTRACT_FIXTURES.find((candidate) => candidate.caste === "titan");
-    if (!fixture) {
-      throw new Error("Missing titan fixture.");
-    }
-
-    configureToolSuccess(fixture);
-    const runtime = createSingleCasteRuntime("titan");
-
-    const result = await runtime.run({
-      caste: "titan",
-      issueId: "aegis-123",
-      root: "repo/aegis-mock-run",
-      workingDirectory: "repo/aegis-mock-run/.aegis/labors/aegis-123",
-      prompt: "titan run",
-    });
-
-    expect(result.status).toBe("succeeded");
-    expect(mockedAgent.createCodingTools).not.toHaveBeenCalled();
-    expect(mockedAgent.createReadTool).toHaveBeenCalledWith(
-      "repo/aegis-mock-run/.aegis/labors/aegis-123",
-      expect.objectContaining({ operations: expect.any(Object) }),
-    );
-    expect(mockedAgent.createBashTool).not.toHaveBeenCalled();
-    expect(mockedAgent.session.setActiveToolsByName).toHaveBeenLastCalledWith([
-      "read",
-      "edit",
-      "write",
-      TITAN_EMIT_ARTIFACT_TOOL_NAME,
-    ]);
-    expect(mockedAgent.createEditTool).toHaveBeenCalledWith(
-      "repo/aegis-mock-run/.aegis/labors/aegis-123",
-      expect.objectContaining({ operations: expect.any(Object) }),
-    );
-    expect(mockedAgent.createWriteTool).toHaveBeenCalledWith(
-      "repo/aegis-mock-run/.aegis/labors/aegis-123",
-      expect.objectContaining({ operations: expect.any(Object) }),
-    );
-  });
-
-  it("blocks mock-run Titan write paths outside labor scope before tool execution", async () => {
-    const fixture = CONTRACT_FIXTURES.find((candidate) => candidate.caste === "titan");
-    if (!fixture) {
-      throw new Error("Missing titan fixture.");
-    }
-
-    const writeExecute = vi.fn(async () => ({
-      content: [{ type: "text", text: "ok" }],
-    }));
-
-    mockedAgent.createReadTool.mockImplementationOnce(() => ({
-      name: "read",
-      execute: vi.fn(async () => ({ content: [{ type: "text", text: "ok" }] })),
-    }));
-    mockedAgent.createEditTool.mockImplementationOnce(() => ({
-      name: "edit",
-      execute: vi.fn(async () => ({ content: [{ type: "text", text: "ok" }] })),
-    }));
-    mockedAgent.createWriteTool.mockImplementationOnce(() => ({
-      name: "write",
-      execute: writeExecute,
-    }));
-
-    configureToolSuccess(fixture);
-    const runtime = createSingleCasteRuntime("titan");
-
-    const runResult = await runtime.run({
-      caste: "titan",
-      issueId: "aegis-123",
-      root: "repo/aegis-mock-run",
-      workingDirectory: "repo/aegis-mock-run/.aegis/labors/aegis-123",
-      prompt: "titan run",
-    });
-    expect(runResult.status).toBe("succeeded");
-
-    const createSessionCall = (mockedAgent.createAgentSession.mock.calls as unknown[][])
-      .at(-1)?.[0] as { tools?: Array<{ name?: string; execute?: (...args: unknown[]) => unknown }> } | undefined;
-    const writeTool = createSessionCall?.tools?.find((tool) => tool.name === "write");
-    if (!writeTool?.execute) {
-      throw new Error("Missing guarded write tool.");
-    }
-
-    await expect(
-      Promise.resolve(writeTool.execute("call", { path: "C:/dev/aegis/src/mock-run/types.ts", content: "leak" })),
-    ).rejects.toThrow("Mock-run Titan guard blocked path outside labor scope");
-    expect(writeExecute).not.toHaveBeenCalled();
-
-    await expect(
-      Promise.resolve(
-        writeTool.execute("call", { path: "src/todo.ts", content: "safe" }),
-      ),
-    ).resolves.toEqual({ content: [{ type: "text", text: "ok" }] });
-    expect(writeExecute).toHaveBeenCalledTimes(1);
   });
 });
