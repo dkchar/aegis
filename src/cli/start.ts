@@ -49,7 +49,7 @@ import {
 
 export const START_COMMAND_NAME = "start";
 
-export const START_OVERRIDE_FLAGS = [] as const;
+export const START_OVERRIDE_FLAGS = ["--view-agent-sessions"] as const;
 
 export const CANONICAL_LAUNCH_SEQUENCE = [
   "load_config",
@@ -82,7 +82,9 @@ export type StartOverrideFlag = (typeof START_OVERRIDE_FLAGS)[number];
 export type LaunchSequenceStep = (typeof CANONICAL_LAUNCH_SEQUENCE)[number];
 export type ShutdownSequenceStep = (typeof CANONICAL_SHUTDOWN_SEQUENCE)[number];
 
-export interface StartCommandOverrides {}
+export interface StartCommandOverrides {
+  viewAgentSessions: boolean;
+}
 
 export interface StartCommandContract {
   command: typeof START_COMMAND_NAME;
@@ -122,11 +124,20 @@ export interface TrackerProbeResult {
 export type TrackerProbe = (root: string) => TrackerProbeResult;
 
 function parseStartOverrides(argv: readonly string[]): StartCommandOverrides {
-  if (argv.length > 0) {
-    throw new Error(`Unknown start override flag: ${argv[0]}`);
+  const overrides: StartCommandOverrides = {
+    viewAgentSessions: false,
+  };
+
+  for (const flag of argv) {
+    if (flag === "--view-agent-sessions") {
+      overrides.viewAgentSessions = true;
+      continue;
+    }
+
+    throw new Error(`Unknown start override flag: ${flag}`);
   }
 
-  return {};
+  return overrides;
 }
 
 export { parseStartOverrides };
@@ -434,7 +445,9 @@ export function createStartCommandContract(): StartCommandContract {
 
 export async function startAegis(
   root = process.cwd(),
-  overrides: StartCommandOverrides = {},
+  overrides: StartCommandOverrides = {
+    viewAgentSessions: false,
+  },
   options: StartCommandOptions = {},
 ): Promise<StartResult> {
   const repoRoot = path.resolve(root);

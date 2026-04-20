@@ -15,7 +15,7 @@ import { initProject } from "../../../src/config/init-project.js";
 import {
   StartupPreflightBlockedError,
 } from "../../../src/cli/startup-preflight.js";
-import { verifyTrackerRepository } from "../../../src/cli/start.js";
+import { parseStartOverrides, verifyTrackerRepository } from "../../../src/cli/start.js";
 import { readRuntimeState } from "../../../src/cli/runtime-state.js";
 
 const tempRoots: string[] = [];
@@ -70,6 +70,20 @@ describe("verifyTrackerRepository", () => {
       ok: true,
       detail: "Beads CLI is available.",
     }))).toThrow("tracker metadata missing");
+  });
+});
+
+describe("parseStartOverrides", () => {
+  it("enables session viewing when --view-agent-sessions is provided", () => {
+    expect(parseStartOverrides(["--view-agent-sessions"])).toEqual({
+      viewAgentSessions: true,
+    });
+  });
+
+  it("throws for unknown override flags", () => {
+    expect(() => parseStartOverrides(["--unknown-flag"])).toThrow(
+      "Unknown start override flag: --unknown-flag",
+    );
   });
 });
 
