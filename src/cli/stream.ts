@@ -107,12 +107,15 @@ function parsePhaseEntry(rawContents: string): PhaseLogEntry | null {
 
 function formatPhaseEntry(entry: PhaseLogEntry) {
   const parts = [
-    `[phase] ${entry.timestamp}`,
-    `phase=${entry.phase}`,
+    `[${entry.phase.toUpperCase()}]`,
     `issue=${entry.issueId}`,
     `action=${entry.action}`,
     `outcome=${entry.outcome}`,
   ];
+
+  if (entry.phase === "dispatch" && entry.action.startsWith("launch_")) {
+    parts.push(`caste=${entry.action.slice("launch_".length)}`);
+  }
 
   if (entry.sessionId) {
     parts.push(`session=${entry.sessionId}`);

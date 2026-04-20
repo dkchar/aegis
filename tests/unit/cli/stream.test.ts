@@ -98,7 +98,7 @@ describe("streamDaemonView", () => {
     expect(lines.some((line) => line.includes("[runtime] state=running"))).toBe(true);
     expect(lines.some((line) => line.includes("[runtime] state=stopped"))).toBe(true);
     expect(lines.some((line) => line.includes("[daemon] 2026-04-19T16:00:05.000Z [daemon][heartbeat] mode=auto"))).toBe(true);
-    expect(lines.some((line) => line.includes("[phase] 2026-04-19T16:00:05.000Z phase=dispatch issue=aegis-1 action=launch_oracle outcome=running session=session-1"))).toBe(true);
+    expect(lines.some((line) => line.includes("[DISPATCH] issue=aegis-1 action=launch_oracle outcome=running caste=oracle session=session-1"))).toBe(true);
     expect(lines.some((line) => line.includes("old.json"))).toBe(false);
   });
 
