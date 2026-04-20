@@ -49,16 +49,20 @@ function launchSessionViewer(
   }
 
   const entrypoint = resolveCliEntrypoint(root, options.cliEntrypoint);
-  const command = `start "" "${process.execPath}" "${entrypoint}" stream session "${sessionId}"`;
+  const streamCommand = `"${process.execPath}" "${entrypoint}" stream session "${sessionId}"`;
   const spawnProcess = options.spawnProcess ?? spawn;
   const spawnOptions: SpawnOptions = {
     cwd: path.resolve(root),
     detached: true,
     stdio: "ignore",
-    windowsHide: true,
+    windowsHide: false,
   };
 
-  const child = spawnProcess(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", command], spawnOptions);
+  const child = spawnProcess(
+    process.env.ComSpec ?? "cmd.exe",
+    ["/d", "/c", "start", "", "cmd.exe", "/d", "/s", "/c", streamCommand],
+    spawnOptions,
+  );
   if (typeof (child as ChildProcess).unref === "function") {
     child.unref();
   }
@@ -102,4 +106,3 @@ export function createSessionViewTracker(
     },
   };
 }
-

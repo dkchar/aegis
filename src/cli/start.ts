@@ -84,7 +84,7 @@ export type LaunchSequenceStep = (typeof CANONICAL_LAUNCH_SEQUENCE)[number];
 export type ShutdownSequenceStep = (typeof CANONICAL_SHUTDOWN_SEQUENCE)[number];
 
 export interface StartCommandOverrides {
-  viewAgentSessions: boolean;
+  viewAgentSessions?: boolean;
 }
 
 export interface StartCommandContract {
