@@ -2,6 +2,7 @@ import type { DispatchRecord } from "./dispatch-state.js";
 import { loadDispatchState, replaceDispatchRecord, saveDispatchState } from "./dispatch-state.js";
 import { persistArtifact } from "./artifact-store.js";
 import { parseOracleAssessment } from "../castes/oracle/oracle-parser.js";
+import { ORACLE_EMIT_ASSESSMENT_TOOL_NAME } from "../castes/oracle/oracle-tool-contract.js";
 import { parseTitanArtifact } from "../castes/titan/titan-parser.js";
 import { TITAN_EMIT_ARTIFACT_TOOL_NAME } from "../castes/titan/titan-tool-contract.js";
 import { parseSentinelVerdict } from "../castes/sentinel/sentinel-parser.js";
@@ -93,7 +94,20 @@ function createBaseRecord(issueId: string, now: string): DispatchRecord {
 }
 
 function buildOraclePrompt(issue: AegisIssue) {
-  return `Scout ${issue.id}: ${issue.title}`;
+  const description = issue.description?.trim() || "No description provided.";
+  const blockers = issue.blockers.length > 0 ? issue.blockers.join(", ") : "none";
+  const labels = issue.labels.length > 0 ? issue.labels.join(", ") : "none";
+
+  return [
+    `Scout ${issue.id}: ${issue.title}`,
+    `Description: ${description}`,
+    `Status: ${issue.status}`,
+    `Blockers: ${blockers}`,
+    `Labels: ${labels}`,
+    `Call tool '${ORACLE_EMIT_ASSESSMENT_TOOL_NAME}' exactly once as final step after analysis is complete.`,
+    "Return only JSON. No markdown fences. No prose before or after JSON.",
+    "JSON schema keys: files_affected, estimated_complexity, decompose, ready.",
+  ].join("\n");
 }
 
 function buildTitanPrompt(issue: AegisIssue, laborPath: string) {
@@ -522,6 +536,9 @@ async function runReview(
     });
   }
   const resolvedFollowUpIssueIds = await createSentinelFollowUpIssues(input, issue, verdict, now);
+  const reviewHasFollowUps = resolvedFollowUpIssueIds.length > 0;
+  const reviewConverged = verdict.verdict === "pass" || reviewHasFollowUps;
+  const reviewStage = reviewConverged ? "reviewed" : "failed";
   const artifactRef = persistArtifact(input.root, {
     family: "sentinel",
     issueId: issue.id,
@@ -532,7 +549,7 @@ async function runReview(
     },
   });
 
-  if (verdict.verdict === "pass" && input.tracker.closeIssue) {
+  if (reviewConverged && input.tracker.closeIssue) {
     await input.tracker.closeIssue(issue.id, input.root);
     writePhaseLog(input.root, {
       timestamp: offsetTimestamp(now, 40),
@@ -545,7 +562,7 @@ async function runReview(
 
   saveRecord(input.root, issue.id, {
     ...clearDownstreamArtifactRefs(record),
-    stage: verdict.verdict === "pass" ? "reviewed" : "failed",
+    stage: reviewStage,
     oracleAssessmentRef: record.oracleAssessmentRef,
     titanHandoffRef: record.titanHandoffRef ?? null,
     titanClarificationRef: record.titanClarificationRef ?? null,
@@ -557,7 +574,11 @@ async function runReview(
     phase: "dispatch",
     issueId: issue.id,
     action: "sentinel_review_completed",
-    outcome: verdict.verdict === "pass" ? "reviewed" : "failed",
+    outcome: verdict.verdict === "pass"
+      ? "reviewed"
+      : reviewConverged
+        ? "reviewed_with_followups"
+        : "failed",
     sessionId: session.sessionId,
     detail: JSON.stringify({
       followUpIssueCount: resolvedFollowUpIssueIds.length,
@@ -567,7 +588,7 @@ async function runReview(
   return {
     action: input.action,
     issueId: issue.id,
-    stage: verdict.verdict === "pass" ? "reviewed" : "failed",
+    stage: reviewStage,
     artifactRefs: [artifactRef, transcriptRef],
   };
 }

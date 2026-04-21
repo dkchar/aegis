@@ -26,6 +26,8 @@ describe("buildMockRunConfig", () => {
       max_sentinels: 3,
       max_janus: 2,
     });
+    expect(config.thresholds.stuck_warning_seconds).toBe(240);
+    expect(config.thresholds.stuck_kill_seconds).toBe(600);
     expect(config).not.toHaveProperty("olympus");
     expect(config).not.toHaveProperty("budgets");
     expect(config).not.toHaveProperty("economics");
@@ -42,5 +44,7 @@ describe("buildMockRunConfig", () => {
     }
     expect(config.labor.base_path).toBe(MOCK_RUN_LABOR_BASE_PATH);
     expect(config.concurrency).toEqual(DEFAULT_AEGIS_CONFIG.concurrency);
+    expect(config.thresholds.stuck_warning_seconds).toBe(240);
+    expect(config.thresholds.stuck_kill_seconds).toBe(600);
   });
 });

@@ -53,4 +53,69 @@ describe("getAegisStatus", () => {
       uptime_ms: 0,
     });
   });
+
+  it("reports zero active agents when runtime state is stopped even if stale running records exist", async () => {
+    const root = createTempRoot();
+    mkdirSync(path.join(root, ".aegis"), { recursive: true });
+    writeFileSync(
+      path.join(root, ".aegis", "dispatch-state.json"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        records: {
+          "issue-1": {
+            issueId: "issue-1",
+            stage: "scouting",
+            runningAgent: {
+              caste: "oracle",
+              sessionId: "session-1",
+              startedAt: "2026-04-21T00:00:00.000Z",
+            },
+            oracleAssessmentRef: null,
+            titanHandoffRef: null,
+            titanClarificationRef: null,
+            sentinelVerdictRef: null,
+            janusArtifactRef: null,
+            failureTranscriptRef: null,
+            fileScope: null,
+            failureCount: 0,
+            consecutiveFailures: 0,
+            failureWindowStartMs: null,
+            cooldownUntil: null,
+            sessionProvenanceId: "1234",
+            updatedAt: "2026-04-21T00:00:00.000Z",
+          },
+        },
+      }, null, 2)}\n`,
+      "utf8",
+    );
+    writeFileSync(
+      path.join(root, ".aegis", "runtime-state.json"),
+      `${JSON.stringify({
+        schema_version: 1,
+        pid: process.pid,
+        server_state: "stopped",
+        mode: "auto",
+        started_at: "2026-04-21T00:00:00.000Z",
+        stopped_at: "2026-04-21T00:01:00.000Z",
+        last_stop_reason: "manual",
+      }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const status = await getAegisStatus(root, {
+      tracker: {
+        async listReadyIssues() {
+          return [];
+        },
+      },
+    });
+
+    expect(status).toEqual({
+      server_state: "stopped",
+      mode: "auto",
+      active_agents: 0,
+      queue_depth: 0,
+      uptime_ms: 0,
+    });
+  });
 });

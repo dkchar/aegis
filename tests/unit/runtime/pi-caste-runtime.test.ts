@@ -379,6 +379,169 @@ describe("PiCasteRuntime", () => {
     }
   });
 
+  it("fails bounded when pi session never reaches agent_end", async () => {
+    mockedAgent.session.prompt.mockImplementation(async () => {
+      // Simulate provider/session hang: no events emitted.
+    });
+
+    const runtime = new PiCasteRuntime({
+      oracle: createModelConfig("oracle"),
+    }, {
+      sessionTimeoutMs: 10,
+      timeoutRetryCount: 0,
+    });
+
+    const result = await runtime.run({
+      caste: "oracle",
+      issueId: "aegis-timeout",
+      root: "repo",
+      workingDirectory: "repo",
+      prompt: "Scout timeout",
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.error).toBe("Pi oracle session timed out after 10ms.");
+  });
+
+  it("uses caste-specific timeout override when configured", async () => {
+    mockedAgent.session.prompt.mockImplementation(async () => {
+      // Simulate provider/session hang: no events emitted.
+    });
+
+    const runtime = new PiCasteRuntime({
+      sentinel: createModelConfig("sentinel"),
+    }, {
+      sessionTimeoutMs: 10,
+      sessionTimeoutMsByCaste: {
+        sentinel: 5,
+      },
+      timeoutRetryCount: 0,
+    });
+
+    const result = await runtime.run({
+      caste: "sentinel",
+      issueId: "aegis-timeout-sentinel",
+      root: "repo",
+      workingDirectory: "repo",
+      prompt: "Review timeout",
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.error).toBe("Pi sentinel session timed out after 5ms.");
+  });
+
+  it("retries timed-out sessions once and succeeds when second attempt returns", async () => {
+    let attempt = 0;
+    mockedAgent.session.prompt.mockImplementation(async () => {
+      attempt += 1;
+      if (attempt === 1) {
+        return;
+      }
+
+      const listener = mockedAgent.listeners.at(-1);
+      if (!listener) {
+        return;
+      }
+
+      listener({
+        type: "tool_execution_start",
+        toolCallId: "call-timeout-retry",
+        toolName: ORACLE_EMIT_ASSESSMENT_TOOL_NAME,
+        args: {},
+      });
+      listener({
+        type: "tool_execution_end",
+        toolCallId: "call-timeout-retry",
+        toolName: ORACLE_EMIT_ASSESSMENT_TOOL_NAME,
+        isError: false,
+        result: {
+          content: [{ type: "text", text: "Recovered after timeout retry." }],
+          details: {
+            assessment: {
+              files_affected: ["src/index.ts"],
+              estimated_complexity: "moderate",
+              decompose: false,
+              ready: true,
+            },
+          },
+        },
+      });
+      listener({ type: "agent_end" });
+    });
+
+    const runtime = new PiCasteRuntime({
+      oracle: createModelConfig("oracle"),
+    }, {
+      sessionTimeoutMs: 10,
+      timeoutRetryCount: 1,
+      timeoutRetryDelayMs: 0,
+    });
+
+    const result = await runtime.run({
+      caste: "oracle",
+      issueId: "aegis-timeout-retry",
+      root: "repo",
+      workingDirectory: "repo",
+      prompt: "Scout timeout retry",
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.outputText).toContain("\"estimated_complexity\":\"moderate\"");
+    expect(mockedAgent.createAgentSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("completes on oracle tool payload even when agent_end never arrives", async () => {
+    mockedAgent.session.prompt.mockImplementation(async () => {
+      const listener = mockedAgent.listeners.at(-1);
+      if (!listener) {
+        return;
+      }
+
+      listener({
+        type: "tool_execution_start",
+        toolCallId: "call-oracle-direct",
+        toolName: ORACLE_EMIT_ASSESSMENT_TOOL_NAME,
+        args: {},
+      });
+      listener({
+        type: "tool_execution_end",
+        toolCallId: "call-oracle-direct",
+        toolName: ORACLE_EMIT_ASSESSMENT_TOOL_NAME,
+        isError: false,
+        result: {
+          content: [{ type: "text", text: "Oracle payload emitted." }],
+          details: {
+            assessment: {
+              files_affected: ["src/index.ts"],
+              estimated_complexity: "moderate",
+              decompose: false,
+              ready: true,
+            },
+          },
+        },
+      });
+      // Intentionally no agent_end event.
+    });
+
+    const runtime = new PiCasteRuntime({
+      oracle: createModelConfig("oracle"),
+    }, {
+      sessionTimeoutMs: 100,
+      timeoutRetryCount: 0,
+    });
+
+    const result = await runtime.run({
+      caste: "oracle",
+      issueId: "aegis-no-agent-end",
+      root: "repo",
+      workingDirectory: "repo",
+      prompt: "Scout no-agent-end",
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.outputText).toContain("\"estimated_complexity\":\"moderate\"");
+  });
+
   it("keeps Phase H/I tool setup: titan coding tools, others read-only tools", async () => {
     for (const fixture of CONTRACT_FIXTURES) {
       configureToolSuccess(fixture);

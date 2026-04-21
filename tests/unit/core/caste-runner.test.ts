@@ -128,7 +128,7 @@ describe("runCasteCommand", () => {
       ready: true,
       session: {
         transcriptRef: path.join(".aegis", "transcripts", "aegis-123--oracle.json"),
-        prompt: "Scout aegis-123: Example",
+        prompt: expect.stringContaining("Scout aegis-123: Example"),
         workingDirectory: root,
         modelRef: "openai-codex:gpt-5.4-mini",
         provider: "openai-codex",
@@ -143,7 +143,7 @@ describe("runCasteCommand", () => {
       issueId: "aegis-123",
       caste: "oracle",
       action: "scout",
-      prompt: "Scout aegis-123: Example",
+      prompt: expect.stringContaining("Scout aegis-123: Example"),
       workingDirectory: root,
       modelRef: "openai-codex:gpt-5.4-mini",
       provider: "openai-codex",
@@ -154,7 +154,7 @@ describe("runCasteCommand", () => {
       messageLog: [
         {
           role: "user",
-          content: "Scout aegis-123: Example",
+          content: expect.stringContaining("Scout aegis-123: Example"),
         },
         {
           role: "assistant",
@@ -794,6 +794,7 @@ describe("runCasteCommand", () => {
       .fn()
       .mockResolvedValueOnce("aegis-2001")
       .mockResolvedValueOnce("aegis-2002");
+    const closeIssue = vi.fn(async () => undefined);
 
     const result = await runCasteCommand({
       root,
@@ -802,6 +803,7 @@ describe("runCasteCommand", () => {
       tracker: {
         getIssue: vi.fn(async () => createIssue("aegis-1001")),
         createIssue: createFollowUpIssue,
+        closeIssue,
       },
       runtime: new ScriptedCasteRuntime({
         sentinel: () => ({
@@ -819,9 +821,10 @@ describe("runCasteCommand", () => {
     expect(result).toMatchObject({
       action: "review",
       issueId: "aegis-1001",
-      stage: "failed",
+      stage: "reviewed",
     });
     expect(createFollowUpIssue).toHaveBeenCalledTimes(2);
+    expect(closeIssue).toHaveBeenCalledWith("aegis-1001", root);
     expect(createFollowUpIssue).toHaveBeenNthCalledWith(1, {
       title: "[sentinel][aegis-1001] update tests",
       description: [
@@ -865,7 +868,7 @@ describe("runCasteCommand", () => {
     expect(phaseActions.some((entry) => entry.action === "sentinel_issues_discovered")).toBe(true);
     expect(phaseActions.filter((entry) => entry.action === "sentinel_followup_created")).toHaveLength(2);
     expect(phaseActions.some((entry) =>
-      entry.action === "sentinel_review_completed" && entry.outcome === "failed",
+      entry.action === "sentinel_review_completed" && entry.outcome === "reviewed_with_followups",
     )).toBe(true);
   });
 

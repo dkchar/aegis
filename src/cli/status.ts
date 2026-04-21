@@ -57,9 +57,14 @@ export async function getAegisStatus(
 ): Promise<StatusSnapshot> {
   const recoveredRuntime = readRuntimeState(root);
   const dispatchState = loadDispatchState(root);
-  const activeAgentCount = Object.values(dispatchState.records).filter(
-    (record) => record.runningAgent !== null,
-  ).length;
+  const isLiveDaemon = recoveredRuntime
+    ? recoveredRuntime.server_state !== "stopped" && isProcessRunning(recoveredRuntime.pid)
+    : false;
+  const activeAgentCount = isLiveDaemon
+    ? Object.values(dispatchState.records).filter(
+      (record) => record.runningAgent !== null,
+    ).length
+    : 0;
   const tracker = options.tracker ?? new BeadsTrackerClient();
   let queueDepth = 0;
 
@@ -72,14 +77,11 @@ export async function getAegisStatus(
   if (!recoveredRuntime) {
     return {
       ...DEFAULT_SNAPSHOT,
-      active_agents: activeAgentCount,
       queue_depth: queueDepth,
     };
   }
 
-  const isRunning = isProcessRunning(recoveredRuntime.pid);
-
-  if (recoveredRuntime.server_state !== "stopped" && isRunning) {
+  if (isLiveDaemon) {
     return {
       server_state: "running",
       mode: recoveredRuntime.mode,

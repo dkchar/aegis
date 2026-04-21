@@ -32,6 +32,8 @@ export interface MockRunBdSupport {
 export const MOCK_RUN_LABOR_BASE_PATH = ".aegis/labors";
 const MOCK_RUN_MODEL_REFERENCE = "openai-codex:gpt-5.4-mini";
 const MOCK_RUN_THINKING_LEVEL = "medium";
+const MOCK_RUN_STUCK_WARNING_SECONDS = 240;
+const MOCK_RUN_STUCK_KILL_SECONDS = 600;
 
 interface BdIssueRecord {
   id: string;
@@ -169,6 +171,11 @@ export function buildMockRunConfig(options?: {
     runtime,
     models: createCasteConfig(() => MOCK_RUN_MODEL_REFERENCE),
     thinking: createCasteConfig(() => MOCK_RUN_THINKING_LEVEL),
+    thresholds: {
+      ...DEFAULT_AEGIS_CONFIG.thresholds,
+      stuck_warning_seconds: MOCK_RUN_STUCK_WARNING_SECONDS,
+      stuck_kill_seconds: MOCK_RUN_STUCK_KILL_SECONDS,
+    },
     labor: {
       ...DEFAULT_AEGIS_CONFIG.labor,
       base_path: MOCK_RUN_LABOR_BASE_PATH,

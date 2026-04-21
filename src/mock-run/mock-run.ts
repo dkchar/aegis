@@ -1,4 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -39,6 +40,27 @@ function isMockAegisStartCommand(args: readonly string[]) {
   return executable === process.execPath
     && path.basename(args[1] ?? "") === "index.js"
     && args[2] === "start";
+}
+
+function resolveMockCommandArgs(args: readonly string[], mockDir: string): string[] {
+  if (args.length < 2) {
+    return [...args];
+  }
+
+  const executable = normalizeExecutable(args[0]!);
+  if (executable !== process.execPath || path.basename(args[1] ?? "") !== "index.js") {
+    return [...args];
+  }
+
+  const entryPath = args[1]!;
+  const resolvedEntryPath = path.isAbsolute(entryPath)
+    ? entryPath
+    : path.resolve(mockDir, entryPath);
+  const effectiveEntryPath = existsSync(resolvedEntryPath)
+    ? resolvedEntryPath
+    : resolveAegisCliPath();
+
+  return [args[0]!, effectiveEntryPath, ...args.slice(2)];
 }
 
 async function sleep(milliseconds: number) {
@@ -88,8 +110,9 @@ export async function runMockCommand(
   const waitForDaemonStart = options.waitForDaemonStart ?? waitForMockDaemonStart;
   const mockDir = options.mockDir ?? resolveDefaultMockRepoRoot();
   const startTimeoutMs = options.startTimeoutMs ?? MOCK_START_TIMEOUT_MS;
+  const resolvedArgs = resolveMockCommandArgs(args, mockDir);
 
-  if (isMockAegisStartCommand(args)) {
+  if (isMockAegisStartCommand(resolvedArgs)) {
     const existingRuntime = readRuntimeState(mockDir);
     if (
       existingRuntime
@@ -99,7 +122,7 @@ export async function runMockCommand(
       throw new Error(`Aegis is already running on pid ${existingRuntime.pid}.`);
     }
 
-    const child = spawnProcess(normalizeExecutable(args[0]!), args.slice(1), {
+    const child = spawnProcess(normalizeExecutable(resolvedArgs[0]!), resolvedArgs.slice(1), {
       cwd: mockDir,
       env: { ...process.env },
       detached: true,
@@ -117,7 +140,7 @@ export async function runMockCommand(
     return;
   }
 
-  executeFile(normalizeExecutable(args[0]!), args.slice(1), {
+  executeFile(normalizeExecutable(resolvedArgs[0]!), resolvedArgs.slice(1), {
     cwd: mockDir,
     stdio: "inherit",
     env: { ...process.env },

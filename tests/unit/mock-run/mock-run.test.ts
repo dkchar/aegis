@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { resolveDefaultMockRepoRoot } from "../../../src/mock-run/mock-paths.js";
@@ -12,14 +14,19 @@ describe("runMockCommand", () => {
       execFileSync,
     });
 
-    expect(execFileSync).toHaveBeenCalledWith(
-      process.execPath,
-      ["../dist/index.js", "status"],
-      expect.objectContaining({
-        cwd: "repo/aegis-mock-run",
-        stdio: "inherit",
-      }),
-    );
+    expect(execFileSync).toHaveBeenCalledTimes(1);
+    const call = execFileSync.mock.calls[0] as unknown[];
+    const command = call[0] as string;
+    const args = call[1] as string[];
+    const options = call[2] as Record<string, unknown>;
+    expect(command).toBe(process.execPath);
+    expect(args[0]).toMatch(/dist[\\/]index\.js$/);
+    expect(path.isAbsolute(args[0])).toBe(true);
+    expect(args[1]).toBe("status");
+    expect(options).toEqual(expect.objectContaining({
+      cwd: "repo/aegis-mock-run",
+      stdio: "inherit",
+    }));
   });
 
   it("backgrounds aegis start and waits for runtime-state confirmation", async () => {
@@ -47,16 +54,21 @@ describe("runMockCommand", () => {
     });
 
     expect(execFileSync).not.toHaveBeenCalled();
-    expect(spawn).toHaveBeenCalledWith(
-      process.execPath,
-      ["../dist/index.js", "start"],
-      expect.objectContaining({
-        cwd: "repo/aegis-mock-run",
-        detached: true,
-        stdio: "ignore",
-        windowsHide: true,
-      }),
-    );
+    expect(spawn).toHaveBeenCalledTimes(1);
+    const call = spawn.mock.calls[0] as unknown[];
+    const spawnCommand = call[0] as string;
+    const spawnArgs = call[1] as string[];
+    const spawnOptions = call[2] as Record<string, unknown>;
+    expect(spawnCommand).toBe(process.execPath);
+    expect(spawnArgs[0]).toMatch(/dist[\\/]index\.js$/);
+    expect(path.isAbsolute(spawnArgs[0])).toBe(true);
+    expect(spawnArgs[1]).toBe("start");
+    expect(spawnOptions).toEqual(expect.objectContaining({
+      cwd: "repo/aegis-mock-run",
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    }));
     expect(unref).toHaveBeenCalledTimes(1);
     expect(waitForDaemonStart).toHaveBeenCalledWith("repo/aegis-mock-run", 4242, 5_000);
     expect(consoleLog).toHaveBeenCalledWith("Aegis started in auto mode (pid 4242)");
@@ -71,13 +83,18 @@ describe("runMockCommand", () => {
       execFileSync,
     });
 
-    expect(execFileSync).toHaveBeenCalledWith(
-      process.execPath,
-      ["../dist/index.js", "status"],
-      expect.objectContaining({
-        cwd: resolveDefaultMockRepoRoot(),
-        stdio: "inherit",
-      }),
-    );
+    expect(execFileSync).toHaveBeenCalledTimes(1);
+    const call = execFileSync.mock.calls[0] as unknown[];
+    const command = call[0] as string;
+    const args = call[1] as string[];
+    const options = call[2] as Record<string, unknown>;
+    expect(command).toBe(process.execPath);
+    expect(args[0]).toMatch(/dist[\\/]index\.js$/);
+    expect(path.isAbsolute(args[0])).toBe(true);
+    expect(args[1]).toBe("status");
+    expect(options).toEqual(expect.objectContaining({
+      cwd: resolveDefaultMockRepoRoot(),
+      stdio: "inherit",
+    }));
   });
 });
