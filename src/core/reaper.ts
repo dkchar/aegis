@@ -38,6 +38,7 @@ function toCompletedRecord(record: DispatchRecord, timestamp: string): DispatchR
     ...record,
     stage: resolveCompletedStage(record),
     runningAgent: null,
+    lastCompletedCaste: record.runningAgent?.caste ?? record.lastCompletedCaste ?? null,
     consecutiveFailures: 0,
     cooldownUntil: null,
     updatedAt: timestamp,
@@ -47,7 +48,7 @@ function toCompletedRecord(record: DispatchRecord, timestamp: string): DispatchR
 function toFailedRecord(record: DispatchRecord, timestamp: string): DispatchRecord {
   return {
     ...record,
-    stage: "failed",
+    stage: "failed_operational",
     runningAgent: null,
     failureCount: record.failureCount + 1,
     consecutiveFailures: record.consecutiveFailures + 1,

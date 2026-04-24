@@ -1,6 +1,5 @@
 import type { AegisConfig } from "../config/schema.js";
 import type { DispatchRecord, DispatchState } from "./dispatch-state.js";
-import { isOracleBlockedFromTitan } from "./stage-invariants.js";
 import type { TrackerReadyIssue } from "../tracker/tracker.js";
 
 export type TriageSkipReason =
@@ -43,33 +42,34 @@ function isCoolingDown(record: DispatchRecord, nowMs: number) {
   return Number.isFinite(cooldownMs) && cooldownMs > nowMs;
 }
 
-function hasOracleBlockers(record: DispatchRecord) {
-  return (record.oracleBlockers?.length ?? 0) > 0;
-}
-
 function resolveFailedIssueSkipReason(record: DispatchRecord): TriageSkipReason | null {
-  if (record.stage !== "failed") {
-    return null;
-  }
-
-  if (
-    record.oracleReady === false
-    || record.oracleDecompose === true
-    || hasOracleBlockers(record)
-    || record.titanClarificationRef
-  ) {
+  if (record.stage === "blocked_on_child") {
     return "blocked";
   }
 
-  if (record.titanHandoffRef || record.sentinelVerdictRef || record.janusArtifactRef) {
+  if (
+    record.stage === "complete"
+    || record.stage === "implemented"
+    || record.stage === "reviewing"
+    || record.stage === "queued_for_merge"
+    || record.stage === "merging"
+    || record.stage === "resolving_integration"
+  ) {
     return "already_progressed";
+  }
+
+  if (record.stage !== "failed_operational") {
+    return null;
   }
 
   return null;
 }
 
 function needsFuturePhase(record: DispatchRecord) {
-  return record.stage !== "failed" && record.stage !== "pending" && record.stage !== "scouted";
+  return record.stage !== "pending"
+    && record.stage !== "scouted"
+    && record.stage !== "rework_required"
+    && record.stage !== "failed_operational";
 }
 
 function countActiveOracles(state: DispatchState) {
@@ -88,7 +88,7 @@ function resolveDecision(
   issue: TrackerReadyIssue,
   record: DispatchRecord | undefined,
 ): DispatchDecision {
-  if (record?.stage === "scouted") {
+  if (record?.stage === "scouted" || record?.stage === "rework_required") {
     return {
       issueId: issue.id,
       title: issue.title,
@@ -142,14 +142,6 @@ export function triageReadyWork(input: TriageInput): TriageResult {
       skipped.push({
         issueId: issue.id,
         reason: "cooldown",
-      });
-      continue;
-    }
-
-    if (record && isOracleBlockedFromTitan(record)) {
-      skipped.push({
-        issueId: issue.id,
-        reason: "blocked",
       });
       continue;
     }

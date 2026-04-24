@@ -232,7 +232,7 @@ describe("reapFinishedWork", () => {
     });
   });
 
-  it("marks failed sessions as failed and increments counters", async () => {
+  it("marks failed sessions as failed_operational and increments counters", async () => {
     const root = createTempRoot();
     const runtime: AgentRuntime = {
       async launch() {
@@ -263,7 +263,7 @@ describe("reapFinishedWork", () => {
     expect(result.failed).toEqual(["ISSUE-1"]);
     expect(result.state.records["ISSUE-1"]).toMatchObject({
       issueId: "ISSUE-1",
-      stage: "failed",
+      stage: "failed_operational",
       runningAgent: null,
       failureCount: 1,
       consecutiveFailures: 1,
@@ -508,7 +508,7 @@ describe("reapFinishedWork", () => {
     expect(result.failed).toEqual(["ISSUE-2"]);
     expect(result.state.records["ISSUE-2"]).toMatchObject({
       issueId: "ISSUE-2",
-      stage: "failed",
+      stage: "failed_operational",
       runningAgent: null,
       titanHandoffRef: ".aegis/titan/ISSUE-2.json",
       oracleAssessmentRef: null,

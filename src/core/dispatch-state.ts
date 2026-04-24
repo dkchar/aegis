@@ -10,10 +10,29 @@ export interface AgentAssignment {
   startedAt: string;
 }
 
+export type DispatchStage =
+  | "pending"
+  | "scouting"
+  | "scouted"
+  | "implementing"
+  | "implemented"
+  | "reviewing"
+  | "queued_for_merge"
+  | "merging"
+  | "resolving_integration"
+  | "blocked_on_child"
+  | "rework_required"
+  | "failed_operational"
+  | "complete";
+
 export interface DispatchRecord {
   issueId: string;
-  stage: string;
+  stage: DispatchStage;
   runningAgent: AgentAssignment | null;
+  lastCompletedCaste?: AgentCaste | null;
+  blockedByIssueId?: string | null;
+  reviewFeedbackRef?: string | null;
+  policyArtifactRef?: string | null;
   oracleAssessmentRef: string | null;
   oracleReady?: boolean | null;
   oracleDecompose?: boolean | null;
@@ -105,7 +124,7 @@ export function saveDispatchState(projectRoot: string, state: DispatchState): vo
   renameSync(tmpPath, finalPath);
 }
 
-const IN_PROGRESS_STAGES = new Set([
+const IN_PROGRESS_STAGES = new Set<DispatchStage>([
   "scouting",
   "implementing",
   "reviewing",
@@ -127,7 +146,7 @@ export function reconcileDispatchState(
     ) {
       reconciledRecords[issueId] = {
         ...record,
-        stage: "failed",
+        stage: "failed_operational",
         runningAgent: null,
         fileScope: null,
         failureCount: record.failureCount + 1,

@@ -185,7 +185,7 @@ describe("triageReadyWork", () => {
     ]);
   });
 
-  it("blocks Titan dispatch when Oracle marked the issue not ready", () => {
+  it("ignores legacy Oracle veto fields when dispatching a scouted issue to Titan", () => {
     const result = triageReadyWork({
       readyIssues: [{ id: "ISSUE-3", title: "Blocked" }],
       dispatchState: createDispatchState({
@@ -211,13 +211,15 @@ describe("triageReadyWork", () => {
       now: "2026-04-14T12:01:00.000Z",
     });
 
-    expect(result.dispatchable).toEqual([]);
-    expect(result.skipped).toEqual([
+    expect(result.dispatchable).toEqual([
       {
         issueId: "ISSUE-3",
-        reason: "blocked",
+        title: "Blocked",
+        caste: "titan",
+        stage: "implementing",
       },
     ]);
+    expect(result.skipped).toEqual([]);
   });
 
   it("respects cooldowns on failed issues", () => {
@@ -298,17 +300,18 @@ describe("triageReadyWork", () => {
     ]);
   });
 
-  it("does not auto-retry failed Titan clarification issues", () => {
+  it("does not auto-retry parents blocked on Titan clarification issues", () => {
     const result = triageReadyWork({
       readyIssues: [{ id: "ISSUE-1", title: "Clarify first" }],
       dispatchState: createDispatchState({
         "ISSUE-1": {
           issueId: "ISSUE-1",
-          stage: "failed",
+          stage: "blocked_on_child",
           runningAgent: null,
           oracleAssessmentRef: ".aegis/oracle/ISSUE-1.json",
           titanHandoffRef: null,
           titanClarificationRef: ".aegis/titan/ISSUE-1.json",
+          blockedByIssueId: "ISSUE-clarify-1",
           sentinelVerdictRef: null,
           janusArtifactRef: null,
           failureTranscriptRef: null,
@@ -368,7 +371,7 @@ describe("triageReadyWork", () => {
     expect(result.skipped).toEqual([
       {
         issueId: "ISSUE-1",
-        reason: "blocked",
+        reason: "already_progressed",
       },
     ]);
   });

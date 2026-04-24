@@ -132,7 +132,7 @@ describe("dispatchReadyWork", () => {
     });
   });
 
-  it("puts failed launches on cooldown so the same issue is not redispatched immediately", async () => {
+  it("puts failed launches in failed_operational cooldown so the same issue is not redispatched immediately", async () => {
     const root = createTempRoot();
     const result = await dispatchReadyWork({
       dispatchState: emptyDispatchState(),
@@ -161,7 +161,7 @@ describe("dispatchReadyWork", () => {
     });
 
     expect(result.failed).toEqual(["ISSUE-1"]);
-    expect(result.state.records["ISSUE-1"]?.stage).toBe("failed");
+    expect(result.state.records["ISSUE-1"]?.stage).toBe("failed_operational");
     expect(result.state.records["ISSUE-1"]?.cooldownUntil).toBeTruthy();
   });
 

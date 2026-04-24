@@ -1,4 +1,4 @@
-import type { DispatchState } from "./dispatch-state.js";
+import type { DispatchRecord, DispatchState } from "./dispatch-state.js";
 import type { DispatchDecision } from "./triage.js";
 import type { AgentRuntime } from "../runtime/agent-runtime.js";
 import { writePhaseLog } from "./phase-log.js";
@@ -22,9 +22,58 @@ export interface DispatchResult {
   failed: string[];
 }
 
+function createInitialRecord(issueId: string, sessionProvenanceId: string, timestamp: string): DispatchRecord {
+  return {
+    issueId,
+    stage: "pending",
+    runningAgent: null,
+    lastCompletedCaste: null,
+    blockedByIssueId: null,
+    reviewFeedbackRef: null,
+    policyArtifactRef: null,
+    oracleAssessmentRef: null,
+    oracleReady: null,
+    oracleDecompose: null,
+    oracleBlockers: null,
+    titanHandoffRef: null,
+    titanClarificationRef: null,
+    sentinelVerdictRef: null,
+    janusArtifactRef: null,
+    failureTranscriptRef: null,
+    fileScope: null,
+    failureCount: 0,
+    consecutiveFailures: 0,
+    failureWindowStartMs: null,
+    cooldownUntil: null,
+    sessionProvenanceId,
+    updatedAt: timestamp,
+  };
+}
+
+function toFailedOperationalRecord(
+  previous: DispatchRecord | undefined,
+  issueId: string,
+  sessionProvenanceId: string,
+  timestamp: string,
+): DispatchRecord {
+  const record = previous ?? createInitialRecord(issueId, sessionProvenanceId, timestamp);
+  return {
+    ...record,
+    issueId,
+    stage: "failed_operational",
+    runningAgent: null,
+    failureCount: record.failureCount + 1,
+    consecutiveFailures: record.consecutiveFailures + 1,
+    failureWindowStartMs: record.failureWindowStartMs
+      ?? resolveFailureWindowStartMs(timestamp),
+    cooldownUntil: calculateFailureCooldown(timestamp),
+    sessionProvenanceId,
+    updatedAt: timestamp,
+  };
+}
+
 export async function dispatchReadyWork(input: DispatchInput): Promise<DispatchResult> {
   const timestamp = input.now ?? new Date().toISOString();
-  const cooldownUntil = calculateFailureCooldown(timestamp);
   const records = { ...input.dispatchState.records };
   const dispatched: string[] = [];
   const failed: string[] = [];
@@ -39,31 +88,17 @@ export async function dispatchReadyWork(input: DispatchInput): Promise<DispatchR
         stage: decision.stage,
       });
       const previous = records[decision.issueId];
-      const oracleAssessmentRef = decision.caste === "oracle"
-        ? null
-        : previous?.oracleAssessmentRef ?? null;
+      const baseRecord = previous ?? createInitialRecord(decision.issueId, input.sessionProvenanceId, timestamp);
 
       records[decision.issueId] = {
-        issueId: decision.issueId,
+        ...baseRecord,
         stage: decision.stage,
         runningAgent: {
           caste: decision.caste,
           sessionId: launched.sessionId,
           startedAt: launched.startedAt,
         },
-        oracleAssessmentRef,
-        oracleReady: decision.caste === "oracle" ? null : previous?.oracleReady ?? null,
-        oracleDecompose: decision.caste === "oracle" ? null : previous?.oracleDecompose ?? null,
-        oracleBlockers: decision.caste === "oracle" ? null : previous?.oracleBlockers ?? null,
-        titanHandoffRef: null,
-        titanClarificationRef: null,
-        sentinelVerdictRef: null,
-        janusArtifactRef: null,
-        failureTranscriptRef: null,
-        fileScope: previous?.fileScope ?? null,
-        failureCount: previous?.failureCount ?? 0,
-        consecutiveFailures: previous?.consecutiveFailures ?? 0,
-        failureWindowStartMs: previous?.failureWindowStartMs ?? null,
+        lastCompletedCaste: baseRecord.lastCompletedCaste ?? null,
         cooldownUntil: null,
         sessionProvenanceId: input.sessionProvenanceId,
         updatedAt: timestamp,
@@ -84,28 +119,12 @@ export async function dispatchReadyWork(input: DispatchInput): Promise<DispatchR
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       const previous = records[decision.issueId];
-      records[decision.issueId] = {
-        issueId: decision.issueId,
-        stage: "failed",
-        runningAgent: null,
-        oracleAssessmentRef: previous?.oracleAssessmentRef ?? null,
-        oracleReady: previous?.oracleReady ?? null,
-        oracleDecompose: previous?.oracleDecompose ?? null,
-        oracleBlockers: previous?.oracleBlockers ?? null,
-        titanHandoffRef: previous?.titanHandoffRef ?? null,
-        titanClarificationRef: previous?.titanClarificationRef ?? null,
-        sentinelVerdictRef: previous?.sentinelVerdictRef ?? null,
-        janusArtifactRef: previous?.janusArtifactRef ?? null,
-        failureTranscriptRef: previous?.failureTranscriptRef ?? null,
-        fileScope: previous?.fileScope ?? null,
-        failureCount: (previous?.failureCount ?? 0) + 1,
-        consecutiveFailures: (previous?.consecutiveFailures ?? 0) + 1,
-        failureWindowStartMs: previous?.failureWindowStartMs
-          ?? resolveFailureWindowStartMs(timestamp),
-        cooldownUntil,
-        sessionProvenanceId: input.sessionProvenanceId,
-        updatedAt: timestamp,
-      };
+      records[decision.issueId] = toFailedOperationalRecord(
+        previous,
+        decision.issueId,
+        input.sessionProvenanceId,
+        timestamp,
+      );
       failed.push(decision.issueId);
       writePhaseLog(input.root, {
         timestamp,
