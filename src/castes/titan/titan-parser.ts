@@ -1,5 +1,18 @@
 export type TitanRunOutcome = "success" | "clarification" | "failure";
 
+export type TitanMutationProposalType =
+  | "create_clarification_blocker"
+  | "create_prerequisite_blocker"
+  | "create_out_of_scope_blocker";
+
+export interface TitanMutationProposal {
+  proposal_type: TitanMutationProposalType;
+  summary: string;
+  suggested_title: string;
+  suggested_description: string;
+  scope_evidence: string[];
+}
+
 export interface TitanArtifact {
   outcome: TitanRunOutcome;
   summary: string;
@@ -10,10 +23,60 @@ export interface TitanArtifact {
   learnings_written_to_mnemosyne: string[];
   blocking_question?: string;
   handoff_note?: string;
+  mutation_proposal?: TitanMutationProposal;
 }
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function assertTitanMutationProposal(value: unknown): TitanMutationProposal {
+  if (!isPlainObject(value)) {
+    throw new Error("Titan mutation_proposal must be a JSON object");
+  }
+
+  const allowedKeys = new Set([
+    "proposal_type",
+    "summary",
+    "suggested_title",
+    "suggested_description",
+    "scope_evidence",
+  ]);
+  const unexpectedKeys = Object.keys(value).filter((key) => !allowedKeys.has(key));
+  if (unexpectedKeys.length > 0) {
+    throw new Error(`Titan mutation_proposal contains unexpected keys: ${unexpectedKeys.join(", ")}`);
+  }
+
+  const proposalType = value["proposal_type"];
+  if (
+    proposalType !== "create_clarification_blocker"
+    && proposalType !== "create_prerequisite_blocker"
+    && proposalType !== "create_out_of_scope_blocker"
+  ) {
+    throw new Error(
+      "Titan mutation_proposal field 'proposal_type' must be one of create_clarification_blocker, create_prerequisite_blocker, create_out_of_scope_blocker",
+    );
+  }
+  if (
+    typeof value["summary"] !== "string"
+    || typeof value["suggested_title"] !== "string"
+    || typeof value["suggested_description"] !== "string"
+    || !isStringArray(value["scope_evidence"])
+  ) {
+    throw new Error("Titan mutation_proposal must include summary, suggested_title, suggested_description, and scope_evidence");
+  }
+
+  return {
+    proposal_type: proposalType,
+    summary: value["summary"],
+    suggested_title: value["suggested_title"],
+    suggested_description: value["suggested_description"],
+    scope_evidence: value["scope_evidence"],
+  };
 }
 
 export function parseTitanArtifact(raw: string): TitanArtifact {
@@ -34,6 +97,7 @@ export function parseTitanArtifact(raw: string): TitanArtifact {
     "learnings_written_to_mnemosyne",
     "blocking_question",
     "handoff_note",
+    "mutation_proposal",
   ]);
   const unexpectedKeys = Object.keys(candidate).filter((key) => !allowedKeys.has(key));
   if (unexpectedKeys.length > 0) {
@@ -56,14 +120,7 @@ export function parseTitanArtifact(raw: string): TitanArtifact {
   ) {
     throw new Error("Titan output must include string array artifact fields");
   }
-  if (outcome === "clarification" && typeof candidate["blocking_question"] !== "string") {
-    throw new Error("Titan clarification output must include blocking_question");
-  }
-  if (outcome === "clarification" && typeof candidate["handoff_note"] !== "string") {
-    throw new Error("Titan clarification output must include handoff_note");
-  }
-
-  return {
+  const artifact: TitanArtifact = {
     outcome,
     summary: candidate["summary"],
     files_changed: candidate["files_changed"],
@@ -75,4 +132,10 @@ export function parseTitanArtifact(raw: string): TitanArtifact {
       typeof candidate["blocking_question"] === "string" ? candidate["blocking_question"] : undefined,
     handoff_note: typeof candidate["handoff_note"] === "string" ? candidate["handoff_note"] : undefined,
   };
+
+  if ("mutation_proposal" in candidate && candidate["mutation_proposal"] !== null) {
+    artifact.mutation_proposal = assertTitanMutationProposal(candidate["mutation_proposal"]);
+  }
+
+  return artifact;
 }

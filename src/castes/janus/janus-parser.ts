@@ -1,4 +1,12 @@
-export type JanusRecommendedNextAction = "requeue" | "manual_decision" | "fail";
+export type JanusMutationProposalType = "requeue_parent" | "create_integration_blocker";
+
+export interface JanusMutationProposal {
+  proposal_type: JanusMutationProposalType;
+  summary: string;
+  suggested_title?: string;
+  suggested_description?: string;
+  scope_evidence: string[];
+}
 
 export interface JanusResolutionArtifact {
   originatingIssueId: string;
@@ -9,7 +17,7 @@ export interface JanusResolutionArtifact {
   filesTouched: string[];
   validationsRun: string[];
   residualRisks: string[];
-  recommendedNextAction: JanusRecommendedNextAction;
+  mutation_proposal: JanusMutationProposal;
 }
 
 const JANUS_ARTIFACT_KEYS = new Set([
@@ -21,7 +29,7 @@ const JANUS_ARTIFACT_KEYS = new Set([
   "filesTouched",
   "validationsRun",
   "residualRisks",
-  "recommendedNextAction",
+  "mutation_proposal",
 ]);
 
 function assertPlainObject(value: unknown): Record<string, unknown> {
@@ -48,14 +56,45 @@ function assertStringArray(value: unknown, key: string): string[] {
   return value.slice();
 }
 
-function assertRecommendedNextAction(value: unknown): JanusRecommendedNextAction {
-  if (value === "requeue" || value === "manual_decision" || value === "fail") {
-    return value;
+function assertJanusMutationProposal(value: unknown): JanusMutationProposal {
+  const obj = assertPlainObject(value);
+  const allowedKeys = new Set([
+    "proposal_type",
+    "summary",
+    "suggested_title",
+    "suggested_description",
+    "scope_evidence",
+  ]);
+  for (const key of Object.keys(obj)) {
+    if (!allowedKeys.has(key)) {
+      throw new Error(`Janus mutation_proposal contains an unexpected field: ${key}`);
+    }
   }
 
-  throw new Error(
-    "Janus resolution artifact field 'recommendedNextAction' must be one of: requeue, manual_decision, fail.",
-  );
+  const proposalType = obj["proposal_type"];
+  if (proposalType !== "requeue_parent" && proposalType !== "create_integration_blocker") {
+    throw new Error(
+      "Janus mutation_proposal field 'proposal_type' must be one of: requeue_parent, create_integration_blocker.",
+    );
+  }
+
+  const proposal: JanusMutationProposal = {
+    proposal_type: proposalType,
+    summary: assertString(obj["summary"], "mutation_proposal.summary"),
+    scope_evidence: assertStringArray(obj["scope_evidence"], "mutation_proposal.scope_evidence"),
+  };
+
+  if ("suggested_title" in obj && obj["suggested_title"] !== null) {
+    proposal.suggested_title = assertString(obj["suggested_title"], "mutation_proposal.suggested_title");
+  }
+  if ("suggested_description" in obj && obj["suggested_description"] !== null) {
+    proposal.suggested_description = assertString(
+      obj["suggested_description"],
+      "mutation_proposal.suggested_description",
+    );
+  }
+
+  return proposal;
 }
 
 export function parseJanusResolutionArtifact(raw: string): JanusResolutionArtifact {
@@ -77,7 +116,7 @@ export function parseJanusResolutionArtifact(raw: string): JanusResolutionArtifa
     "filesTouched",
     "validationsRun",
     "residualRisks",
-    "recommendedNextAction",
+    "mutation_proposal",
   ]) {
     if (!(field in obj)) {
       throw new Error(`Janus resolution artifact is missing required field '${field}'.`);
@@ -93,6 +132,6 @@ export function parseJanusResolutionArtifact(raw: string): JanusResolutionArtifa
     filesTouched: assertStringArray(obj["filesTouched"], "filesTouched"),
     validationsRun: assertStringArray(obj["validationsRun"], "validationsRun"),
     residualRisks: assertStringArray(obj["residualRisks"], "residualRisks"),
-    recommendedNextAction: assertRecommendedNextAction(obj["recommendedNextAction"]),
+    mutation_proposal: assertJanusMutationProposal(obj["mutation_proposal"]),
   };
 }

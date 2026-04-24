@@ -9,7 +9,7 @@ const titanStructuredContract = createStructuredToolContract<TitanArtifact>({
   toolName: TITAN_EMIT_ARTIFACT_TOOL_NAME,
   label: "Emit Titan Artifact",
   description:
-    "Finalize implementation by returning contract JSON with keys outcome, summary, files_changed, tests_and_checks_run, known_risks, follow_up_work, learnings_written_to_mnemosyne, optional blocking_question, optional handoff_note.",
+    "Finalize implementation by returning contract JSON with implementation artifact fields and optional blocking mutation_proposal.",
   parameters: Type.Object(
     {
       outcome: Type.Union([
@@ -25,6 +25,23 @@ const titanStructuredContract = createStructuredToolContract<TitanArtifact>({
       learnings_written_to_mnemosyne: Type.Array(Type.String()),
       blocking_question: Type.Optional(Type.Union([Type.String(), Type.Null()])),
       handoff_note: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+      mutation_proposal: Type.Optional(Type.Union([
+        Type.Object(
+          {
+            proposal_type: Type.Union([
+              Type.Literal("create_clarification_blocker"),
+              Type.Literal("create_prerequisite_blocker"),
+              Type.Literal("create_out_of_scope_blocker"),
+            ]),
+            summary: Type.String(),
+            suggested_title: Type.String(),
+            suggested_description: Type.String(),
+            scope_evidence: Type.Array(Type.String()),
+          },
+          { additionalProperties: false },
+        ),
+        Type.Null(),
+      ])),
     },
     {
       additionalProperties: false,

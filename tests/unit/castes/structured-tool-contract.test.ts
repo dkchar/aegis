@@ -6,6 +6,10 @@ import {
   JANUS_EMIT_RESOLUTION_TOOL_NAME,
 } from "../../../src/castes/janus/janus-tool-contract.js";
 import {
+  extractOracleAssessmentFromToolEvent,
+  ORACLE_EMIT_ASSESSMENT_TOOL_NAME,
+} from "../../../src/castes/oracle/oracle-tool-contract.js";
+import {
   enforceSentinelToolPayloadContract,
   extractSentinelVerdictFromToolEvent,
   SENTINEL_EMIT_VERDICT_TOOL_NAME,
@@ -16,7 +20,7 @@ import {
   TITAN_EMIT_ARTIFACT_TOOL_NAME,
 } from "../../../src/castes/titan/titan-tool-contract.js";
 
-describe("non-oracle structured tool contracts", () => {
+describe("structured tool contracts", () => {
   it("enforces Titan payload to forced function call", () => {
     expect(enforceTitanToolPayloadContract({
       model: "gpt-5.4-mini",
@@ -72,18 +76,47 @@ describe("non-oracle structured tool contracts", () => {
           verdict: {
             verdict: "pass",
             reviewSummary: "clean merge",
-            issuesFound: [],
-            followUpIssueIds: [],
-            riskAreas: [],
+            blockingFindings: [],
+            advisories: [],
+            touchedFiles: ["src/index.ts"],
+            contractChecks: ["tests passed"],
           },
         },
       },
     })).toEqual({
       verdict: "pass",
       reviewSummary: "clean merge",
-      issuesFound: [],
-      followUpIssueIds: [],
-      riskAreas: [],
+      blockingFindings: [],
+      advisories: [],
+      touchedFiles: ["src/index.ts"],
+      contractChecks: ["tests passed"],
+    });
+  });
+
+  it("extracts Oracle scout-only assessment from matching tool event", () => {
+    expect(extractOracleAssessmentFromToolEvent({
+      type: "tool_execution_end",
+      toolCallId: "call-oracle-1",
+      toolName: ORACLE_EMIT_ASSESSMENT_TOOL_NAME,
+      isError: false,
+      result: {
+        content: [],
+        details: {
+          assessment: {
+            files_affected: ["src/index.ts"],
+            estimated_complexity: "moderate",
+            risks: ["touches control flow"],
+            suggested_checks: ["npm test"],
+            scope_notes: ["scout only"],
+          },
+        },
+      },
+    })).toEqual({
+      files_affected: ["src/index.ts"],
+      estimated_complexity: "moderate",
+      risks: ["touches control flow"],
+      suggested_checks: ["npm test"],
+      scope_notes: ["scout only"],
     });
   });
 
@@ -97,7 +130,7 @@ describe("non-oracle structured tool contracts", () => {
         {
           type: "function_call_output",
           call_id: "call_1",
-          output: "{\"recommendedNextAction\":\"requeue\"}",
+          output: "{\"mutation_proposal\":{\"proposal_type\":\"requeue_parent\"}}",
         },
       ],
     })).toBeUndefined();
@@ -121,13 +154,21 @@ describe("non-oracle structured tool contracts", () => {
             filesTouched: [],
             validationsRun: [],
             residualRisks: [],
-            recommendedNextAction: "manual_decision",
+            mutation_proposal: {
+              proposal_type: "create_integration_blocker",
+              summary: "external conflict",
+              suggested_title: "Fix external conflict",
+              suggested_description: "Resolve dependency conflict.",
+              scope_evidence: ["Conflict outside parent files."],
+            },
           },
         },
       },
     })).toMatchObject({
       originatingIssueId: "aegis-1",
-      recommendedNextAction: "manual_decision",
+      mutation_proposal: {
+        proposal_type: "create_integration_blocker",
+      },
     });
   });
 
@@ -142,6 +183,48 @@ describe("non-oracle structured tool contracts", () => {
         details: {
           verdict: {
             reviewSummary: "missing required verdict",
+            blockingFindings: [],
+            advisories: [],
+            touchedFiles: [],
+            contractChecks: [],
+          },
+        },
+      },
+    })).toBeNull();
+  });
+
+  it("returns null for old Oracle readiness fields", () => {
+    expect(extractOracleAssessmentFromToolEvent({
+      type: "tool_execution_end",
+      toolCallId: "call-oracle-2",
+      toolName: ORACLE_EMIT_ASSESSMENT_TOOL_NAME,
+      isError: false,
+      result: {
+        content: [],
+        details: {
+          assessment: {
+            files_affected: [],
+            estimated_complexity: "trivial",
+            decompose: false,
+            ready: true,
+          },
+        },
+      },
+    })).toBeNull();
+  });
+
+  it("returns null for old Sentinel follow-up issue fields", () => {
+    expect(extractSentinelVerdictFromToolEvent({
+      type: "tool_execution_end",
+      toolCallId: "call-5",
+      toolName: SENTINEL_EMIT_VERDICT_TOOL_NAME,
+      isError: false,
+      result: {
+        content: [],
+        details: {
+          verdict: {
+            verdict: "pass",
+            reviewSummary: "old payload",
             issuesFound: [],
             followUpIssueIds: [],
             riskAreas: [],

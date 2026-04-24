@@ -9,14 +9,15 @@ const sentinelStructuredContract = createStructuredToolContract<SentinelVerdict>
   toolName: SENTINEL_EMIT_VERDICT_TOOL_NAME,
   label: "Emit Sentinel Verdict",
   description:
-    "Finalize review by returning contract JSON with keys verdict, reviewSummary, issuesFound, followUpIssueIds, riskAreas.",
+    "Finalize review by returning contract JSON with keys verdict, reviewSummary, blockingFindings, advisories, touchedFiles, contractChecks.",
   parameters: Type.Object(
     {
-      verdict: Type.Union([Type.Literal("pass"), Type.Literal("fail")]),
+      verdict: Type.Union([Type.Literal("pass"), Type.Literal("fail_blocking")]),
       reviewSummary: Type.String(),
-      issuesFound: Type.Array(Type.String()),
-      followUpIssueIds: Type.Array(Type.String()),
-      riskAreas: Type.Array(Type.String()),
+      blockingFindings: Type.Array(Type.String()),
+      advisories: Type.Array(Type.String()),
+      touchedFiles: Type.Array(Type.String()),
+      contractChecks: Type.Array(Type.String()),
     },
     {
       additionalProperties: false,

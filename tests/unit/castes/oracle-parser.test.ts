@@ -8,15 +8,31 @@ describe("parseOracleAssessment", () => {
       parseOracleAssessment(JSON.stringify({
         files_affected: ["src/index.ts"],
         estimated_complexity: "moderate",
-        decompose: false,
-        ready: true,
+        risks: ["touches dispatch policy"],
+        suggested_checks: ["npm test"],
+        scope_notes: ["parser-only change"],
       })),
     ).toEqual({
       files_affected: ["src/index.ts"],
       estimated_complexity: "moderate",
-      decompose: false,
-      ready: true,
+      risks: ["touches dispatch policy"],
+      suggested_checks: ["npm test"],
+      scope_notes: ["parser-only change"],
     });
+  });
+
+  it("rejects old readiness and decomposition fields", () => {
+    expect(() =>
+      parseOracleAssessment(JSON.stringify({
+        files_affected: [],
+        estimated_complexity: "trivial",
+        risks: [],
+        suggested_checks: [],
+        scope_notes: [],
+        ready: true,
+        decompose: false,
+      })),
+    ).toThrow(/unexpected field/i);
   });
 
   it("rejects unexpected keys", () => {
@@ -24,8 +40,9 @@ describe("parseOracleAssessment", () => {
       parseOracleAssessment(JSON.stringify({
         files_affected: [],
         estimated_complexity: "trivial",
-        decompose: false,
-        ready: true,
+        risks: [],
+        suggested_checks: [],
+        scope_notes: [],
         extra: "nope",
       })),
     ).toThrow(/unexpected field/i);

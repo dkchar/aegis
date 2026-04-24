@@ -3,19 +3,17 @@ export type OracleComplexity = "trivial" | "moderate" | "complex";
 export interface OracleAssessment {
   files_affected: string[];
   estimated_complexity: OracleComplexity;
-  decompose: boolean;
-  sub_issues?: string[];
-  blockers?: string[];
-  ready: boolean;
+  risks: string[];
+  suggested_checks: string[];
+  scope_notes: string[];
 }
 
 const ORACLE_ASSESSMENT_KEYS = new Set([
   "files_affected",
   "estimated_complexity",
-  "decompose",
-  "sub_issues",
-  "blockers",
-  "ready",
+  "risks",
+  "suggested_checks",
+  "scope_notes",
 ]);
 
 function assertPlainObject(value: unknown): Record<string, unknown> {
@@ -32,14 +30,6 @@ function assertStringArray(value: unknown, key: string): string[] {
   }
 
   return value.slice();
-}
-
-function assertBoolean(value: unknown, key: string): boolean {
-  if (typeof value !== "boolean") {
-    throw new Error(`Oracle assessment field '${key}' must be a boolean.`);
-  }
-
-  return value;
 }
 
 function assertComplexity(value: unknown): OracleComplexity {
@@ -68,27 +58,23 @@ export function parseOracleAssessment(raw: string): OracleAssessment {
   if (!("estimated_complexity" in obj)) {
     throw new Error("Oracle assessment is missing required field 'estimated_complexity'.");
   }
-  if (!("decompose" in obj)) {
-    throw new Error("Oracle assessment is missing required field 'decompose'.");
+  if (!("risks" in obj)) {
+    throw new Error("Oracle assessment is missing required field 'risks'.");
   }
-  if (!("ready" in obj)) {
-    throw new Error("Oracle assessment is missing required field 'ready'.");
+  if (!("suggested_checks" in obj)) {
+    throw new Error("Oracle assessment is missing required field 'suggested_checks'.");
+  }
+  if (!("scope_notes" in obj)) {
+    throw new Error("Oracle assessment is missing required field 'scope_notes'.");
   }
 
   const assessment: OracleAssessment = {
     files_affected: assertStringArray(obj["files_affected"], "files_affected"),
     estimated_complexity: assertComplexity(obj["estimated_complexity"]),
-    decompose: assertBoolean(obj["decompose"], "decompose"),
-    ready: assertBoolean(obj["ready"], "ready"),
+    risks: assertStringArray(obj["risks"], "risks"),
+    suggested_checks: assertStringArray(obj["suggested_checks"], "suggested_checks"),
+    scope_notes: assertStringArray(obj["scope_notes"], "scope_notes"),
   };
-
-  if ("sub_issues" in obj && obj["sub_issues"] !== null) {
-    assessment.sub_issues = assertStringArray(obj["sub_issues"], "sub_issues");
-  }
-
-  if ("blockers" in obj && obj["blockers"] !== null) {
-    assessment.blockers = assertStringArray(obj["blockers"], "blockers");
-  }
 
   return assessment;
 }

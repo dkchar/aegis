@@ -1,19 +1,21 @@
-export type SentinelVerdictValue = "pass" | "fail";
+export type SentinelVerdictValue = "pass" | "fail_blocking";
 
 export interface SentinelVerdict {
   verdict: SentinelVerdictValue;
   reviewSummary: string;
-  issuesFound: string[];
-  followUpIssueIds: string[];
-  riskAreas: string[];
+  blockingFindings: string[];
+  advisories: string[];
+  touchedFiles: string[];
+  contractChecks: string[];
 }
 
 const SENTINEL_VERDICT_KEYS = new Set([
   "verdict",
   "reviewSummary",
-  "issuesFound",
-  "followUpIssueIds",
-  "riskAreas",
+  "blockingFindings",
+  "advisories",
+  "touchedFiles",
+  "contractChecks",
 ]);
 
 function assertPlainObject(value: unknown): Record<string, unknown> {
@@ -41,11 +43,11 @@ function assertStringArray(value: unknown, key: string): string[] {
 }
 
 function assertVerdict(value: unknown): SentinelVerdictValue {
-  if (value === "pass" || value === "fail") {
+  if (value === "pass" || value === "fail_blocking") {
     return value;
   }
 
-  throw new Error("Sentinel verdict field 'verdict' must be one of 'pass' or 'fail'.");
+  throw new Error("Sentinel verdict field 'verdict' must be one of 'pass' or 'fail_blocking'.");
 }
 
 export function parseSentinelVerdict(raw: string): SentinelVerdict {
@@ -58,7 +60,7 @@ export function parseSentinelVerdict(raw: string): SentinelVerdict {
     }
   }
 
-  for (const field of ["verdict", "reviewSummary", "issuesFound", "followUpIssueIds", "riskAreas"]) {
+  for (const field of ["verdict", "reviewSummary", "blockingFindings", "advisories", "touchedFiles", "contractChecks"]) {
     if (!(field in obj)) {
       throw new Error(`Sentinel verdict is missing required field '${field}'.`);
     }
@@ -67,8 +69,9 @@ export function parseSentinelVerdict(raw: string): SentinelVerdict {
   return {
     verdict: assertVerdict(obj["verdict"]),
     reviewSummary: assertString(obj["reviewSummary"], "reviewSummary"),
-    issuesFound: assertStringArray(obj["issuesFound"], "issuesFound"),
-    followUpIssueIds: assertStringArray(obj["followUpIssueIds"], "followUpIssueIds"),
-    riskAreas: assertStringArray(obj["riskAreas"], "riskAreas"),
+    blockingFindings: assertStringArray(obj["blockingFindings"], "blockingFindings"),
+    advisories: assertStringArray(obj["advisories"], "advisories"),
+    touchedFiles: assertStringArray(obj["touchedFiles"], "touchedFiles"),
+    contractChecks: assertStringArray(obj["contractChecks"], "contractChecks"),
   };
 }

@@ -9,7 +9,7 @@ const oracleStructuredContract = createStructuredToolContract<OracleAssessment>(
   toolName: ORACLE_EMIT_ASSESSMENT_TOOL_NAME,
   label: "Emit Oracle Assessment",
   description:
-    "Finalize scout assessment by returning contract JSON with keys files_affected, estimated_complexity, decompose, optional sub_issues, optional blockers, ready.",
+    "Finalize scout assessment by returning contract JSON with keys files_affected, estimated_complexity, risks, suggested_checks, scope_notes.",
   parameters: Type.Object(
     {
       files_affected: Type.Array(Type.String()),
@@ -18,10 +18,9 @@ const oracleStructuredContract = createStructuredToolContract<OracleAssessment>(
         Type.Literal("moderate"),
         Type.Literal("complex"),
       ]),
-      decompose: Type.Boolean(),
-      sub_issues: Type.Optional(Type.Union([Type.Array(Type.String()), Type.Null()])),
-      blockers: Type.Optional(Type.Union([Type.Array(Type.String()), Type.Null()])),
-      ready: Type.Boolean(),
+      risks: Type.Array(Type.String()),
+      suggested_checks: Type.Array(Type.String()),
+      scope_notes: Type.Array(Type.String()),
     },
     {
       additionalProperties: false,

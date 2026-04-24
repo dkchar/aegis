@@ -9,7 +9,7 @@ const janusStructuredContract = createStructuredToolContract<JanusResolutionArti
   toolName: JANUS_EMIT_RESOLUTION_TOOL_NAME,
   label: "Emit Janus Resolution Artifact",
   description:
-    "Finalize conflict handling by returning contract JSON with keys originatingIssueId, queueItemId, preservedLaborPath, conflictSummary, resolutionStrategy, filesTouched, validationsRun, residualRisks, recommendedNextAction.",
+    "Finalize conflict handling by returning contract JSON with integration fields and mutation_proposal.",
   parameters: Type.Object(
     {
       originatingIssueId: Type.String(),
@@ -20,11 +20,21 @@ const janusStructuredContract = createStructuredToolContract<JanusResolutionArti
       filesTouched: Type.Array(Type.String()),
       validationsRun: Type.Array(Type.String()),
       residualRisks: Type.Array(Type.String()),
-      recommendedNextAction: Type.Union([
-        Type.Literal("requeue"),
-        Type.Literal("manual_decision"),
-        Type.Literal("fail"),
-      ]),
+      mutation_proposal: Type.Object(
+        {
+          proposal_type: Type.Union([
+            Type.Literal("requeue_parent"),
+            Type.Literal("create_integration_blocker"),
+          ]),
+          summary: Type.String(),
+          suggested_title: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+          suggested_description: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+          scope_evidence: Type.Array(Type.String()),
+        },
+        {
+          additionalProperties: false,
+        },
+      ),
     },
     {
       additionalProperties: false,
