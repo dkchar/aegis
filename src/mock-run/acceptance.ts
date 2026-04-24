@@ -11,10 +11,13 @@ import { BeadsTrackerClient } from "../tracker/beads-tracker.js";
 import type { RuntimeStateRecord } from "../cli/runtime-state.js";
 import { readRuntimeState } from "../cli/runtime-state.js";
 import type { AegisIssue } from "../tracker/issue-model.js";
+import { isProcessRunning } from "../cli/runtime-state.js";
 
-const HAPPY_PATH_ISSUE_KEY = "foundation.contract";
-const JANUS_ISSUE_KEY = "integration.contract";
+const HAPPY_PATH_ISSUE_KEY = "setup.contract";
+const JANUS_ISSUE_KEY = "setup.scaffold";
 const SCRIPTED_MERGE_PLAN_ENV = "AEGIS_SCRIPTED_MERGE_PLAN";
+const MOCK_ACCEPTANCE_TIMEOUT_MS = 120_000;
+const MOCK_ACCEPTANCE_POLL_MS = 250;
 
 type MockCommandRunner = (
   args: string[],
@@ -36,6 +39,7 @@ export interface MockAcceptanceDependencies {
   now?: string;
   seedMockRun?: typeof seedMockRun;
   runMockCommand?: MockCommandRunner;
+  waitForMockAcceptanceProgress?: typeof waitForMockAcceptanceProgress;
   collectMockAcceptanceSurface?: typeof collectMockAcceptanceSurface;
   tracker?: TrackerLike;
 }
@@ -109,6 +113,16 @@ export interface MockAcceptanceResult {
   surface: MockAcceptanceSurface;
 }
 
+export interface WaitForMockAcceptanceProgressOptions {
+  timeoutMs?: number;
+  pollMs?: number;
+  readDispatchState?: typeof loadDispatchState;
+  readMergeQueueState?: typeof loadMergeQueueState;
+  readRuntimeState?: typeof readRuntimeState;
+  isProcessRunning?: typeof isProcessRunning;
+  sleep?: (milliseconds: number) => Promise<void>;
+}
+
 function requireIssueId(seed: SeedMockRunResult, key: string) {
   const issueId = seed.issueIdByKey[key];
   if (!issueId) {
@@ -172,6 +186,128 @@ async function readIssueSummary(
     title: issue.title,
     status: issue.status,
   };
+}
+
+async function sleep(milliseconds: number) {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
+}
+
+function isHappyProofComplete(
+  record: DispatchRecord | undefined,
+  queueItem: MergeQueueItem | undefined,
+) {
+  return record?.stage === "reviewed"
+    && queueItem?.status === "merged"
+    && typeof record.oracleAssessmentRef === "string"
+    && typeof record.titanHandoffRef === "string"
+    && typeof record.sentinelVerdictRef === "string";
+}
+
+function isJanusProofComplete(
+  record: DispatchRecord | undefined,
+  queueItem: MergeQueueItem | undefined,
+) {
+  if (!record || !queueItem || typeof record.janusArtifactRef !== "string") {
+    return false;
+  }
+
+  const reachedT3 = queueItem.attempts >= 3
+    && queueItem.janusInvocations >= 1
+    && queueItem.lastTier === "T3";
+  if (!reachedT3) {
+    return false;
+  }
+
+  const janusRequeued = record.stage === "queued_for_merge"
+    && queueItem.status === "queued";
+  const janusFailed = record.stage === "failed"
+    && queueItem.status === "failed";
+
+  return janusRequeued || janusFailed;
+}
+
+function summarizeProofProgress(
+  record: DispatchRecord | undefined,
+  queueItem: MergeQueueItem | undefined,
+) {
+  return JSON.stringify({
+    stage: record?.stage ?? null,
+    queueStatus: queueItem?.status ?? null,
+    attempts: queueItem?.attempts ?? null,
+    janusInvocations: queueItem?.janusInvocations ?? null,
+    lastTier: queueItem?.lastTier ?? null,
+  });
+}
+
+function getDeadlockReason(record: DispatchRecord | undefined) {
+  if (!record || record.stage !== "scouted") {
+    return null;
+  }
+
+  if (record.oracleDecompose === true) {
+    return `Oracle returned decompose=true for ${record.issueId}, but the executable proof flow has no decomposition completion path.`;
+  }
+
+  return null;
+}
+
+export async function waitForMockAcceptanceProgress(
+  root: string,
+  issueIds: { happyIssueId: string; janusIssueId: string },
+  options: WaitForMockAcceptanceProgressOptions = {},
+): Promise<void> {
+  const deadline = Date.now() + (options.timeoutMs ?? MOCK_ACCEPTANCE_TIMEOUT_MS);
+  const readDispatch = options.readDispatchState ?? loadDispatchState;
+  const readMergeQueue = options.readMergeQueueState ?? loadMergeQueueState;
+  const readRuntime = options.readRuntimeState ?? readRuntimeState;
+  const processRunning = options.isProcessRunning ?? isProcessRunning;
+  const pause = options.sleep ?? sleep;
+  const pollMs = options.pollMs ?? MOCK_ACCEPTANCE_POLL_MS;
+
+  while (Date.now() < deadline) {
+    const runtimeState = readRuntime(root);
+    if (
+      !runtimeState
+      || runtimeState.server_state !== "running"
+      || !processRunning(runtimeState.pid)
+    ) {
+      throw new Error("Mock acceptance daemon stopped before proof targets completed.");
+    }
+
+    const dispatchState = readDispatch(root);
+    const mergeQueueState = readMergeQueue(root);
+    const happyRecord = dispatchState.records[issueIds.happyIssueId];
+    const janusRecord = dispatchState.records[issueIds.janusIssueId];
+    const happyQueueItem = mergeQueueState.items.find((item) => item.issueId === issueIds.happyIssueId);
+    const janusQueueItem = mergeQueueState.items.find((item) => item.issueId === issueIds.janusIssueId);
+    const deadlockReason = getDeadlockReason(happyRecord) ?? getDeadlockReason(janusRecord);
+
+    if (deadlockReason) {
+      throw new Error(deadlockReason);
+    }
+
+    if (
+      isHappyProofComplete(happyRecord, happyQueueItem)
+      && isJanusProofComplete(janusRecord, janusQueueItem)
+    ) {
+      return;
+    }
+
+    await pause(pollMs);
+  }
+
+  const dispatchState = (options.readDispatchState ?? loadDispatchState)(root);
+  const mergeQueueState = (options.readMergeQueueState ?? loadMergeQueueState)(root);
+  const happyRecord = dispatchState.records[issueIds.happyIssueId];
+  const janusRecord = dispatchState.records[issueIds.janusIssueId];
+  const happyQueueItem = mergeQueueState.items.find((item) => item.issueId === issueIds.happyIssueId);
+  const janusQueueItem = mergeQueueState.items.find((item) => item.issueId === issueIds.janusIssueId);
+
+  throw new Error(
+    `Timed out waiting for mock acceptance proof progress. happy=${summarizeProofProgress(happyRecord, happyQueueItem)} janus=${summarizeProofProgress(janusRecord, janusQueueItem)}`,
+  );
 }
 
 function readLaborSummary(root: string, item: MergeQueueItem): MockAcceptanceLaborSummary {
@@ -397,32 +533,25 @@ export async function runMockAcceptance(
   const happyIssueId = requireIssueId(seed, HAPPY_PATH_ISSUE_KEY);
   const janusIssueId = requireIssueId(seed, JANUS_ISSUE_KEY);
   const runCommand = options.runMockCommand ?? runMockCommand;
+  const waitForProgress = options.waitForMockAcceptanceProgress ?? waitForMockAcceptanceProgress;
   const collectSurface = options.collectMockAcceptanceSurface ?? collectMockAcceptanceSurface;
   const tracker = options.tracker ?? new BeadsTrackerClient();
 
-  await runCommand(["node", aegisCliPath, "start"], { mockDir: seed.repoRoot });
-  await runCommand(["node", aegisCliPath, "status"], { mockDir: seed.repoRoot });
-  await runCommand(["node", aegisCliPath, "stop"], { mockDir: seed.repoRoot });
-  await runCommand(["node", aegisCliPath, "status"], { mockDir: seed.repoRoot });
-
-  await runCommand(["node", aegisCliPath, "scout", happyIssueId], { mockDir: seed.repoRoot });
-  await runCommand(["node", aegisCliPath, "implement", happyIssueId], { mockDir: seed.repoRoot });
-  await runCommand(["node", aegisCliPath, "process", happyIssueId], { mockDir: seed.repoRoot });
-  await runCommand(["node", aegisCliPath, "merge", "next"], { mockDir: seed.repoRoot });
-
-  await runCommand(["node", aegisCliPath, "scout", janusIssueId], { mockDir: seed.repoRoot });
-  await runCommand(["node", aegisCliPath, "implement", janusIssueId], { mockDir: seed.repoRoot });
-  await runCommand(["node", aegisCliPath, "process", janusIssueId], { mockDir: seed.repoRoot });
-
-  const surface = await withTemporaryEnv(SCRIPTED_MERGE_PLAN_ENV, buildScriptedMergePlan(janusIssueId), async () => {
-    await runCommand(["node", aegisCliPath, "merge", "next"], { mockDir: seed.repoRoot });
-    await runCommand(["node", aegisCliPath, "merge", "next"], { mockDir: seed.repoRoot });
-    await runCommand(["node", aegisCliPath, "merge", "next"], { mockDir: seed.repoRoot });
-    return collectSurface(seed.repoRoot, {
+  await withTemporaryEnv(SCRIPTED_MERGE_PLAN_ENV, buildScriptedMergePlan(janusIssueId), async () => {
+    await runCommand(["node", aegisCliPath, "start"], { mockDir: seed.repoRoot });
+    await runCommand(["node", aegisCliPath, "status"], { mockDir: seed.repoRoot });
+    await waitForProgress(seed.repoRoot, {
       happyIssueId,
       janusIssueId,
-      tracker,
     });
+    await runCommand(["node", aegisCliPath, "stop"], { mockDir: seed.repoRoot });
+    await runCommand(["node", aegisCliPath, "status"], { mockDir: seed.repoRoot });
+  });
+
+  const surface = await collectSurface(seed.repoRoot, {
+    happyIssueId,
+    janusIssueId,
+    tracker,
   });
   assertMockAcceptanceSurface(surface);
 

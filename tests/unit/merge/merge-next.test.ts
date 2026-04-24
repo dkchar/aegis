@@ -57,7 +57,7 @@ function createRecord(issueId: string, stage: string): DispatchRecord {
     issueId,
     stage,
     runningAgent: null,
-    oracleAssessmentRef: null,
+    oracleAssessmentRef: path.join(".aegis", "oracle", `${issueId}.json`),
     titanHandoffRef: path.join(".aegis", "titan", `${issueId}.json`),
     titanClarificationRef: null,
     sentinelVerdictRef: null,

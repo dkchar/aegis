@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createCasteRuntime } from "../../../src/runtime/create-caste-runtime.js";
+import {
+  createCasteRuntime,
+  resolvePiRuntimeOptionsFromEnv,
+} from "../../../src/runtime/create-caste-runtime.js";
 
 const tempRoots: string[] = [];
 
@@ -46,6 +49,38 @@ afterEach(() => {
 });
 
 describe("createCasteRuntime", () => {
+  it("parses pi timeout overrides from env", () => {
+    expect(resolvePiRuntimeOptionsFromEnv({
+      AEGIS_PI_SESSION_TIMEOUT_MS: "1800000",
+      AEGIS_PI_ORACLE_TIMEOUT_MS: "2400000",
+      AEGIS_PI_TITAN_TIMEOUT_MS: "2100000",
+      AEGIS_PI_SENTINEL_TIMEOUT_MS: "2100000",
+      AEGIS_PI_JANUS_TIMEOUT_MS: "2100000",
+      AEGIS_PI_TIMEOUT_RETRY_COUNT: "0",
+      AEGIS_PI_TIMEOUT_RETRY_DELAY_MS: "0",
+    })).toEqual({
+      sessionTimeoutMs: 1_800_000,
+      sessionTimeoutMsByCaste: {
+        oracle: 2_400_000,
+        titan: 2_100_000,
+        sentinel: 2_100_000,
+        janus: 2_100_000,
+      },
+      timeoutRetryCount: 0,
+      timeoutRetryDelayMs: 0,
+    });
+  });
+
+  it("ignores invalid pi timeout overrides from env", () => {
+    expect(resolvePiRuntimeOptionsFromEnv({
+      AEGIS_PI_SESSION_TIMEOUT_MS: "-1",
+      AEGIS_PI_ORACLE_TIMEOUT_MS: "0",
+      AEGIS_PI_TITAN_TIMEOUT_MS: "abc",
+      AEGIS_PI_TIMEOUT_RETRY_COUNT: "-5",
+      AEGIS_PI_TIMEOUT_RETRY_DELAY_MS: "nope",
+    })).toEqual({});
+  });
+
   it("uses the scripted runtime for deterministic proof adapters", () => {
     const createPiRuntime = vi.fn();
     const scriptedRuntime = { kind: "scripted", run: vi.fn() };

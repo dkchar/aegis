@@ -1,10 +1,11 @@
-import type { DispatchRecord, DispatchState } from "./dispatch-state.js";
+import { loadDispatchState, type DispatchRecord, type DispatchState } from "./dispatch-state.js";
 import type { AgentRuntime } from "../runtime/agent-runtime.js";
 import { writePhaseLog } from "./phase-log.js";
 import {
   calculateFailureCooldown,
   resolveFailureWindowStartMs,
 } from "./failure-policy.js";
+import { validateDispatchRecordStage } from "./stage-invariants.js";
 
 export interface ReapInput {
   dispatchState: DispatchState;
@@ -57,9 +58,28 @@ function toFailedRecord(record: DispatchRecord, timestamp: string): DispatchReco
   };
 }
 
+function resolveLatestRecord(root: string, record: DispatchRecord): DispatchRecord {
+  const latestRecord = loadDispatchState(root).records[record.issueId];
+  if (!latestRecord) {
+    return record;
+  }
+
+  const staleSessionId = record.runningAgent?.sessionId ?? null;
+  const latestSessionId = latestRecord.runningAgent?.sessionId ?? null;
+  if (staleSessionId && latestSessionId && staleSessionId !== latestSessionId) {
+    return record;
+  }
+
+  return latestRecord;
+}
+
 export async function reapFinishedWork(input: ReapInput): Promise<ReapResult> {
   const timestamp = input.now ?? new Date().toISOString();
-  const records = { ...input.dispatchState.records };
+  const latestState = loadDispatchState(input.root);
+  const records = {
+    ...input.dispatchState.records,
+    ...latestState.records,
+  };
   const completed: string[] = [];
   const failed: string[] = [];
 
@@ -78,7 +98,23 @@ export async function reapFinishedWork(input: ReapInput): Promise<ReapResult> {
     }
 
     if (snapshot.status === "succeeded") {
-      const completedRecord = toCompletedRecord(record, timestamp);
+      const completedRecord = toCompletedRecord(resolveLatestRecord(input.root, record), timestamp);
+      const invariantError = validateDispatchRecordStage(completedRecord);
+      if (invariantError) {
+        records[issueId] = toFailedRecord(completedRecord, timestamp);
+        failed.push(issueId);
+        writePhaseLog(input.root, {
+          timestamp,
+          phase: "reap",
+          issueId,
+          action: "finalize_session",
+          outcome: "failed",
+          sessionId: snapshot.sessionId,
+          detail: invariantError,
+        });
+        continue;
+      }
+
       records[issueId] = completedRecord;
       completed.push(issueId);
       writePhaseLog(input.root, {
@@ -92,7 +128,7 @@ export async function reapFinishedWork(input: ReapInput): Promise<ReapResult> {
       continue;
     }
 
-    records[issueId] = toFailedRecord(record, timestamp);
+    records[issueId] = toFailedRecord(resolveLatestRecord(input.root, record), timestamp);
     failed.push(issueId);
     writePhaseLog(input.root, {
       timestamp,
@@ -120,7 +156,7 @@ export async function reapFinishedWork(input: ReapInput): Promise<ReapResult> {
 
   return {
     state: {
-      schemaVersion: input.dispatchState.schemaVersion,
+      schemaVersion: latestState.schemaVersion ?? input.dispatchState.schemaVersion,
       records,
     },
     completed,

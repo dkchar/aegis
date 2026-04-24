@@ -7,6 +7,7 @@ import {
   saveDispatchState,
   type DispatchRecord,
 } from "../core/dispatch-state.js";
+import { assertDispatchRecordStage } from "../core/stage-invariants.js";
 import { runCasteCommand } from "../core/caste-runner.js";
 import { createCasteRuntime } from "../runtime/create-caste-runtime.js";
 import type { CasteRuntime } from "../runtime/caste-runtime.js";
@@ -287,6 +288,7 @@ export async function runMergeNext(
   if (!dispatchRecord) {
     throw new Error(`Merge queue item ${queueItem.queueItemId} has no dispatch record.`);
   }
+  assertDispatchRecordStage(dispatchRecord, "queued_for_merge");
 
   const executor = options.executor ?? createDefaultExecutor(root);
   const tracker = options.tracker ?? createDefaultTracker();

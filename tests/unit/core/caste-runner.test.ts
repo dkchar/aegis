@@ -78,6 +78,35 @@ function createTitanSessionResult(
 }
 
 describe("runCasteCommand", () => {
+  it("tells Oracle not to decompose tracker-defined executable work", async () => {
+    const root = createTempRoot();
+    saveDispatchState(root, emptyDispatchState());
+
+    await runCasteCommand({
+      root,
+      action: "scout",
+      issueId: "aegis-guard",
+      tracker: {
+        getIssue: vi.fn(async () => createIssue("aegis-guard")),
+      },
+      runtime: new ScriptedCasteRuntime({
+        oracle: () => ({
+          output: JSON.stringify({
+            files_affected: [],
+            estimated_complexity: "moderate",
+            decompose: false,
+            ready: true,
+          }),
+        }),
+      }),
+    });
+
+    const transcriptPath = path.join(root, ".aegis", "transcripts", "aegis-guard--oracle.json");
+    expect(JSON.parse(readFileSync(transcriptPath, "utf8"))).toMatchObject({
+      prompt: expect.stringContaining("Do not decompose ordinary implementation breakdown"),
+    });
+  });
+
   it("writes an oracle artifact and advances the issue to scouted", async () => {
     const root = createTempRoot();
     saveDispatchState(root, emptyDispatchState());
@@ -128,7 +157,7 @@ describe("runCasteCommand", () => {
       ready: true,
       session: {
         transcriptRef: path.join(".aegis", "transcripts", "aegis-123--oracle.json"),
-        prompt: "Scout aegis-123: Example",
+        prompt: expect.stringContaining("Scout aegis-123: Example"),
         workingDirectory: root,
         modelRef: "openai-codex:gpt-5.4-mini",
         provider: "openai-codex",
@@ -143,7 +172,7 @@ describe("runCasteCommand", () => {
       issueId: "aegis-123",
       caste: "oracle",
       action: "scout",
-      prompt: "Scout aegis-123: Example",
+      prompt: expect.stringContaining("Scout aegis-123: Example"),
       workingDirectory: root,
       modelRef: "openai-codex:gpt-5.4-mini",
       provider: "openai-codex",
@@ -154,7 +183,7 @@ describe("runCasteCommand", () => {
       messageLog: [
         {
           role: "user",
-          content: "Scout aegis-123: Example",
+          content: expect.stringContaining("Scout aegis-123: Example"),
         },
         {
           role: "assistant",
@@ -310,7 +339,7 @@ describe("runCasteCommand", () => {
       });
   });
 
-  it("retries Titan once when first artifact is clarification", async () => {
+  it("persists Titan clarification and fails closed instead of auto-retrying", async () => {
     const root = createTempRoot();
     saveDispatchState(root, {
       schemaVersion: 1,
@@ -343,20 +372,11 @@ describe("runCasteCommand", () => {
       blocking_question: "Which stack?",
       handoff_note: "Need defaults.",
     });
-    const successOutput = JSON.stringify({
-      outcome: "success",
-      summary: "implemented on retry",
-      files_changed: ["src/index.ts"],
-      tests_and_checks_run: [],
-      known_risks: [],
-      follow_up_work: [],
-      learnings_written_to_mnemosyne: [],
-    });
-
     const runtimeRun = vi
       .fn()
-      .mockResolvedValueOnce(createTitanSessionResult(clarificationOutput, "session-1"))
-      .mockResolvedValueOnce(createTitanSessionResult(successOutput, "session-2"));
+      .mockResolvedValueOnce(createTitanSessionResult(clarificationOutput, "session-1"));
+
+    const createClarificationIssue = vi.fn(async () => "aegis-clarify-1");
 
     const result = await runCasteCommand({
       root,
@@ -364,6 +384,7 @@ describe("runCasteCommand", () => {
       issueId: "aegis-125",
       tracker: {
         getIssue: vi.fn(async () => createIssue("aegis-125")),
+        createIssue: createClarificationIssue,
       },
       runtime: {
         run: runtimeRun,
@@ -373,27 +394,26 @@ describe("runCasteCommand", () => {
       ensureLabor: vi.fn(),
     });
 
-    expect(runtimeRun).toHaveBeenCalledTimes(2);
-    const retryPrompt = (runtimeRun.mock.calls[1]?.[0] as { prompt: string }).prompt;
-    expect(retryPrompt).toContain("AUTOMATIC RETRY CONTEXT");
+    expect(runtimeRun).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({
       action: "implement",
       issueId: "aegis-125",
-      stage: "implemented",
+      stage: "failed",
       artifactRefs: [
         path.join(".aegis", "titan", "aegis-125.json"),
         path.join(".aegis", "transcripts", "aegis-125--titan.json"),
-        path.join(".aegis", "transcripts", "aegis-125--titan-retry-1.json"),
       ],
     });
+    expect(createClarificationIssue).toHaveBeenCalledTimes(1);
 
     expect(JSON.parse(readFileSync(path.join(root, ".aegis", "titan", "aegis-125.json"), "utf8")))
       .toMatchObject({
-        outcome: "success",
-        summary: "implemented on retry",
+        outcome: "clarification",
+        summary: "workspace ambiguous",
+        clarificationIssueId: "aegis-clarify-1",
         session: {
-          transcriptRef: path.join(".aegis", "transcripts", "aegis-125--titan-retry-1.json"),
-          sessionId: "session-2",
+          transcriptRef: path.join(".aegis", "transcripts", "aegis-125--titan.json"),
+          sessionId: "session-1",
         },
       });
   });
@@ -455,6 +475,57 @@ describe("runCasteCommand", () => {
     expect(state.records["aegis-124"]?.stage).toBe("scouted");
     expect(state.records["aegis-124"]?.titanHandoffRef ?? null).toBeNull();
     expect(existsSync(path.join(root, ".aegis", "titan", "aegis-124.json"))).toBe(false);
+  });
+
+  it("blocks Titan implementation when Oracle assessment marked the issue not ready", async () => {
+    const root = createTempRoot();
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: {
+        "aegis-124b": {
+          issueId: "aegis-124b",
+          stage: "scouted",
+          runningAgent: null,
+          oracleAssessmentRef: path.join(".aegis", "oracle", "aegis-124b.json"),
+          sentinelVerdictRef: null,
+          fileScope: null,
+          failureCount: 0,
+          consecutiveFailures: 0,
+          failureWindowStartMs: null,
+          cooldownUntil: null,
+          sessionProvenanceId: "test",
+          updatedAt: "2026-04-14T12:00:00.000Z",
+          oracleReady: false,
+          oracleDecompose: true,
+          oracleBlockers: ["missing scope"],
+        } as any,
+      },
+    });
+
+    await expect(runCasteCommand({
+      root,
+      action: "implement",
+      issueId: "aegis-124b",
+      tracker: {
+        getIssue: vi.fn(async () => createIssue("aegis-124b")),
+      },
+      runtime: new ScriptedCasteRuntime({
+        titan: () => ({
+          output: JSON.stringify({
+            outcome: "success",
+            summary: "should not run",
+            files_changed: [],
+            tests_and_checks_run: [],
+            known_risks: [],
+            follow_up_work: [],
+            learnings_written_to_mnemosyne: [],
+          }),
+        }),
+      }),
+      resolveBaseBranch: () => "main",
+      resolveLaborBasePath: () => ".aegis/labors",
+      ensureLabor: vi.fn(),
+    })).rejects.toThrow("Titan requires an Oracle-ready scouted issue.");
   });
 
   it("captures git proof refs when Titan runs in a real labor worktree", async () => {
@@ -794,6 +865,7 @@ describe("runCasteCommand", () => {
       .fn()
       .mockResolvedValueOnce("aegis-2001")
       .mockResolvedValueOnce("aegis-2002");
+    const closeIssue = vi.fn(async () => undefined);
 
     const result = await runCasteCommand({
       root,
@@ -802,6 +874,7 @@ describe("runCasteCommand", () => {
       tracker: {
         getIssue: vi.fn(async () => createIssue("aegis-1001")),
         createIssue: createFollowUpIssue,
+        closeIssue,
       },
       runtime: new ScriptedCasteRuntime({
         sentinel: () => ({
@@ -822,6 +895,7 @@ describe("runCasteCommand", () => {
       stage: "failed",
     });
     expect(createFollowUpIssue).toHaveBeenCalledTimes(2);
+    expect(closeIssue).not.toHaveBeenCalled();
     expect(createFollowUpIssue).toHaveBeenNthCalledWith(1, {
       title: "[sentinel][aegis-1001] update tests",
       description: [
@@ -865,8 +939,139 @@ describe("runCasteCommand", () => {
     expect(phaseActions.some((entry) => entry.action === "sentinel_issues_discovered")).toBe(true);
     expect(phaseActions.filter((entry) => entry.action === "sentinel_followup_created")).toHaveLength(2);
     expect(phaseActions.some((entry) =>
-      entry.action === "sentinel_review_completed" && entry.outcome === "failed",
+      entry.action === "sentinel_review_completed" && entry.outcome === "failed_with_followups",
     )).toBe(true);
+  });
+
+  it("reuses previously created Sentinel follow-up ids on review rerun", async () => {
+    const root = createTempRoot();
+    mkdirSync(path.join(root, ".aegis", "sentinel"), { recursive: true });
+    writeFileSync(
+      path.join(root, ".aegis", "sentinel", "aegis-1002.json"),
+      `${JSON.stringify({
+        verdict: "fail",
+        reviewSummary: "needs fixes",
+        issuesFound: ["update tests", "tighten validation"],
+        followUpIssueIds: ["aegis-2001", "aegis-2002"],
+        riskAreas: ["coverage", "runtime checks"],
+        followUpIssues: [
+          {
+            finding: "update tests",
+            fingerprint: "stub-1",
+            issueId: "aegis-2001",
+          },
+          {
+            finding: "tighten validation",
+            fingerprint: "stub-2",
+            issueId: "aegis-2002",
+          },
+        ],
+      }, null, 2)}\n`,
+      "utf8",
+    );
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: {
+        "aegis-1002": {
+          issueId: "aegis-1002",
+          stage: "failed",
+          runningAgent: null,
+          oracleAssessmentRef: path.join(".aegis", "oracle", "aegis-1002.json"),
+          titanHandoffRef: path.join(".aegis", "titan", "aegis-1002.json"),
+          titanClarificationRef: null,
+          sentinelVerdictRef: path.join(".aegis", "sentinel", "aegis-1002.json"),
+          janusArtifactRef: null,
+          failureTranscriptRef: null,
+          fileScope: null,
+          failureCount: 0,
+          consecutiveFailures: 0,
+          failureWindowStartMs: null,
+          cooldownUntil: null,
+          sessionProvenanceId: "test",
+          updatedAt: "2026-04-14T12:00:00.000Z",
+        },
+      },
+    });
+
+    const createFollowUpIssue = vi.fn(async () => "should-not-create");
+
+    const result = await runCasteCommand({
+      root,
+      action: "review",
+      issueId: "aegis-1002",
+      tracker: {
+        getIssue: vi.fn(async () => createIssue("aegis-1002")),
+        createIssue: createFollowUpIssue,
+        closeIssue: vi.fn(async () => undefined),
+      },
+      runtime: new ScriptedCasteRuntime({
+        sentinel: () => ({
+          output: JSON.stringify({
+            verdict: "fail",
+            reviewSummary: "still needs fixes",
+            issuesFound: ["tighten validation", "update tests"],
+            followUpIssueIds: [],
+            riskAreas: ["coverage", "runtime checks"],
+          }),
+        }),
+      }),
+    });
+
+    expect(result).toMatchObject({
+      action: "review",
+      issueId: "aegis-1002",
+      stage: "failed",
+    });
+    expect(createFollowUpIssue).not.toHaveBeenCalled();
+    expect(JSON.parse(
+      readFileSync(path.join(root, ".aegis", "sentinel", "aegis-1002.json"), "utf8"),
+    )).toMatchObject({
+      verdict: "fail",
+      followUpIssueIds: ["aegis-2002", "aegis-2001"],
+    });
+  });
+
+  it("fails fast when Oracle requests unsupported decomposition", async () => {
+    const root = createTempRoot();
+    saveDispatchState(root, emptyDispatchState());
+
+    await expect(runCasteCommand({
+      root,
+      action: "scout",
+      issueId: "aegis-decompose",
+      tracker: {
+        getIssue: vi.fn(async () => createIssue("aegis-decompose")),
+      },
+      runtime: new ScriptedCasteRuntime({
+        oracle: () => ({
+          output: JSON.stringify({
+            files_affected: ["src/index.ts"],
+            estimated_complexity: "moderate",
+            decompose: true,
+            sub_issues: ["child-a", "child-b"],
+            ready: true,
+          }),
+        }),
+      }),
+    })).rejects.toThrow("Oracle decomposition is not supported for executable issue progression.");
+
+    const state = JSON.parse(
+      readFileSync(path.join(root, ".aegis", "dispatch-state.json"), "utf8"),
+    ) as {
+      records: Record<string, {
+        stage: string;
+        oracleAssessmentRef: string | null;
+        oracleReady: boolean | null;
+        oracleDecompose: boolean | null;
+      }>;
+    };
+
+    expect(state.records["aegis-decompose"]).toMatchObject({
+      stage: "failed",
+      oracleAssessmentRef: path.join(".aegis", "oracle", "aegis-decompose.json"),
+      oracleReady: true,
+      oracleDecompose: true,
+    });
   });
 
   it("writes janus start and completion phase logs during integration resolution", async () => {

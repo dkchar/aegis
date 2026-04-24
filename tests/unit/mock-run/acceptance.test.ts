@@ -13,6 +13,7 @@ import {
   runMockAcceptance,
   collectMockAcceptanceSurface,
   assertMockAcceptanceSurface,
+  waitForMockAcceptanceProgress,
   type MockAcceptanceSurface,
 } from "../../../src/mock-run/acceptance.js";
 
@@ -49,25 +50,28 @@ afterEach(() => {
 });
 
 describe("runMockAcceptance", () => {
-  it("sequences seeded mock-run commands through CLI merge next retries", async () => {
+  it("drives seeded mock-run through daemon auto mode and ready-queue waiting", async () => {
     const sequence: string[] = [];
-    const envSnapshots: Array<string | undefined> = [];
+    const commandEnvSnapshots: Array<string | undefined> = [];
+    const waitForProgress = vi.fn(async () => {
+      sequence.push("wait");
+      return undefined;
+    });
     const seedMockRun = vi.fn(async () => {
       sequence.push("seed");
       return {
         repoRoot: "/repo",
         databaseName: "mock-db",
         issueIdByKey: {
-          "foundation.contract": "issue-happy",
-          "integration.contract": "issue-janus",
+          "setup.contract": "issue-happy",
+          "setup.scaffold": "issue-janus",
         },
-        initialReadyKeys: ["foundation.contract"],
-        manifestPath: "/repo/.aegis/mock-run-manifest.json",
+        initialReadyKeys: ["setup.contract"],
       };
     });
     const runMockCommand = vi.fn(async (args: string[]) => {
       sequence.push(args.slice(2).join(" "));
-      envSnapshots.push(process.env.AEGIS_SCRIPTED_MERGE_PLAN);
+      commandEnvSnapshots.push(process.env.AEGIS_SCRIPTED_MERGE_PLAN);
     });
     const surfaceCollector = vi.fn(async (): Promise<MockAcceptanceSurface> => ({
       runtimeState: {
@@ -190,6 +194,7 @@ describe("runMockAcceptance", () => {
       seedMockRun,
       runMockCommand,
       collectMockAcceptanceSurface: surfaceCollector,
+      waitForMockAcceptanceProgress: waitForProgress,
       now: "2026-04-16T00:00:00.000Z",
     });
 
@@ -201,31 +206,24 @@ describe("runMockAcceptance", () => {
       "seed",
       "start",
       "status",
+      "wait",
       "stop",
       "status",
-      "scout issue-happy",
-      "implement issue-happy",
-      "process issue-happy",
-      "merge next",
-      "scout issue-janus",
-      "implement issue-janus",
-      "process issue-janus",
-      "merge next",
-      "merge next",
-      "merge next",
     ]);
-    expect(envSnapshots).toEqual([
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
+    expect(commandEnvSnapshots).toEqual([
+      JSON.stringify({
+        rules: [
+          {
+            issueId: "issue-janus",
+            candidateBranch: "aegis/issue-janus",
+            outcomes: [
+              { outcome: "conflict", detail: "Deterministic acceptance merge conflict." },
+              { outcome: "conflict", detail: "Deterministic acceptance merge conflict." },
+              { outcome: "conflict", detail: "Deterministic acceptance merge conflict." },
+            ],
+          },
+        ],
+      }),
       JSON.stringify({
         rules: [
           {
@@ -266,11 +264,172 @@ describe("runMockAcceptance", () => {
         ],
       }),
     ]);
+    expect(waitForProgress).toHaveBeenCalledWith("/repo", {
+      happyIssueId: "issue-happy",
+      janusIssueId: "issue-janus",
+    });
     expect(surfaceCollector).toHaveBeenCalledWith("/repo", {
       happyIssueId: "issue-happy",
       janusIssueId: "issue-janus",
       tracker: expect.any(Object),
     });
+  });
+});
+
+describe("waitForMockAcceptanceProgress", () => {
+  it("accepts daemon progress once happy and Janus proof states are reached", async () => {
+    const runningState = {
+      schema_version: 1 as const,
+      pid: 4242,
+      server_state: "running" as const,
+      mode: "auto" as const,
+      started_at: "2026-04-16T00:00:00.000Z",
+    };
+
+    await expect(waitForMockAcceptanceProgress("/repo", {
+      happyIssueId: "issue-happy",
+      janusIssueId: "issue-janus",
+    }, {
+      timeoutMs: 250,
+      pollMs: 10,
+      readRuntimeState: () => runningState,
+      isProcessRunning: () => true,
+      readDispatchState: () => ({
+        schemaVersion: 1,
+        records: {
+          "issue-happy": {
+            issueId: "issue-happy",
+            stage: "reviewed",
+            runningAgent: null,
+            oracleAssessmentRef: ".aegis/oracle/issue-happy.json",
+            oracleReady: true,
+            oracleDecompose: false,
+            oracleBlockers: [],
+            titanHandoffRef: ".aegis/titan/issue-happy.json",
+            titanClarificationRef: null,
+            sentinelVerdictRef: ".aegis/sentinel/issue-happy.json",
+            janusArtifactRef: null,
+            failureTranscriptRef: null,
+            fileScope: null,
+            failureCount: 0,
+            consecutiveFailures: 0,
+            failureWindowStartMs: null,
+            cooldownUntil: null,
+            sessionProvenanceId: "test",
+            updatedAt: "2026-04-16T00:00:00.000Z",
+          },
+          "issue-janus": {
+            issueId: "issue-janus",
+            stage: "queued_for_merge",
+            runningAgent: null,
+            oracleAssessmentRef: ".aegis/oracle/issue-janus.json",
+            oracleReady: true,
+            oracleDecompose: false,
+            oracleBlockers: [],
+            titanHandoffRef: ".aegis/titan/issue-janus.json",
+            titanClarificationRef: null,
+            sentinelVerdictRef: null,
+            janusArtifactRef: ".aegis/janus/issue-janus.json",
+            failureTranscriptRef: null,
+            fileScope: null,
+            failureCount: 0,
+            consecutiveFailures: 0,
+            failureWindowStartMs: null,
+            cooldownUntil: null,
+            sessionProvenanceId: "test",
+            updatedAt: "2026-04-16T00:00:00.000Z",
+          },
+        },
+      }),
+      readMergeQueueState: () => ({
+        schemaVersion: 1,
+        items: [
+          {
+            queueItemId: "queue-issue-happy",
+            issueId: "issue-happy",
+            candidateBranch: "aegis/issue-happy",
+            targetBranch: "main",
+            laborPath: ".aegis/labors/labor-issue-happy",
+            status: "merged",
+            attempts: 0,
+            janusInvocations: 0,
+            lastTier: "T1",
+            lastError: null,
+            enqueuedAt: "2026-04-16T00:00:00.000Z",
+            updatedAt: "2026-04-16T00:00:00.000Z",
+          },
+          {
+            queueItemId: "queue-issue-janus",
+            issueId: "issue-janus",
+            candidateBranch: "aegis/issue-janus",
+            targetBranch: "main",
+            laborPath: ".aegis/labors/labor-issue-janus",
+            status: "queued",
+            attempts: 3,
+            janusInvocations: 1,
+            lastTier: "T3",
+            lastError: null,
+            enqueuedAt: "2026-04-16T00:00:00.000Z",
+            updatedAt: "2026-04-16T00:00:00.000Z",
+          },
+        ],
+      }),
+      sleep: vi.fn(async () => undefined),
+    })).resolves.toBeUndefined();
+  });
+
+  it("fails fast when Oracle decomposition leaves the workflow with no completion path", async () => {
+    const runningState = {
+      schema_version: 1 as const,
+      pid: 4242,
+      server_state: "running" as const,
+      mode: "auto" as const,
+      started_at: "2026-04-16T00:00:00.000Z",
+    };
+    const sleep = vi.fn(async () => undefined);
+
+    await expect(waitForMockAcceptanceProgress("/repo", {
+      happyIssueId: "issue-happy",
+      janusIssueId: "issue-janus",
+    }, {
+      timeoutMs: 250,
+      pollMs: 10,
+      readRuntimeState: () => runningState,
+      isProcessRunning: () => true,
+      readDispatchState: () => ({
+        schemaVersion: 1,
+        records: {
+          "issue-happy": {
+            issueId: "issue-happy",
+            stage: "scouted",
+            runningAgent: null,
+            oracleAssessmentRef: ".aegis/oracle/issue-happy.json",
+            oracleReady: true,
+            oracleDecompose: true,
+            oracleBlockers: [],
+            titanHandoffRef: null,
+            titanClarificationRef: null,
+            sentinelVerdictRef: null,
+            janusArtifactRef: null,
+            failureTranscriptRef: null,
+            fileScope: null,
+            failureCount: 0,
+            consecutiveFailures: 0,
+            failureWindowStartMs: null,
+            cooldownUntil: null,
+            sessionProvenanceId: "test",
+            updatedAt: "2026-04-16T00:00:00.000Z",
+          },
+        },
+      }),
+      readMergeQueueState: () => ({
+        schemaVersion: 1,
+        items: [],
+      }),
+      sleep,
+    })).rejects.toThrow("Oracle returned decompose=true");
+
+    expect(sleep).not.toHaveBeenCalled();
   });
 });
 

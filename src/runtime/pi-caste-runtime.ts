@@ -4,7 +4,7 @@ import {
   type FindOperations,
   type ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
-import { spawn } from "node:child_process";
+import { spawn, type SpawnOptions } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { globSync } from "glob";
@@ -50,6 +50,15 @@ type PiCodingAgentModule = typeof import("@mariozechner/pi-coding-agent");
 const require = createRequire(import.meta.url);
 let childProcessPatched = false;
 let piCodingAgentModulePromise: Promise<PiCodingAgentModule> | null = null;
+const DEFAULT_PI_SESSION_TIMEOUT_MS = 60_000;
+const DEFAULT_PI_SESSION_TIMEOUT_BY_CASTE: Record<CasteName, number> = {
+  oracle: 300_000,
+  titan: 180_000,
+  sentinel: 180_000,
+  janus: 180_000,
+};
+const DEFAULT_PI_TIMEOUT_RETRY_COUNT = 1;
+const DEFAULT_PI_TIMEOUT_RETRY_DELAY_MS = 1_000;
 
 function withWindowsHide<T>(value: T): T | (T & { windowsHide: true }) {
   if (process.platform !== "win32") {
@@ -189,6 +198,19 @@ function resolveShellInvocation(command: string) {
   };
 }
 
+export function buildHiddenShellSpawnOptions(
+  cwd: string,
+  env?: NodeJS.ProcessEnv,
+): SpawnOptions {
+  return {
+    cwd,
+    detached: process.platform !== "win32",
+    env: env ?? process.env,
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  };
+}
+
 function terminateProcessTree(pid: number) {
   if (process.platform === "win32") {
     const killer = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
@@ -216,13 +238,7 @@ function createHiddenShellBashOperations(): BashOperations {
     exec: (command, cwd, { onData, signal, timeout, env }) =>
       new Promise((resolve, reject) => {
         const { shell, args } = resolveShellInvocation(command);
-        const child = spawn(shell, args, {
-          cwd,
-          detached: true,
-          env: env ?? process.env,
-          stdio: ["ignore", "pipe", "pipe"],
-          windowsHide: true,
-        });
+        const child = spawn(shell, args, buildHiddenShellSpawnOptions(cwd, env));
 
         let timeoutHandle: NodeJS.Timeout | undefined;
         let timedOut = false;
@@ -429,18 +445,115 @@ function createContractRepairPrompt(contract: CasteToolContract) {
 }
 
 export class PiCasteRuntime implements CasteRuntime {
+  private readonly sessionTimeoutMs: number;
+  private readonly sessionTimeoutMsByCaste: Record<CasteName, number>;
+  private readonly timeoutRetryCount: number;
+  private readonly timeoutRetryDelayMs: number;
+
   constructor(
     private readonly modelConfigs: Partial<Record<CasteName, ResolvedConfiguredCasteModel>> = {},
-  ) {}
+    options: {
+      sessionTimeoutMs?: number;
+      sessionTimeoutMsByCaste?: Partial<Record<CasteName, number>>;
+      timeoutRetryCount?: number;
+      timeoutRetryDelayMs?: number;
+    } = {},
+  ) {
+    this.sessionTimeoutMs = Math.max(1, options.sessionTimeoutMs ?? DEFAULT_PI_SESSION_TIMEOUT_MS);
+    const hasGlobalTimeoutOverride = options.sessionTimeoutMs !== undefined;
+    this.sessionTimeoutMsByCaste = {
+      oracle: Math.max(
+        1,
+        options.sessionTimeoutMsByCaste?.oracle
+          ?? (hasGlobalTimeoutOverride ? this.sessionTimeoutMs : DEFAULT_PI_SESSION_TIMEOUT_BY_CASTE.oracle),
+      ),
+      titan: Math.max(
+        1,
+        options.sessionTimeoutMsByCaste?.titan
+          ?? (hasGlobalTimeoutOverride ? this.sessionTimeoutMs : DEFAULT_PI_SESSION_TIMEOUT_BY_CASTE.titan),
+      ),
+      sentinel: Math.max(
+        1,
+        options.sessionTimeoutMsByCaste?.sentinel
+          ?? (hasGlobalTimeoutOverride ? this.sessionTimeoutMs : DEFAULT_PI_SESSION_TIMEOUT_BY_CASTE.sentinel),
+      ),
+      janus: Math.max(
+        1,
+        options.sessionTimeoutMsByCaste?.janus
+          ?? (hasGlobalTimeoutOverride ? this.sessionTimeoutMs : DEFAULT_PI_SESSION_TIMEOUT_BY_CASTE.janus),
+      ),
+    };
+    this.timeoutRetryCount = Math.max(0, options.timeoutRetryCount ?? DEFAULT_PI_TIMEOUT_RETRY_COUNT);
+    this.timeoutRetryDelayMs = Math.max(0, options.timeoutRetryDelayMs ?? DEFAULT_PI_TIMEOUT_RETRY_DELAY_MS);
+  }
+
+  private getSessionTimeoutMs(caste: CasteName): number {
+    return this.sessionTimeoutMsByCaste[caste] ?? this.sessionTimeoutMs;
+  }
 
   async run(input: CasteRunInput): Promise<CasteSessionResult> {
-    const startedAt = new Date().toISOString();
     const piCodingAgent = await loadPiCodingAgentModule();
     const modelConfig = this.modelConfigs[input.caste];
     if (!modelConfig) {
       throw new Error(`Missing configured Pi model for caste "${input.caste}".`);
     }
 
+    const maxAttempts = this.timeoutRetryCount + 1;
+    let latestResult: CasteSessionResult | null = null;
+    const sessionTimeoutMs = this.getSessionTimeoutMs(input.caste);
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const attemptResult = await this.runSingleAttempt(
+        input,
+        piCodingAgent,
+        modelConfig,
+        sessionTimeoutMs,
+      );
+      latestResult = attemptResult;
+
+      const timedOut = attemptResult.status === "failed"
+        && typeof attemptResult.error === "string"
+        && attemptResult.error.includes(`Pi ${input.caste} session timed out`);
+      const hasRetry = attempt < maxAttempts;
+
+      if (!timedOut || !hasRetry) {
+        return attemptResult;
+      }
+
+      if (this.timeoutRetryDelayMs > 0) {
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, this.timeoutRetryDelayMs);
+        });
+      }
+    }
+
+    return latestResult ?? {
+      sessionId: "unknown",
+      caste: input.caste,
+      modelRef: modelConfig.reference,
+      provider: modelConfig.provider,
+      modelId: modelConfig.modelId,
+      thinkingLevel: modelConfig.thinkingLevel,
+      status: "failed",
+      outputText: "",
+      toolsUsed: [],
+      messageLog: [{
+        role: "user",
+        content: input.prompt,
+      }],
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      error: `Pi ${input.caste} session failed without result.`,
+    };
+  }
+
+  private async runSingleAttempt(
+    input: CasteRunInput,
+    piCodingAgent: PiCodingAgentModule,
+    modelConfig: ResolvedConfiguredCasteModel,
+    sessionTimeoutMs: number,
+  ): Promise<CasteSessionResult> {
+    const startedAt = new Date().toISOString();
     const messageLog: CasteSessionMessage[] = [{
       role: "user",
       content: input.prompt,
@@ -470,6 +583,13 @@ export class PiCasteRuntime implements CasteRuntime {
       await new Promise<void>((resolve, reject) => {
         let settled = false;
         let repairAttempted = false;
+        const sessionTimeout = setTimeout(() => {
+          settle(() => {
+            reject(new Error(
+              `Pi ${input.caste} session timed out after ${sessionTimeoutMs}ms.`,
+            ));
+          });
+        }, sessionTimeoutMs);
 
         const settle = (action: () => void) => {
           if (settled) {
@@ -477,6 +597,7 @@ export class PiCasteRuntime implements CasteRuntime {
           }
 
           settled = true;
+          clearTimeout(sessionTimeout);
           unsubscribe();
           action();
         };
@@ -485,6 +606,10 @@ export class PiCasteRuntime implements CasteRuntime {
           const casteOutput = toolContract.extractStructuredOutput(event);
           if (casteOutput) {
             structuredOutput = casteOutput;
+            settle(() => {
+              resolve();
+            });
+            return;
           }
 
           if (event.type === "tool_execution_start") {

@@ -17,7 +17,6 @@ export interface MockRunIssueDefinition {
 export interface MockRunManifest {
   repoName: string;
   beadsPrefix: string;
-  baselineFiles: Record<string, string>;
   issues: MockRunIssueDefinition[];
   expectedInitialReadyKeys: string[];
 }

@@ -15,6 +15,9 @@ export interface DispatchRecord {
   stage: string;
   runningAgent: AgentAssignment | null;
   oracleAssessmentRef: string | null;
+  oracleReady?: boolean | null;
+  oracleDecompose?: boolean | null;
+  oracleBlockers?: string[] | null;
   titanHandoffRef?: string | null;
   titanClarificationRef?: string | null;
   sentinelVerdictRef: string | null;

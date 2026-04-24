@@ -1,7 +1,12 @@
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+
 import type { DispatchRecord } from "./dispatch-state.js";
 import { loadDispatchState, replaceDispatchRecord, saveDispatchState } from "./dispatch-state.js";
 import { persistArtifact } from "./artifact-store.js";
 import { parseOracleAssessment } from "../castes/oracle/oracle-parser.js";
+import { ORACLE_EMIT_ASSESSMENT_TOOL_NAME } from "../castes/oracle/oracle-tool-contract.js";
 import { parseTitanArtifact } from "../castes/titan/titan-parser.js";
 import { TITAN_EMIT_ARTIFACT_TOOL_NAME } from "../castes/titan/titan-tool-contract.js";
 import { parseSentinelVerdict } from "../castes/sentinel/sentinel-parser.js";
@@ -25,6 +30,11 @@ import {
   saveMergeQueueState,
 } from "../merge/merge-state.js";
 import { writePhaseLog } from "./phase-log.js";
+import {
+  assertDispatchRecordStage,
+  assertTitanDispatchEligibility,
+  canRerunSentinelReview,
+} from "./stage-invariants.js";
 
 interface TrackerLike {
   getIssue(id: string, root?: string): Promise<AegisIssue>;
@@ -77,6 +87,9 @@ function createBaseRecord(issueId: string, now: string): DispatchRecord {
     stage: "pending",
     runningAgent: null,
     oracleAssessmentRef: null,
+    oracleReady: null,
+    oracleDecompose: null,
+    oracleBlockers: null,
     titanHandoffRef: null,
     titanClarificationRef: null,
     sentinelVerdictRef: null,
@@ -93,7 +106,24 @@ function createBaseRecord(issueId: string, now: string): DispatchRecord {
 }
 
 function buildOraclePrompt(issue: AegisIssue) {
-  return `Scout ${issue.id}: ${issue.title}`;
+  const description = issue.description?.trim() || "No description provided.";
+  const blockers = issue.blockers.length > 0 ? issue.blockers.join(", ") : "none";
+  const labels = issue.labels.length > 0 ? issue.labels.join(", ") : "none";
+
+  return [
+    `Scout ${issue.id}: ${issue.title}`,
+    `Description: ${description}`,
+    `Status: ${issue.status}`,
+    `Blockers: ${blockers}`,
+    `Labels: ${labels}`,
+    "The tracker already contains the work breakdown for executable issues.",
+    "Do not decompose ordinary implementation breakdown into new sub-issues.",
+    "Set decompose=true only for missing prerequisite work that cannot be satisfied by implementing this issue as written.",
+    "If the issue is implementable as currently written, return decompose=false.",
+    `Call tool '${ORACLE_EMIT_ASSESSMENT_TOOL_NAME}' exactly once as final step after analysis is complete.`,
+    "Return only JSON. No markdown fences. No prose before or after JSON.",
+    "JSON schema keys: files_affected, estimated_complexity, decompose, ready.",
+  ].join("\n");
 }
 
 function buildTitanPrompt(issue: AegisIssue, laborPath: string) {
@@ -116,22 +146,6 @@ function buildTitanPrompt(issue: AegisIssue, laborPath: string) {
     "Return only JSON. No markdown fences. No prose before or after JSON.",
     "JSON schema keys: outcome, summary, files_changed, tests_and_checks_run, known_risks, follow_up_work, learnings_written_to_mnemosyne, blocking_question, handoff_note.",
     "If work is blocked, set outcome to clarification and include blocking_question plus handoff_note.",
-  ].join("\n");
-}
-
-function buildTitanClarificationRetryPrompt(
-  issue: AegisIssue,
-  laborPath: string,
-  clarificationSummary: string,
-) {
-  return [
-    buildTitanPrompt(issue, laborPath),
-    "",
-    "AUTOMATIC RETRY CONTEXT:",
-    `Previous run returned clarification: ${clarificationSummary}`,
-    "Assume default stack when unspecified: Node.js + TypeScript + node:test.",
-    "Proceed with best-effort implementation now and emit success/failure artifact.",
-    "Only return clarification if a hard blocker still exists after applying defaults.",
   ].join("\n");
 }
 
@@ -164,23 +178,192 @@ function offsetTimestamp(baseTimestamp: string, offsetMilliseconds: number) {
   return new Date(baseTime + offsetMilliseconds).toISOString();
 }
 
+function resolveArtifactPath(root: string, artifactRef: string) {
+  return path.join(path.resolve(root), ...artifactRef.split(/[\\/]/));
+}
+
+function readPersistedArtifact(root: string, artifactRef: string | null): Record<string, unknown> | null {
+  if (!artifactRef) {
+    return null;
+  }
+
+  const artifactPath = resolveArtifactPath(root, artifactRef);
+  if (!existsSync(artifactPath)) {
+    return null;
+  }
+
+  const parsed = JSON.parse(readFileSync(artifactPath, "utf8")) as unknown;
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return null;
+  }
+
+  return parsed as Record<string, unknown>;
+}
+
+function normalizeFinding(finding: string) {
+  return finding.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function buildFindingFingerprint(issueId: string, finding: string) {
+  return createHash("sha256")
+    .update(`${issueId}\n${normalizeFinding(finding)}`)
+    .digest("hex")
+    .slice(0, 16);
+}
+
+interface FollowUpIssueLink {
+  finding: string;
+  fingerprint: string;
+  issueId: string;
+}
+
+function readExistingSentinelFollowUps(
+  root: string,
+  record: DispatchRecord,
+): Map<string, string> {
+  const existing = new Map<string, string>();
+  const artifact = readPersistedArtifact(root, record.sentinelVerdictRef ?? null);
+  if (!artifact) {
+    return existing;
+  }
+
+  const followUpIssues = artifact["followUpIssues"];
+  if (Array.isArray(followUpIssues)) {
+    for (const candidate of followUpIssues) {
+      if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
+        continue;
+      }
+
+      const entry = candidate as Record<string, unknown>;
+      if (typeof entry["fingerprint"] !== "string" || typeof entry["issueId"] !== "string") {
+        continue;
+      }
+
+      existing.set(entry["fingerprint"], entry["issueId"]);
+    }
+  }
+
+  const issuesFound = artifact["issuesFound"];
+  const followUpIssueIds = artifact["followUpIssueIds"];
+  if (!Array.isArray(issuesFound) || !Array.isArray(followUpIssueIds)) {
+    return existing;
+  }
+
+  for (let index = 0; index < issuesFound.length; index += 1) {
+    const finding = issuesFound[index];
+    const issueId = followUpIssueIds[index];
+    if (typeof finding !== "string" || typeof issueId !== "string") {
+      continue;
+    }
+
+    existing.set(buildFindingFingerprint(record.issueId, finding), issueId);
+  }
+
+  return existing;
+}
+
+async function resolveTitanClarificationIssueId(
+  input: RunCasteCommandInput,
+  issue: AegisIssue,
+  record: DispatchRecord,
+  artifact: ReturnType<typeof parseTitanArtifact>,
+  now: string,
+) {
+  if (artifact.outcome !== "clarification") {
+    return null;
+  }
+
+  const fingerprint = buildFindingFingerprint(issue.id, artifact.blocking_question ?? artifact.summary);
+  const previousArtifact = readPersistedArtifact(input.root, record.titanClarificationRef ?? null);
+  if (
+    previousArtifact
+    && previousArtifact["clarificationFingerprint"] === fingerprint
+    && typeof previousArtifact["clarificationIssueId"] === "string"
+  ) {
+    return {
+      fingerprint,
+      issueId: previousArtifact["clarificationIssueId"],
+    };
+  }
+
+  if (!input.tracker.createIssue) {
+    return {
+      fingerprint,
+      issueId: null,
+    };
+  }
+
+  const clarificationTitle = truncate(
+    `[clarification][${issue.id}] ${artifact.blocking_question ?? artifact.summary}`,
+    120,
+  );
+  const clarificationDescription = [
+    `Auto-created from Titan clarification for ${issue.id}.`,
+    `Summary: ${artifact.summary}`,
+    `Blocking question: ${artifact.blocking_question ?? "none"}`,
+    `Handoff note: ${artifact.handoff_note ?? "none"}`,
+  ].join("\n");
+  const clarificationIssueId = await input.tracker.createIssue(
+    {
+      title: clarificationTitle,
+      description: clarificationDescription,
+      dependencies: [`discovered-from:${issue.id}`],
+    },
+    input.root,
+  );
+  writePhaseLog(input.root, {
+    timestamp: offsetTimestamp(now, 20),
+    phase: "dispatch",
+    issueId: issue.id,
+    action: "titan_clarification_issue_created",
+    outcome: "created",
+    detail: JSON.stringify({
+      clarificationIssueId,
+      fingerprint,
+    }),
+  });
+
+  return {
+    fingerprint,
+    issueId: clarificationIssueId,
+  };
+}
+
 async function createSentinelFollowUpIssues(
   input: RunCasteCommandInput,
   issue: AegisIssue,
+  record: DispatchRecord,
   verdict: ReturnType<typeof parseSentinelVerdict>,
   now: string,
 ) {
-  if (
-    verdict.verdict !== "fail"
-    || verdict.issuesFound.length === 0
-    || verdict.followUpIssueIds.length > 0
-    || !input.tracker.createIssue
-  ) {
-    return verdict.followUpIssueIds;
+  if (verdict.verdict !== "fail" || verdict.issuesFound.length === 0) {
+    return [] as FollowUpIssueLink[];
   }
 
-  const createdIssueIds: string[] = [];
-  for (const finding of verdict.issuesFound) {
+  const existingFollowUps = readExistingSentinelFollowUps(input.root, record);
+  const resolvedFollowUps: FollowUpIssueLink[] = [];
+  for (let index = 0; index < verdict.issuesFound.length; index += 1) {
+    const finding = verdict.issuesFound[index]!;
+    const fingerprint = buildFindingFingerprint(issue.id, finding);
+    const preRegisteredIssueId = verdict.followUpIssueIds[index];
+    const existingIssueId = existingFollowUps.get(fingerprint);
+    const followUpIssueId = typeof preRegisteredIssueId === "string"
+      ? preRegisteredIssueId
+      : existingIssueId ?? null;
+
+    if (followUpIssueId) {
+      resolvedFollowUps.push({
+        finding,
+        fingerprint,
+        issueId: followUpIssueId,
+      });
+      continue;
+    }
+
+    if (!input.tracker.createIssue) {
+      continue;
+    }
+
     const issueTitle = truncate(`[sentinel][${issue.id}] ${finding}`, 120);
     const issueDescription = [
       `Auto-created from Sentinel review for ${issue.id}.`,
@@ -199,9 +382,13 @@ async function createSentinelFollowUpIssues(
       },
       input.root,
     );
-    createdIssueIds.push(createdIssueId);
+    resolvedFollowUps.push({
+      finding,
+      fingerprint,
+      issueId: createdIssueId,
+    });
     writePhaseLog(input.root, {
-      timestamp: offsetTimestamp(now, 20 + createdIssueIds.length),
+      timestamp: offsetTimestamp(now, 20 + resolvedFollowUps.length),
       phase: "dispatch",
       issueId: issue.id,
       action: "sentinel_followup_created",
@@ -213,7 +400,7 @@ async function createSentinelFollowUpIssues(
     });
   }
 
-  return [...verdict.followUpIssueIds, ...createdIssueIds];
+  return resolvedFollowUps;
 }
 
 function buildJanusPrompt(issue: AegisIssue, janusContext?: JanusConflictContext) {
@@ -348,10 +535,25 @@ async function runScout(
       session: createSessionMetadata(transcriptRef, runInput, session),
     },
   });
+  if (assessment.decompose) {
+    saveRecord(input.root, issue.id, {
+      ...clearDownstreamArtifactRefs(record),
+      stage: "failed",
+      oracleAssessmentRef: artifactRef,
+      oracleReady: assessment.ready,
+      oracleDecompose: assessment.decompose,
+      oracleBlockers: assessment.blockers ?? [],
+      updatedAt: now,
+    });
+    throw new Error("Oracle decomposition is not supported for executable issue progression.");
+  }
   saveRecord(input.root, issue.id, {
     ...clearDownstreamArtifactRefs(record),
     stage: "scouted",
     oracleAssessmentRef: artifactRef,
+    oracleReady: assessment.ready,
+    oracleDecompose: assessment.decompose,
+    oracleBlockers: assessment.blockers ?? [],
     updatedAt: now,
   });
 
@@ -369,6 +571,8 @@ async function runImplement(
   record: DispatchRecord,
   now: string,
 ): Promise<CasteCommandResult> {
+  assertTitanDispatchEligibility(record);
+
   let configCache: ReturnType<typeof loadConfig> | null = null;
   const resolveConfig = () => {
     if (configCache === null) {
@@ -422,17 +626,7 @@ async function runImplement(
     };
   };
 
-  const firstAttempt = await runTitanSession(runInput);
-  const finalAttempt = firstAttempt.artifact.outcome === "clarification"
-    ? await runTitanSession({
-      ...runInput,
-      prompt: buildTitanClarificationRetryPrompt(
-        issue,
-        labor.laborPath,
-        firstAttempt.artifact.summary,
-      ),
-    })
-    : firstAttempt;
+  const finalAttempt = await runTitanSession(runInput);
 
   const completedGitProof = completeGitProofPair(labor.laborPath, gitProofPair);
   const gitProofRefs = persistGitProofArtifacts(
@@ -443,6 +637,13 @@ async function runImplement(
     completedGitProof,
   );
   const artifact = finalAttempt.artifact;
+  const clarificationIssue = await resolveTitanClarificationIssueId(
+    input,
+    issue,
+    record,
+    artifact,
+    now,
+  );
   const artifactRef = persistArtifact(input.root, {
     family: "titan",
     issueId: issue.id,
@@ -457,6 +658,8 @@ async function runImplement(
         changed_files_manifest_ref: gitProofRefs.changedFilesManifestRef,
         diff_ref: gitProofRefs.diffRef,
       },
+      clarificationFingerprint: clarificationIssue?.fingerprint ?? null,
+      clarificationIssueId: clarificationIssue?.issueId ?? null,
       session: createSessionMetadata(
         finalAttempt.transcriptRef,
         finalAttempt.runInput,
@@ -464,18 +667,20 @@ async function runImplement(
       ),
     },
   });
+  const implementationSucceeded = artifact.outcome === "success";
   saveRecord(input.root, issue.id, {
     ...clearDownstreamArtifactRefs(record),
-    stage: artifact.outcome === "success" ? "implemented" : "failed",
+    stage: implementationSucceeded ? "implemented" : "failed",
     oracleAssessmentRef: record.oracleAssessmentRef,
-    titanHandoffRef: artifactRef,
+    titanHandoffRef: implementationSucceeded ? artifactRef : null,
+    titanClarificationRef: artifact.outcome === "clarification" ? artifactRef : null,
     updatedAt: now,
   });
 
   return {
     action: input.action,
     issueId: issue.id,
-    stage: artifact.outcome === "success" ? "implemented" : "failed",
+    stage: implementationSucceeded ? "implemented" : "failed",
     artifactRefs: [artifactRef, ...transcriptRefs],
   };
 }
@@ -486,9 +691,10 @@ async function runReview(
   record: DispatchRecord,
   now: string,
 ): Promise<CasteCommandResult> {
-  if (record.stage !== "merged") {
+  if (record.stage !== "merged" && !canRerunSentinelReview(record)) {
     throw new Error("Review requires a merged issue.");
   }
+  assertDispatchRecordStage(record, "merged");
 
   writePhaseLog(input.root, {
     timestamp: offsetTimestamp(now, 0),
@@ -521,13 +727,17 @@ async function runReview(
       }),
     });
   }
-  const resolvedFollowUpIssueIds = await createSentinelFollowUpIssues(input, issue, verdict, now);
+  const followUpIssues = await createSentinelFollowUpIssues(input, issue, record, verdict, now);
+  const resolvedFollowUpIssueIds = followUpIssues.map((followUpIssue) => followUpIssue.issueId);
+  const reviewHasFollowUps = resolvedFollowUpIssueIds.length > 0;
+  const reviewStage = verdict.verdict === "pass" ? "reviewed" : "failed";
   const artifactRef = persistArtifact(input.root, {
     family: "sentinel",
     issueId: issue.id,
     artifact: {
       ...verdict,
       followUpIssueIds: resolvedFollowUpIssueIds,
+      followUpIssues,
       session: createSessionMetadata(transcriptRef, runInput, session),
     },
   });
@@ -545,7 +755,7 @@ async function runReview(
 
   saveRecord(input.root, issue.id, {
     ...clearDownstreamArtifactRefs(record),
-    stage: verdict.verdict === "pass" ? "reviewed" : "failed",
+    stage: reviewStage,
     oracleAssessmentRef: record.oracleAssessmentRef,
     titanHandoffRef: record.titanHandoffRef ?? null,
     titanClarificationRef: record.titanClarificationRef ?? null,
@@ -557,7 +767,11 @@ async function runReview(
     phase: "dispatch",
     issueId: issue.id,
     action: "sentinel_review_completed",
-    outcome: verdict.verdict === "pass" ? "reviewed" : "failed",
+    outcome: verdict.verdict === "pass"
+      ? "reviewed"
+      : reviewHasFollowUps
+        ? "failed_with_followups"
+        : "failed",
     sessionId: session.sessionId,
     detail: JSON.stringify({
       followUpIssueCount: resolvedFollowUpIssueIds.length,
@@ -567,7 +781,7 @@ async function runReview(
   return {
     action: input.action,
     issueId: issue.id,
-    stage: verdict.verdict === "pass" ? "reviewed" : "failed",
+    stage: reviewStage,
     artifactRefs: [artifactRef, transcriptRef],
   };
 }
@@ -669,11 +883,9 @@ function enqueueImplementedIssue(
   record: DispatchRecord,
   now: string,
 ) {
-  if (!record.titanHandoffRef) {
-    throw new Error(`Implemented issue ${issueId} is missing titan handoff artifact.`);
-  }
+  assertDispatchRecordStage(record, "implemented");
 
-  const candidate = readTitanMergeCandidate(root, record.titanHandoffRef);
+  const candidate = readTitanMergeCandidate(root, record.titanHandoffRef!);
   const queueState = loadMergeQueueState(root);
   const queued = enqueueMergeCandidate(queueState, {
     issueId,
@@ -711,10 +923,12 @@ export async function runCasteCommand(input: RunCasteCommandInput): Promise<Cast
   }
 
   if (input.action === "process" && record.stage === "resolving_integration") {
+    assertDispatchRecordStage(record, "resolving_integration");
     return runJanus(input, issue, record, now);
   }
 
   if (input.action === "process" && record.stage === "queued_for_merge") {
+    assertDispatchRecordStage(record, "queued_for_merge");
     return {
       action: "process",
       issueId: input.issueId,
@@ -728,6 +942,7 @@ export async function runCasteCommand(input: RunCasteCommandInput): Promise<Cast
   }
 
   if (input.action === "process" && record.stage === "reviewed") {
+    assertDispatchRecordStage(record, "reviewed");
     return {
       action: "process",
       issueId: input.issueId,

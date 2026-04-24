@@ -1,12 +1,14 @@
 import type { AegisConfig } from "../config/schema.js";
 import type { DispatchRecord, DispatchState } from "./dispatch-state.js";
+import { isOracleBlockedFromTitan } from "./stage-invariants.js";
 import type { TrackerReadyIssue } from "../tracker/tracker.js";
 
 export type TriageSkipReason =
   | "capacity"
   | "cooldown"
   | "in_progress"
-  | "already_progressed";
+  | "already_progressed"
+  | "blocked";
 
 export interface DispatchDecision {
   issueId: string;
@@ -39,6 +41,31 @@ function isCoolingDown(record: DispatchRecord, nowMs: number) {
 
   const cooldownMs = Date.parse(record.cooldownUntil);
   return Number.isFinite(cooldownMs) && cooldownMs > nowMs;
+}
+
+function hasOracleBlockers(record: DispatchRecord) {
+  return (record.oracleBlockers?.length ?? 0) > 0;
+}
+
+function resolveFailedIssueSkipReason(record: DispatchRecord): TriageSkipReason | null {
+  if (record.stage !== "failed") {
+    return null;
+  }
+
+  if (
+    record.oracleReady === false
+    || record.oracleDecompose === true
+    || hasOracleBlockers(record)
+    || record.titanClarificationRef
+  ) {
+    return "blocked";
+  }
+
+  if (record.titanHandoffRef || record.sentinelVerdictRef || record.janusArtifactRef) {
+    return "already_progressed";
+  }
+
+  return null;
 }
 
 function needsFuturePhase(record: DispatchRecord) {
@@ -102,6 +129,15 @@ export function triageReadyWork(input: TriageInput): TriageResult {
       continue;
     }
 
+    const failedIssueSkipReason = record ? resolveFailedIssueSkipReason(record) : null;
+    if (failedIssueSkipReason) {
+      skipped.push({
+        issueId: issue.id,
+        reason: failedIssueSkipReason,
+      });
+      continue;
+    }
+
     if (record && isCoolingDown(record, nowMs)) {
       skipped.push({
         issueId: issue.id,
@@ -110,11 +146,19 @@ export function triageReadyWork(input: TriageInput): TriageResult {
       continue;
     }
 
+    if (record && isOracleBlockedFromTitan(record)) {
+      skipped.push({
+        issueId: issue.id,
+        reason: "blocked",
+      });
+      continue;
+    }
+
     if (record && needsFuturePhase(record)) {
-        skipped.push({
-          issueId: issue.id,
-          reason: "already_progressed",
-        });
+      skipped.push({
+        issueId: issue.id,
+        reason: "already_progressed",
+      });
       continue;
     }
 

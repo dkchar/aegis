@@ -4,6 +4,7 @@ import {
   saveDispatchState,
   type DispatchState,
 } from "../core/dispatch-state.js";
+import { assertDispatchRecordStage } from "../core/stage-invariants.js";
 import {
   enqueueMergeCandidate,
   loadMergeQueueState,
@@ -28,11 +29,12 @@ export function autoEnqueueImplementedIssuesForMerge(
   const enqueuedIssueIds: string[] = [];
 
   for (const record of Object.values(dispatchState.records)) {
-    if (record.stage !== "implemented" || !record.titanHandoffRef) {
+    if (record.stage !== "implemented") {
       continue;
     }
+    assertDispatchRecordStage(record, "implemented");
 
-    const candidate = readTitanMergeCandidate(root, record.titanHandoffRef);
+    const candidate = readTitanMergeCandidate(root, record.titanHandoffRef!);
     const queued = enqueueMergeCandidate(mergeQueueState, {
       issueId: record.issueId,
       candidateBranch: candidate.candidate_branch,

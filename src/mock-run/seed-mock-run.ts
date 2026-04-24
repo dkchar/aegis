@@ -3,6 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
+import { createCasteConfig } from "../config/caste-config.js";
 import { DEFAULT_AEGIS_CONFIG } from "../config/defaults.js";
 import { initProject } from "../config/init-project.js";
 import { resolveProjectRelativePath } from "../config/load-config.js";
@@ -21,7 +22,6 @@ export interface SeedMockRunResult {
   databaseName: string;
   issueIdByKey: Record<string, string>;
   initialReadyKeys: string[];
-  manifestPath: string;
 }
 
 export interface MockRunBdSupport {
@@ -30,16 +30,10 @@ export interface MockRunBdSupport {
 }
 
 export const MOCK_RUN_LABOR_BASE_PATH = ".aegis/labors";
-
-interface MockRunManifestFile {
-  /** Relative path from the manifest file to the repo root (always "..") */
-  repoRoot: string;
-  databaseName: string;
-  generatedAt: string;
-  issueIdByKey: Record<string, string>;
-  initialReadyKeys: string[];
-  configuredModels: Record<string, string>;
-}
+const MOCK_RUN_MODEL_REFERENCE = "openai-codex:gpt-5.4-mini";
+const MOCK_RUN_THINKING_LEVEL = "medium";
+const MOCK_RUN_STUCK_WARNING_SECONDS = 240;
+const MOCK_RUN_STUCK_KILL_SECONDS = 600;
 
 interface BdIssueRecord {
   id: string;
@@ -161,12 +155,6 @@ function parseBdReady(raw: string): BdIssueRecord[] {
   return Array.isArray(parsed) ? parsed : [];
 }
 
-function writeProjectFile(root: string, relativePath: string, contents: string) {
-  const targetPath = path.join(root, relativePath);
-  mkdirSync(path.dirname(targetPath), { recursive: true });
-  writeFileSync(targetPath, contents.endsWith("\n") ? contents : `${contents}\n`, "utf8");
-}
-
 function createDatabaseName(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}`;
 }
@@ -176,11 +164,18 @@ export function buildMockRunConfig(options?: {
   runtime?: "pi" | "scripted";
 }) {
   const uncapped = options?.uncapped ?? true;
-  const runtime = options?.runtime ?? "pi";
+  const runtime = options?.runtime ?? "scripted";
 
   const baseConfig = {
     ...DEFAULT_AEGIS_CONFIG,
     runtime,
+    models: createCasteConfig(() => MOCK_RUN_MODEL_REFERENCE),
+    thinking: createCasteConfig(() => MOCK_RUN_THINKING_LEVEL),
+    thresholds: {
+      ...DEFAULT_AEGIS_CONFIG.thresholds,
+      stuck_warning_seconds: MOCK_RUN_STUCK_WARNING_SECONDS,
+      stuck_kill_seconds: MOCK_RUN_STUCK_KILL_SECONDS,
+    },
     labor: {
       ...DEFAULT_AEGIS_CONFIG.labor,
       base_path: MOCK_RUN_LABOR_BASE_PATH,
@@ -216,15 +211,6 @@ function assertExpectedReadyQueue(actualKeys: string[], expectedKeys: readonly s
       );
     }
   }
-}
-
-function writeMockRunManifest(
-  repoRoot: string,
-  manifest: MockRunManifestFile,
-): string {
-  const manifestPath = resolveProjectRelativePath(repoRoot, ".aegis/mock-run-manifest.json");
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-  return manifestPath;
 }
 
 function createIssue(
@@ -282,10 +268,6 @@ export async function seedMockRun(options: SeedMockRunOptions = {}): Promise<See
   removeDirectoryWithRetries(repoRoot);
   mkdirSync(repoRoot, { recursive: true });
 
-  for (const [relativePath, contents] of Object.entries(TODO_MOCK_RUN_MANIFEST.baselineFiles)) {
-    writeProjectFile(repoRoot, relativePath, contents);
-  }
-
   run("git", ["init"], repoRoot);
   run("git", ["config", "user.email", "mock-run@aegis.local"], repoRoot);
   run("git", ["config", "user.name", "Aegis Mock Run"], repoRoot);
@@ -332,21 +314,12 @@ export async function seedMockRun(options: SeedMockRunOptions = {}): Promise<See
     return match?.[0] ?? readyIssue.id;
   });
   assertExpectedReadyQueue(initialReadyKeys, TODO_MOCK_RUN_MANIFEST.expectedInitialReadyKeys);
-  const manifestPath = writeMockRunManifest(repoRoot, {
-    repoRoot: "..",
-    databaseName,
-    generatedAt: new Date().toISOString(),
-    issueIdByKey,
-    initialReadyKeys,
-    configuredModels: { ...mockRunConfig.models },
-  });
 
   return {
     repoRoot,
     databaseName,
     issueIdByKey,
     initialReadyKeys,
-    manifestPath,
   };
 }
 

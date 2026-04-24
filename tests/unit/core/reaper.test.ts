@@ -1,9 +1,11 @@
 import path from "node:path";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 
@@ -69,6 +71,58 @@ function createTitanRunningState(): DispatchState {
   };
 }
 
+function createParallelTitanRunningState(): DispatchState {
+  return {
+    schemaVersion: 1,
+    records: {
+      "ISSUE-2": {
+        issueId: "ISSUE-2",
+        stage: "implementing",
+        runningAgent: {
+          caste: "titan",
+          sessionId: "session-2",
+          startedAt: "2026-04-14T11:55:00.000Z",
+        },
+        oracleAssessmentRef: ".aegis/oracle/ISSUE-2.json",
+        titanHandoffRef: null,
+        titanClarificationRef: null,
+        sentinelVerdictRef: null,
+        janusArtifactRef: null,
+        failureTranscriptRef: null,
+        fileScope: null,
+        failureCount: 0,
+        consecutiveFailures: 0,
+        failureWindowStartMs: null,
+        cooldownUntil: null,
+        sessionProvenanceId: "daemon-1",
+        updatedAt: "2026-04-14T11:55:00.000Z",
+      },
+      "ISSUE-3": {
+        issueId: "ISSUE-3",
+        stage: "implementing",
+        runningAgent: {
+          caste: "titan",
+          sessionId: "session-3",
+          startedAt: "2026-04-14T11:55:30.000Z",
+        },
+        oracleAssessmentRef: ".aegis/oracle/ISSUE-3.json",
+        titanHandoffRef: null,
+        titanClarificationRef: null,
+        sentinelVerdictRef: null,
+        janusArtifactRef: null,
+        failureTranscriptRef: null,
+        fileScope: null,
+        failureCount: 0,
+        consecutiveFailures: 0,
+        failureWindowStartMs: null,
+        cooldownUntil: null,
+        sessionProvenanceId: "daemon-1",
+        updatedAt: "2026-04-14T11:55:30.000Z",
+      },
+    },
+  };
+}
+
 const tempRoots: string[] = [];
 
 function createTempRoot() {
@@ -101,6 +155,35 @@ describe("reapFinishedWork", () => {
         return null;
       },
     };
+
+    mkdirSync(path.join(root, ".aegis"), { recursive: true });
+    writeFileSync(
+      path.join(root, ".aegis", "dispatch-state.json"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        records: {
+          "ISSUE-1": {
+            issueId: "ISSUE-1",
+            stage: "scouted",
+            runningAgent: {
+              caste: "oracle",
+              sessionId: "session-1",
+              startedAt: "2026-04-14T11:55:00.000Z",
+            },
+            oracleAssessmentRef: ".aegis/oracle/ISSUE-1.json",
+            sentinelVerdictRef: null,
+            fileScope: null,
+            failureCount: 0,
+            consecutiveFailures: 0,
+            failureWindowStartMs: null,
+            cooldownUntil: null,
+            sessionProvenanceId: "daemon-1",
+            updatedAt: "2026-04-14T11:56:00.000Z",
+          },
+        },
+      }, null, 2)}\n`,
+      "utf8",
+    );
 
     const result = await reapFinishedWork({
       dispatchState: createRunningState(),
@@ -176,6 +259,39 @@ describe("reapFinishedWork", () => {
       },
     };
 
+    mkdirSync(path.join(root, ".aegis"), { recursive: true });
+    writeFileSync(
+      path.join(root, ".aegis", "dispatch-state.json"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        records: {
+          "ISSUE-2": {
+            issueId: "ISSUE-2",
+            stage: "implemented",
+            runningAgent: {
+              caste: "titan",
+              sessionId: "session-2",
+              startedAt: "2026-04-14T11:55:00.000Z",
+            },
+            oracleAssessmentRef: ".aegis/oracle/ISSUE-2.json",
+            titanHandoffRef: ".aegis/titan/ISSUE-2.json",
+            titanClarificationRef: null,
+            sentinelVerdictRef: null,
+            janusArtifactRef: null,
+            failureTranscriptRef: null,
+            fileScope: null,
+            failureCount: 0,
+            consecutiveFailures: 0,
+            failureWindowStartMs: null,
+            cooldownUntil: null,
+            sessionProvenanceId: "daemon-1",
+            updatedAt: "2026-04-14T11:56:00.000Z",
+          },
+        },
+      }, null, 2)}\n`,
+      "utf8",
+    );
+
     const result = await reapFinishedWork({
       dispatchState: createTitanRunningState(),
       runtime,
@@ -191,6 +307,242 @@ describe("reapFinishedWork", () => {
       stage: "implemented",
       runningAgent: null,
       oracleAssessmentRef: ".aegis/oracle/ISSUE-2.json",
+    });
+  });
+
+  it("fails closed when a succeeded titan session lacks required artifact refs", async () => {
+    const root = createTempRoot();
+    const runtime: AgentRuntime = {
+      async launch() {
+        throw new Error("unused");
+      },
+      async readSession() {
+        return {
+          sessionId: "session-2",
+          status: "succeeded",
+          finishedAt: "2026-04-14T11:56:00.000Z",
+        };
+      },
+      async terminate() {
+        return null;
+      },
+    };
+
+    mkdirSync(path.join(root, ".aegis"), { recursive: true });
+    writeFileSync(
+      path.join(root, ".aegis", "dispatch-state.json"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        records: {
+          "ISSUE-2": {
+            issueId: "ISSUE-2",
+            stage: "implemented",
+            runningAgent: {
+              caste: "titan",
+              sessionId: "session-2",
+              startedAt: "2026-04-14T11:55:00.000Z",
+            },
+            oracleAssessmentRef: null,
+            titanHandoffRef: ".aegis/titan/ISSUE-2.json",
+            titanClarificationRef: null,
+            sentinelVerdictRef: null,
+            janusArtifactRef: null,
+            failureTranscriptRef: null,
+            fileScope: null,
+            failureCount: 0,
+            consecutiveFailures: 0,
+            failureWindowStartMs: null,
+            cooldownUntil: null,
+            sessionProvenanceId: "daemon-1",
+            updatedAt: "2026-04-14T11:56:00.000Z",
+          },
+        },
+      }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const result = await reapFinishedWork({
+      dispatchState: createTitanRunningState(),
+      runtime,
+      issueIds: ["ISSUE-2"],
+      root,
+      now: "2026-04-14T12:00:00.000Z",
+    });
+
+    expect(result.completed).toEqual([]);
+    expect(result.failed).toEqual(["ISSUE-2"]);
+    expect(result.state.records["ISSUE-2"]).toMatchObject({
+      issueId: "ISSUE-2",
+      stage: "failed",
+      runningAgent: null,
+      titanHandoffRef: ".aegis/titan/ISSUE-2.json",
+      oracleAssessmentRef: null,
+    });
+  });
+
+  it("preserves the latest persisted artifact refs written by async caste runs", async () => {
+    const root = createTempRoot();
+    const runtime: AgentRuntime = {
+      async launch() {
+        throw new Error("unused");
+      },
+      async readSession() {
+        return {
+          sessionId: "session-2",
+          status: "succeeded",
+          finishedAt: "2026-04-14T11:56:00.000Z",
+        };
+      },
+      async terminate() {
+        return null;
+      },
+    };
+
+    mkdirSync(path.join(root, ".aegis"), { recursive: true });
+    writeFileSync(
+      path.join(root, ".aegis", "dispatch-state.json"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        records: {
+          "ISSUE-2": {
+            issueId: "ISSUE-2",
+            stage: "implemented",
+            runningAgent: {
+              caste: "titan",
+              sessionId: "session-2",
+              startedAt: "2026-04-14T11:55:00.000Z",
+            },
+            oracleAssessmentRef: ".aegis/oracle/ISSUE-2.json",
+            titanHandoffRef: ".aegis/titan/ISSUE-2.json",
+            titanClarificationRef: null,
+            sentinelVerdictRef: null,
+            janusArtifactRef: null,
+            failureTranscriptRef: null,
+            fileScope: null,
+            failureCount: 0,
+            consecutiveFailures: 0,
+            failureWindowStartMs: null,
+            cooldownUntil: null,
+            sessionProvenanceId: "daemon-1",
+            updatedAt: "2026-04-14T11:56:00.000Z",
+          },
+        },
+      }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const result = await reapFinishedWork({
+      dispatchState: createTitanRunningState(),
+      runtime,
+      issueIds: ["ISSUE-2"],
+      root,
+      now: "2026-04-14T12:00:00.000Z",
+    });
+
+    expect(result.completed).toEqual(["ISSUE-2"]);
+    expect(result.failed).toEqual([]);
+    expect(result.state.records["ISSUE-2"]).toMatchObject({
+      issueId: "ISSUE-2",
+      stage: "implemented",
+      runningAgent: null,
+      titanHandoffRef: ".aegis/titan/ISSUE-2.json",
+    });
+  });
+
+  it("does not clobber unrelated latest persisted records while reaping another issue", async () => {
+    const root = createTempRoot();
+    const runtime: AgentRuntime = {
+      async launch() {
+        throw new Error("unused");
+      },
+      async readSession(_root: string, sessionId: string) {
+        if (sessionId === "session-3") {
+          return {
+            sessionId,
+            status: "succeeded",
+            finishedAt: "2026-04-14T11:56:30.000Z",
+          };
+        }
+
+        return {
+          sessionId,
+          status: "running",
+        };
+      },
+      async terminate() {
+        return null;
+      },
+    };
+
+    mkdirSync(path.join(root, ".aegis"), { recursive: true });
+    writeFileSync(
+      path.join(root, ".aegis", "dispatch-state.json"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        records: {
+          "ISSUE-2": {
+            issueId: "ISSUE-2",
+            stage: "implemented",
+            runningAgent: {
+              caste: "titan",
+              sessionId: "session-2",
+              startedAt: "2026-04-14T11:55:00.000Z",
+            },
+            oracleAssessmentRef: ".aegis/oracle/ISSUE-2.json",
+            titanHandoffRef: ".aegis/titan/ISSUE-2.json",
+            titanClarificationRef: null,
+            sentinelVerdictRef: null,
+            janusArtifactRef: null,
+            failureTranscriptRef: null,
+            fileScope: null,
+            failureCount: 0,
+            consecutiveFailures: 0,
+            failureWindowStartMs: null,
+            cooldownUntil: null,
+            sessionProvenanceId: "daemon-1",
+            updatedAt: "2026-04-14T11:56:00.000Z",
+          },
+          "ISSUE-3": {
+            issueId: "ISSUE-3",
+            stage: "implemented",
+            runningAgent: {
+              caste: "titan",
+              sessionId: "session-3",
+              startedAt: "2026-04-14T11:55:30.000Z",
+            },
+            oracleAssessmentRef: ".aegis/oracle/ISSUE-3.json",
+            titanHandoffRef: ".aegis/titan/ISSUE-3.json",
+            titanClarificationRef: null,
+            sentinelVerdictRef: null,
+            janusArtifactRef: null,
+            failureTranscriptRef: null,
+            fileScope: null,
+            failureCount: 0,
+            consecutiveFailures: 0,
+            failureWindowStartMs: null,
+            cooldownUntil: null,
+            sessionProvenanceId: "daemon-1",
+            updatedAt: "2026-04-14T11:55:30.000Z",
+          },
+        },
+      }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const result = await reapFinishedWork({
+      dispatchState: createParallelTitanRunningState(),
+      runtime,
+      issueIds: ["ISSUE-3"],
+      root,
+      now: "2026-04-14T12:00:00.000Z",
+    });
+
+    expect(result.completed).toEqual(["ISSUE-3"]);
+    expect(result.failed).toEqual([]);
+    expect(result.state.records["ISSUE-2"]).toMatchObject({
+      issueId: "ISSUE-2",
+      stage: "implemented",
+      titanHandoffRef: ".aegis/titan/ISSUE-2.json",
     });
   });
 
