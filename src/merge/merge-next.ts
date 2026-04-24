@@ -321,24 +321,15 @@ export async function runMergeNext(
       updatedAt: now,
     }));
     saveMergeQueueState(root, mergedQueueState);
-    updateDispatchStage(root, queueItem.issueId, dispatchRecord, "merged", now);
-
-    const review = await runCasteCommand({
-      root,
-      action: "review",
-      issueId: queueItem.issueId,
-      tracker,
-      runtime,
-      now,
-    });
+    updateDispatchStage(root, queueItem.issueId, dispatchRecord, "complete", now);
 
     return {
       action: "merge_next",
-      status: review.stage === "reviewed" ? "merged" : "failed",
+      status: "merged",
       issueId: queueItem.issueId,
       queueItemId: queueItem.queueItemId,
       tier: "T1",
-      stage: review.stage,
+      stage: "complete",
       detail: attempt.detail,
     };
   }
@@ -386,13 +377,10 @@ export async function runMergeNext(
       },
       now,
     });
-    const recommendation = janus.janusRecommendation
-      ?? (janus.stage === "queued_for_merge" ? "requeue" : "manual_decision");
-    const requeued = janus.stage === "queued_for_merge";
-    const janusDetail = `${attempt.detail} Janus recommended ${recommendation}.`;
+    const janusDetail = `${attempt.detail} Janus recommended ${janus.janusRecommendation ?? janus.stage}.`;
     const afterJanusState = updateMergeQueueItem(mergingQueueState, queueItem.queueItemId, (item) => ({
       ...item,
-      status: requeued ? "queued" : "failed",
+      status: "failed",
       attempts: item.attempts + 1,
       janusInvocations: item.janusInvocations + 1,
       lastTier: "T3",
@@ -403,7 +391,7 @@ export async function runMergeNext(
 
     return {
       action: "merge_next",
-      status: requeued ? "janus_requeued" : "failed",
+      status: "failed",
       issueId: queueItem.issueId,
       queueItemId: queueItem.queueItemId,
       tier: "T3",
@@ -421,7 +409,7 @@ export async function runMergeNext(
     updatedAt: now,
   }));
   saveMergeQueueState(root, failedState);
-  updateDispatchStage(root, queueItem.issueId, dispatchRecord, "failed", now);
+  updateDispatchStage(root, queueItem.issueId, dispatchRecord, "failed_operational", now);
 
   return {
     action: "merge_next",
@@ -429,7 +417,7 @@ export async function runMergeNext(
     issueId: queueItem.issueId,
     queueItemId: queueItem.queueItemId,
     tier: "T3",
-    stage: "failed",
+    stage: "failed_operational",
     detail: attempt.detail,
   };
 }

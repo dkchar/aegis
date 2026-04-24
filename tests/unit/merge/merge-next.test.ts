@@ -52,7 +52,7 @@ function createIssue(issueId: string): AegisIssue {
   };
 }
 
-function createRecord(issueId: string, stage: string): DispatchRecord {
+function createRecord(issueId: string, stage: DispatchRecord["stage"]): DispatchRecord {
   return {
     issueId,
     stage,
@@ -60,7 +60,7 @@ function createRecord(issueId: string, stage: string): DispatchRecord {
     oracleAssessmentRef: path.join(".aegis", "oracle", `${issueId}.json`),
     titanHandoffRef: path.join(".aegis", "titan", `${issueId}.json`),
     titanClarificationRef: null,
-    sentinelVerdictRef: null,
+    sentinelVerdictRef: path.join(".aegis", "sentinel", `${issueId}.json`),
     janusArtifactRef: null,
     failureTranscriptRef: null,
     fileScope: null,
@@ -71,6 +71,24 @@ function createRecord(issueId: string, stage: string): DispatchRecord {
     sessionProvenanceId: "test",
     updatedAt: "2026-04-14T12:00:00.000Z",
   };
+}
+
+function createJanusRequeueOutput(issueId: string) {
+  return JSON.stringify({
+    originatingIssueId: issueId,
+    queueItemId: `queue-${issueId}`,
+    preservedLaborPath: `labors/${issueId}`,
+    conflictSummary: "Needs integration retry",
+    resolutionStrategy: "Refresh merge candidate",
+    filesTouched: [],
+    validationsRun: [],
+    residualRisks: [],
+    mutation_proposal: {
+      proposal_type: "requeue_parent",
+      summary: "Refresh parent candidate with integration context.",
+      scope_evidence: ["Conflict remains in parent scope."],
+    },
+  });
 }
 
 function createQueueItem(issueId: string, attempts = 0): MergeQueueItem {
@@ -113,7 +131,7 @@ afterEach(() => {
 });
 
 describe("runMergeNext", () => {
-  it("runs Sentinel before merge admission and returns rework_required on blocking review", async () => {
+  it("does not run Sentinel during merge execution and completes clean merges", async () => {
     const root = createTempRoot();
     writeState(root, "aegis-777");
 
@@ -136,7 +154,7 @@ describe("runMergeNext", () => {
       executor: {
         execute: vi.fn(async () => ({
           outcome: "merged" as const,
-          detail: "Merge should not run before Sentinel passes.",
+          detail: "Merged cleanly.",
         })),
       },
       now: "2026-04-24T10:30:00.000Z",
@@ -145,8 +163,8 @@ describe("runMergeNext", () => {
     expect(result).toMatchObject({
       action: "merge_next",
       issueId: "aegis-777",
-      status: "failed",
-      stage: "rework_required",
+      status: "merged",
+      stage: "complete",
     });
   });
 
@@ -183,13 +201,7 @@ describe("runMergeNext", () => {
       },
       runtime: new ScriptedCasteRuntime({
         sentinel: () => ({
-          output: JSON.stringify({
-            verdict: "pass",
-            reviewSummary: "merged cleanly",
-            issuesFound: [],
-            followUpIssueIds: [],
-            riskAreas: [],
-          }),
+          output: "{}",
         }),
       }),
       now: "2026-04-14T12:30:00.000Z",
@@ -200,7 +212,7 @@ describe("runMergeNext", () => {
       status: "merged",
       issueId: "aegis-900",
       tier: "T1",
-      stage: "reviewed",
+      stage: "complete",
     });
     expect(readFileSync(path.join(root, "README.md"), "utf8")).toContain("phase-i merge change");
   });
@@ -238,16 +250,8 @@ describe("runMergeNext", () => {
         runtime: new ScriptedCasteRuntime({
           janus: () => ({
             output: JSON.stringify({
-              originatingIssueId: "aegis-901",
-              queueItemId: "queue-aegis-901",
-              preservedLaborPath: "labors/aegis-901",
-              conflictSummary: "context",
-              resolutionStrategy: "requeue",
-              filesTouched: [],
-              validationsRun: [],
-              residualRisks: [],
-              recommendedNextAction: "requeue",
-            }),
+            ...JSON.parse(createJanusRequeueOutput("aegis-901")),
+          }),
           }),
         }),
       });
@@ -269,7 +273,7 @@ describe("runMergeNext", () => {
     }
   });
 
-  it("merges queued work, runs Sentinel post-merge, and advances the issue to reviewed", async () => {
+  it("merges queued work without post-merge Sentinel and advances the issue to complete", async () => {
     const root = createTempRoot();
     writeState(root, "aegis-123");
 
@@ -279,13 +283,7 @@ describe("runMergeNext", () => {
       },
       runtime: new ScriptedCasteRuntime({
         sentinel: () => ({
-          output: JSON.stringify({
-            verdict: "pass",
-            reviewSummary: "merged cleanly",
-            issuesFound: [],
-            followUpIssueIds: [],
-            riskAreas: [],
-          }),
+          output: "{}",
         }),
       }),
       executor: {
@@ -302,7 +300,7 @@ describe("runMergeNext", () => {
       issueId: "aegis-123",
       queueItemId: "queue-aegis-123",
       tier: "T1",
-      stage: "reviewed",
+      stage: "complete",
       status: "merged",
     });
   });
@@ -340,7 +338,7 @@ describe("runMergeNext", () => {
     ).records["aegis-456"].stage).toBe("queued_for_merge");
   });
 
-  it("dispatches Janus on T3 and requeues when Janus recommends requeue", async () => {
+  it("dispatches Janus on T3 and sends in-scope integration feedback to rework", async () => {
     const root = createTempRoot();
     writeState(root, "aegis-789", 2);
 
@@ -350,17 +348,7 @@ describe("runMergeNext", () => {
       },
       runtime: new ScriptedCasteRuntime({
         janus: () => ({
-          output: JSON.stringify({
-            originatingIssueId: "aegis-789",
-            queueItemId: "queue-aegis-789",
-            preservedLaborPath: "labors/aegis-789",
-            conflictSummary: "Needs integration retry",
-            resolutionStrategy: "Refresh merge candidate",
-            filesTouched: [],
-            validationsRun: [],
-            residualRisks: [],
-            recommendedNextAction: "requeue",
-          }),
+          output: createJanusRequeueOutput("aegis-789"),
         }),
       }),
       executor: {
@@ -377,26 +365,26 @@ describe("runMergeNext", () => {
       issueId: "aegis-789",
       queueItemId: "queue-aegis-789",
       tier: "T3",
-      stage: "queued_for_merge",
-      status: "janus_requeued",
+      stage: "rework_required",
+      status: "failed",
     });
 
     expect(JSON.parse(
       readFileSync(path.join(root, ".aegis", "dispatch-state.json"), "utf8"),
-    ).records["aegis-789"].stage).toBe("queued_for_merge");
+    ).records["aegis-789"].stage).toBe("rework_required");
     expect(JSON.parse(
       readFileSync(path.join(root, ".aegis", "merge-queue.json"), "utf8"),
-    ).items[0].janusInvocations).toBe(1);
+    ).items[0]).toMatchObject({
+      status: "failed",
+      janusInvocations: 1,
+    });
   });
 
-  it("fails closed on T3 when Janus recommends manual decision and records recommendation context", async () => {
+  it("blocks parent on T3 when Janus proposes an integration blocker", async () => {
     const root = createTempRoot();
     writeState(root, "aegis-790", 2);
 
     const result = await runMergeNext(root, {
-      tracker: {
-        getIssue: vi.fn(async () => createIssue("aegis-790")),
-      },
       runtime: new ScriptedCasteRuntime({
         janus: () => ({
           output: JSON.stringify({
@@ -408,10 +396,21 @@ describe("runMergeNext", () => {
             filesTouched: ["src/schema.ts", "migrations/20260419.sql"],
             validationsRun: ["npm run test -- tests/unit/schema.test.ts"],
             residualRisks: ["migration ordering still ambiguous"],
-            recommendedNextAction: "manual_decision",
+            mutation_proposal: {
+              proposal_type: "create_integration_blocker",
+              summary: "Resolve migration ordering outside parent scope.",
+              suggested_title: "Resolve migration ordering conflict",
+              suggested_description: "Merge conflict root cause is outside the parent issue scope.",
+              scope_evidence: ["Conflict spans independent schema migrations."],
+            },
           }),
         }),
       }),
+      tracker: {
+        getIssue: vi.fn(async () => createIssue("aegis-790")),
+        createIssue: vi.fn(async () => "aegis-integration-1"),
+        linkBlockingIssue: vi.fn(async () => undefined),
+      },
       executor: {
         execute: vi.fn(async () => ({
           outcome: "conflict" as const,
@@ -426,7 +425,7 @@ describe("runMergeNext", () => {
       issueId: "aegis-790",
       queueItemId: "queue-aegis-790",
       tier: "T3",
-      stage: "failed",
+      stage: "blocked_on_child",
       status: "failed",
     });
 
@@ -447,7 +446,7 @@ describe("runMergeNext", () => {
       lastTier: "T3",
     });
     expect(queueItem.lastError).toContain("Merge conflict in src/schema.ts.");
-    expect(queueItem.lastError).toContain("manual_decision");
+    expect(queueItem.lastError).toContain("create_integration_blocker");
 
     const dispatchState = JSON.parse(
       readFileSync(path.join(root, ".aegis", "dispatch-state.json"), "utf8"),
@@ -458,7 +457,7 @@ describe("runMergeNext", () => {
       }>;
     };
     expect(dispatchState.records["aegis-790"]).toMatchObject({
-      stage: "failed",
+      stage: "blocked_on_child",
     });
     expect(dispatchState.records["aegis-790"]?.janusArtifactRef).toBeTruthy();
   });
@@ -517,24 +516,29 @@ describe("runMergeNext", () => {
         tracker: {
           getIssue: vi.fn(async () => createIssue("aegis-321")),
         },
+        runtime: new ScriptedCasteRuntime({
+          janus: () => ({
+            output: createJanusRequeueOutput("aegis-321"),
+          }),
+        }),
       });
 
       expect(third).toMatchObject({
         issueId: "aegis-321",
         queueItemId: "queue-aegis-321",
         tier: "T3",
-        stage: "queued_for_merge",
-        status: "janus_requeued",
+        stage: "rework_required",
+        status: "failed",
       });
       expect(third.detail).toContain("attempt-2");
-      expect(third.detail).toContain("requeue");
+      expect(third.detail).toContain("requeue_parent");
       expect(JSON.parse(
         readFileSync(path.join(root, ".aegis", "merge-queue.json"), "utf8"),
       ).items[0]).toMatchObject({
         attempts: 3,
         janusInvocations: 1,
         lastTier: "T3",
-        status: "queued",
+        status: "failed",
       });
     } finally {
       if (previousPlan === undefined) {
@@ -545,7 +549,7 @@ describe("runMergeNext", () => {
     }
   });
 
-  it("dispatches sentinel-created follow-up issues on the next daemon cycle", async () => {
+  it("does not create Sentinel follow-up issues after merge completion", async () => {
     const root = createTempRoot();
     writeState(root, "aegis-444");
 
@@ -561,13 +565,7 @@ describe("runMergeNext", () => {
     const trackerWithFollowUps = {
       getIssue: vi.fn(async (issueId: string) => issueCatalog.get(issueId) ?? createIssue(issueId)),
       createIssue: vi.fn(async () => {
-        const followUpIssueId = "aegis-445";
-        issueCatalog.set(followUpIssueId, createIssue(followUpIssueId));
-        readyIssues.splice(0, readyIssues.length, {
-          id: followUpIssueId,
-          title: "Sentinel follow-up",
-        });
-        return followUpIssueId;
+        throw new Error("Sentinel must not create follow-up issues.");
       }),
     };
 
@@ -575,13 +573,7 @@ describe("runMergeNext", () => {
       tracker: trackerWithFollowUps as any,
       runtime: new ScriptedCasteRuntime({
         sentinel: () => ({
-          output: JSON.stringify({
-            verdict: "fail",
-            reviewSummary: "needs coverage hardening",
-            issuesFound: ["add sentinel regression seam"],
-            followUpIssueIds: [],
-            riskAreas: ["observability"],
-          }),
+          output: "{}",
         }),
       }),
       executor: {
@@ -596,12 +588,11 @@ describe("runMergeNext", () => {
     expect(mergeResult).toMatchObject({
       action: "merge_next",
       issueId: "aegis-444",
-      status: "failed",
-      stage: "failed",
+      status: "merged",
+      stage: "complete",
     });
-    expect(readyIssues).toEqual([
-      { id: "aegis-445", title: "Sentinel follow-up" },
-    ]);
+    expect(trackerWithFollowUps.createIssue).not.toHaveBeenCalled();
+    expect(readyIssues).toEqual([]);
 
     const runtime: AgentRuntime = {
       launch: vi.fn(async (input) => ({
@@ -617,20 +608,12 @@ describe("runMergeNext", () => {
       sessionProvenanceId: "daemon-test",
     });
 
-    expect(runtime.launch).toHaveBeenCalledWith(expect.objectContaining({
-      issueId: "aegis-445",
-      caste: "oracle",
-      stage: "scouting",
-    }));
+    expect(runtime.launch).not.toHaveBeenCalled();
 
     const dispatchState = loadDispatchState(root);
-    expect(dispatchState.records["aegis-445"]).toMatchObject({
-      issueId: "aegis-445",
-      stage: "scouting",
-      runningAgent: {
-        caste: "oracle",
-      },
-      sessionProvenanceId: "daemon-test",
+    expect(dispatchState.records["aegis-444"]).toMatchObject({
+      issueId: "aegis-444",
+      stage: "complete",
     });
   });
 });
