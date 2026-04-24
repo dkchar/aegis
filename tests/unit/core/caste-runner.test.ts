@@ -77,6 +77,39 @@ function createTitanSessionResult(
   };
 }
 
+function createOracleOutput(overrides: Record<string, unknown> = {}) {
+  return JSON.stringify({
+    files_affected: [],
+    estimated_complexity: "moderate",
+    risks: [],
+    suggested_checks: [],
+    scope_notes: [],
+    ...overrides,
+  });
+}
+
+function createSentinelPassOutput() {
+  return JSON.stringify({
+    verdict: "pass",
+    reviewSummary: "looks good",
+    blockingFindings: [],
+    advisories: [],
+    touchedFiles: [],
+    contractChecks: [],
+  });
+}
+
+function createSentinelFailOutput() {
+  return JSON.stringify({
+    verdict: "fail_blocking",
+    reviewSummary: "needs fixes",
+    blockingFindings: ["update tests", "tighten validation"],
+    advisories: ["naming can improve later"],
+    touchedFiles: ["src/index.ts"],
+    contractChecks: ["issue contract"],
+  });
+}
+
 describe("runCasteCommand", () => {
   it("tells Oracle not to decompose tracker-defined executable work", async () => {
     const root = createTempRoot();
@@ -91,19 +124,14 @@ describe("runCasteCommand", () => {
       },
       runtime: new ScriptedCasteRuntime({
         oracle: () => ({
-          output: JSON.stringify({
-            files_affected: [],
-            estimated_complexity: "moderate",
-            decompose: false,
-            ready: true,
-          }),
+          output: createOracleOutput(),
         }),
       }),
     });
 
     const transcriptPath = path.join(root, ".aegis", "transcripts", "aegis-guard--oracle.json");
     expect(JSON.parse(readFileSync(transcriptPath, "utf8"))).toMatchObject({
-      prompt: expect.stringContaining("Do not decompose ordinary implementation breakdown"),
+      prompt: expect.stringContaining("Do not decide readiness"),
     });
   });
 
@@ -129,12 +157,7 @@ describe("runCasteCommand", () => {
         },
         {
           oracle: () => ({
-          output: JSON.stringify({
-            files_affected: ["src/index.ts"],
-            estimated_complexity: "moderate",
-            decompose: false,
-            ready: true,
-          }),
+          output: createOracleOutput({ files_affected: ["src/index.ts"] }),
           toolsUsed: ["read_file"],
           }),
         },
@@ -154,7 +177,10 @@ describe("runCasteCommand", () => {
       ],
     });
     expect(JSON.parse(readFileSync(artifactPath, "utf8"))).toMatchObject({
-      ready: true,
+      files_affected: ["src/index.ts"],
+      risks: [],
+      suggested_checks: [],
+      scope_notes: [],
       session: {
         transcriptRef: path.join(".aegis", "transcripts", "aegis-123--oracle.json"),
         prompt: expect.stringContaining("Scout aegis-123: Example"),
@@ -187,10 +213,10 @@ describe("runCasteCommand", () => {
         },
         {
           role: "assistant",
-          content: expect.stringContaining("\"ready\":true"),
+          content: expect.stringContaining("\"scope_notes\""),
         },
       ],
-      outputText: expect.stringContaining("\"ready\":true"),
+      outputText: expect.stringContaining("\"scope_notes\""),
       status: "succeeded",
       error: null,
       startedAt: expect.any(String),
@@ -233,12 +259,7 @@ describe("runCasteCommand", () => {
       },
       runtime: new ScriptedCasteRuntime({
         oracle: () => ({
-          output: JSON.stringify({
-            files_affected: [],
-            estimated_complexity: "moderate",
-            decompose: false,
-            ready: true,
-          }),
+          output: createOracleOutput(),
         }),
       }),
     });
@@ -339,7 +360,7 @@ describe("runCasteCommand", () => {
       });
   });
 
-  it("persists Titan clarification and fails closed instead of auto-retrying", async () => {
+  it("routes Titan clarification blockers through policy and blocks the parent", async () => {
     const root = createTempRoot();
     saveDispatchState(root, {
       schemaVersion: 1,
@@ -371,12 +392,20 @@ describe("runCasteCommand", () => {
       learnings_written_to_mnemosyne: [],
       blocking_question: "Which stack?",
       handoff_note: "Need defaults.",
+      mutation_proposal: {
+        proposal_type: "create_clarification_blocker",
+        summary: "Which stack?",
+        suggested_title: "Clarify stack for aegis-125",
+        suggested_description: "Implementation needs stack choice before proceeding.",
+        scope_evidence: ["Issue does not name the required stack."],
+      },
     });
     const runtimeRun = vi
       .fn()
       .mockResolvedValueOnce(createTitanSessionResult(clarificationOutput, "session-1"));
 
     const createClarificationIssue = vi.fn(async () => "aegis-clarify-1");
+    const linkBlockingIssue = vi.fn(async () => undefined);
 
     const result = await runCasteCommand({
       root,
@@ -385,6 +414,7 @@ describe("runCasteCommand", () => {
       tracker: {
         getIssue: vi.fn(async () => createIssue("aegis-125")),
         createIssue: createClarificationIssue,
+        linkBlockingIssue,
       },
       runtime: {
         run: runtimeRun,
@@ -398,19 +428,23 @@ describe("runCasteCommand", () => {
     expect(result).toMatchObject({
       action: "implement",
       issueId: "aegis-125",
-      stage: "failed",
+      stage: "blocked_on_child",
       artifactRefs: [
         path.join(".aegis", "titan", "aegis-125.json"),
+        expect.stringContaining(path.join(".aegis", "policy")),
         path.join(".aegis", "transcripts", "aegis-125--titan.json"),
       ],
     });
     expect(createClarificationIssue).toHaveBeenCalledTimes(1);
+    expect(linkBlockingIssue).toHaveBeenCalledWith({
+      blockingIssueId: "aegis-clarify-1",
+      blockedIssueId: "aegis-125",
+    }, root);
 
     expect(JSON.parse(readFileSync(path.join(root, ".aegis", "titan", "aegis-125.json"), "utf8")))
       .toMatchObject({
         outcome: "clarification",
         summary: "workspace ambiguous",
-        clarificationIssueId: "aegis-clarify-1",
         session: {
           transcriptRef: path.join(".aegis", "transcripts", "aegis-125--titan.json"),
           sessionId: "session-1",
@@ -477,7 +511,7 @@ describe("runCasteCommand", () => {
     expect(existsSync(path.join(root, ".aegis", "titan", "aegis-124.json"))).toBe(false);
   });
 
-  it("blocks Titan implementation when Oracle assessment marked the issue not ready", async () => {
+  it("ignores legacy Oracle veto fields when running Titan implementation", async () => {
     const root = createTempRoot();
     saveDispatchState(root, {
       schemaVersion: 1,
@@ -525,7 +559,11 @@ describe("runCasteCommand", () => {
       resolveBaseBranch: () => "main",
       resolveLaborBasePath: () => ".aegis/labors",
       ensureLabor: vi.fn(),
-    })).rejects.toThrow("Titan requires an Oracle-ready scouted issue.");
+    })).resolves.toMatchObject({
+      action: "implement",
+      issueId: "aegis-124b",
+      stage: "implemented",
+    });
   });
 
   it("captures git proof refs when Titan runs in a real labor worktree", async () => {
@@ -611,19 +649,20 @@ describe("runCasteCommand", () => {
     expect(artifact.git_proof.diff_ref).toBeTruthy();
   });
 
-  it("clears review-stage refs when implement reruns from a later record", async () => {
+  it("clears review-stage refs when implement reruns from same-parent rework", async () => {
     const root = createTempRoot();
     saveDispatchState(root, {
       schemaVersion: 1,
       records: {
         "aegis-123": {
           issueId: "aegis-123",
-          stage: "reviewed",
+          stage: "rework_required",
           runningAgent: null,
           oracleAssessmentRef: path.join(".aegis", "oracle", "aegis-123.json"),
           titanHandoffRef: path.join(".aegis", "titan", "old.json"),
           titanClarificationRef: path.join(".aegis", "titan", "clarify.json"),
           sentinelVerdictRef: path.join(".aegis", "sentinel", "old.json"),
+          reviewFeedbackRef: path.join(".aegis", "sentinel", "old.json"),
           janusArtifactRef: path.join(".aegis", "janus", "old.json"),
           failureTranscriptRef: path.join(".aegis", "transcripts", "old.log"),
           fileScope: null,
@@ -681,7 +720,7 @@ describe("runCasteCommand", () => {
     });
   });
 
-  it("stops process at the Phase F queue boundary after implementation", async () => {
+  it("runs Sentinel before merge queue admission after implementation", async () => {
     const root = createTempRoot();
     mkdirSync(path.join(root, ".aegis", "titan"), { recursive: true });
     writeFileSync(
@@ -728,26 +767,28 @@ describe("runCasteCommand", () => {
       tracker: {
         getIssue: vi.fn(async () => createIssue("aegis-123")),
       },
-      runtime: new ScriptedCasteRuntime(),
+      runtime: new ScriptedCasteRuntime({
+        sentinel: () => ({
+          output: createSentinelPassOutput(),
+        }),
+      }),
     });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       action: "process",
       issueId: "aegis-123",
       stage: "queued_for_merge",
-      queueItemId: "queue-aegis-123",
-      nextAction: "merge_next",
     });
   });
 
-  it("rejects review before merge so Sentinel stays strictly post-merge", async () => {
+  it("rejects review before implementation", async () => {
     const root = createTempRoot();
     saveDispatchState(root, {
       schemaVersion: 1,
       records: {
         "aegis-999": {
           issueId: "aegis-999",
-          stage: "implemented",
+          stage: "scouted",
           runningAgent: null,
           oracleAssessmentRef: path.join(".aegis", "oracle", "aegis-999.json"),
           titanHandoffRef: path.join(".aegis", "titan", "aegis-999.json"),
@@ -775,23 +816,24 @@ describe("runCasteCommand", () => {
           output: JSON.stringify({
             verdict: "pass",
             reviewSummary: "should not run yet",
-            issuesFound: [],
-            followUpIssueIds: [],
-            riskAreas: [],
+            blockingFindings: [],
+            advisories: [],
+            touchedFiles: [],
+            contractChecks: [],
           }),
         }),
       }),
-    })).rejects.toThrow("Review requires a merged issue.");
+    })).rejects.toThrow("Review requires an implemented issue.");
   });
 
-  it("closes the tracker issue after a successful Sentinel review", async () => {
+  it("queues the candidate after a successful pre-merge Sentinel review without closing the tracker issue", async () => {
     const root = createTempRoot();
     saveDispatchState(root, {
       schemaVersion: 1,
       records: {
         "aegis-999": {
           issueId: "aegis-999",
-          stage: "merged",
+          stage: "implemented",
           runningAgent: null,
           oracleAssessmentRef: path.join(".aegis", "oracle", "aegis-999.json"),
           titanHandoffRef: path.join(".aegis", "titan", "aegis-999.json"),
@@ -819,13 +861,7 @@ describe("runCasteCommand", () => {
       },
       runtime: new ScriptedCasteRuntime({
         sentinel: () => ({
-          output: JSON.stringify({
-            verdict: "pass",
-            reviewSummary: "looks good",
-            issuesFound: [],
-            followUpIssueIds: [],
-            riskAreas: [],
-          }),
+          output: createSentinelPassOutput(),
         }),
       }),
     });
@@ -833,19 +869,19 @@ describe("runCasteCommand", () => {
     expect(result).toMatchObject({
       action: "review",
       issueId: "aegis-999",
-      stage: "reviewed",
+      stage: "queued_for_merge",
     });
-    expect(closeIssue).toHaveBeenCalledWith("aegis-999", root);
+    expect(closeIssue).not.toHaveBeenCalled();
   });
 
-  it("auto-creates follow-up issues when Sentinel fails without pre-registered IDs", async () => {
+  it("sends Sentinel blocking findings to same-parent rework without creating issues", async () => {
     const root = createTempRoot();
     saveDispatchState(root, {
       schemaVersion: 1,
       records: {
         "aegis-1001": {
           issueId: "aegis-1001",
-          stage: "merged",
+          stage: "implemented",
           runningAgent: null,
           oracleAssessmentRef: path.join(".aegis", "oracle", "aegis-1001.json"),
           titanHandoffRef: path.join(".aegis", "titan", "aegis-1001.json"),
@@ -861,10 +897,7 @@ describe("runCasteCommand", () => {
       },
     });
 
-    const createFollowUpIssue = vi
-      .fn()
-      .mockResolvedValueOnce("aegis-2001")
-      .mockResolvedValueOnce("aegis-2002");
+    const createFollowUpIssue = vi.fn(async () => "should-not-create");
     const closeIssue = vi.fn(async () => undefined);
 
     const result = await runCasteCommand({
@@ -878,13 +911,7 @@ describe("runCasteCommand", () => {
       },
       runtime: new ScriptedCasteRuntime({
         sentinel: () => ({
-          output: JSON.stringify({
-            verdict: "fail",
-            reviewSummary: "needs fixes",
-            issuesFound: ["update tests", "tighten validation"],
-            followUpIssueIds: [],
-            riskAreas: ["coverage", "runtime checks"],
-          }),
+          output: createSentinelFailOutput(),
         }),
       }),
     });
@@ -892,36 +919,16 @@ describe("runCasteCommand", () => {
     expect(result).toMatchObject({
       action: "review",
       issueId: "aegis-1001",
-      stage: "failed",
+      stage: "rework_required",
     });
-    expect(createFollowUpIssue).toHaveBeenCalledTimes(2);
+    expect(createFollowUpIssue).not.toHaveBeenCalled();
     expect(closeIssue).not.toHaveBeenCalled();
-    expect(createFollowUpIssue).toHaveBeenNthCalledWith(1, {
-      title: "[sentinel][aegis-1001] update tests",
-      description: [
-        "Auto-created from Sentinel review for aegis-1001.",
-        "Review summary: needs fixes",
-        "Finding: update tests",
-        "Risk areas: coverage, runtime checks",
-      ].join("\n"),
-      dependencies: ["discovered-from:aegis-1001"],
-    }, root);
-    expect(createFollowUpIssue).toHaveBeenNthCalledWith(2, {
-      title: "[sentinel][aegis-1001] tighten validation",
-      description: [
-        "Auto-created from Sentinel review for aegis-1001.",
-        "Review summary: needs fixes",
-        "Finding: tighten validation",
-        "Risk areas: coverage, runtime checks",
-      ].join("\n"),
-      dependencies: ["discovered-from:aegis-1001"],
-    }, root);
 
     expect(JSON.parse(
       readFileSync(path.join(root, ".aegis", "sentinel", "aegis-1001.json"), "utf8"),
     )).toMatchObject({
-      verdict: "fail",
-      followUpIssueIds: ["aegis-2001", "aegis-2002"],
+      verdict: "fail_blocking",
+      blockingFindings: ["update tests", "tighten validation"],
     });
 
     const phaseLogDirectory = path.join(root, ".aegis", "logs", "phases");
@@ -936,36 +943,24 @@ describe("runCasteCommand", () => {
       .filter((entry) => entry.issueId === "aegis-1001");
 
     expect(phaseActions.some((entry) => entry.action === "sentinel_review_started")).toBe(true);
-    expect(phaseActions.some((entry) => entry.action === "sentinel_issues_discovered")).toBe(true);
-    expect(phaseActions.filter((entry) => entry.action === "sentinel_followup_created")).toHaveLength(2);
+    expect(phaseActions.some((entry) => entry.action === "sentinel_blocking_findings")).toBe(true);
     expect(phaseActions.some((entry) =>
-      entry.action === "sentinel_review_completed" && entry.outcome === "failed_with_followups",
+      entry.action === "sentinel_review_completed" && entry.outcome === "rework_required",
     )).toBe(true);
   });
 
-  it("reuses previously created Sentinel follow-up ids on review rerun", async () => {
+  it("does not create Sentinel follow-up issues on review rerun", async () => {
     const root = createTempRoot();
     mkdirSync(path.join(root, ".aegis", "sentinel"), { recursive: true });
     writeFileSync(
       path.join(root, ".aegis", "sentinel", "aegis-1002.json"),
       `${JSON.stringify({
-        verdict: "fail",
+        verdict: "fail_blocking",
         reviewSummary: "needs fixes",
-        issuesFound: ["update tests", "tighten validation"],
-        followUpIssueIds: ["aegis-2001", "aegis-2002"],
-        riskAreas: ["coverage", "runtime checks"],
-        followUpIssues: [
-          {
-            finding: "update tests",
-            fingerprint: "stub-1",
-            issueId: "aegis-2001",
-          },
-          {
-            finding: "tighten validation",
-            fingerprint: "stub-2",
-            issueId: "aegis-2002",
-          },
-        ],
+        blockingFindings: ["update tests", "tighten validation"],
+        advisories: ["coverage"],
+        touchedFiles: ["src/index.ts"],
+        contractChecks: ["issue contract"],
       }, null, 2)}\n`,
       "utf8",
     );
@@ -974,7 +969,7 @@ describe("runCasteCommand", () => {
       records: {
         "aegis-1002": {
           issueId: "aegis-1002",
-          stage: "failed",
+          stage: "implemented",
           runningAgent: null,
           oracleAssessmentRef: path.join(".aegis", "oracle", "aegis-1002.json"),
           titanHandoffRef: path.join(".aegis", "titan", "aegis-1002.json"),
@@ -1006,13 +1001,7 @@ describe("runCasteCommand", () => {
       },
       runtime: new ScriptedCasteRuntime({
         sentinel: () => ({
-          output: JSON.stringify({
-            verdict: "fail",
-            reviewSummary: "still needs fixes",
-            issuesFound: ["tighten validation", "update tests"],
-            followUpIssueIds: [],
-            riskAreas: ["coverage", "runtime checks"],
-          }),
+          output: createSentinelFailOutput(),
         }),
       }),
     });
@@ -1020,18 +1009,18 @@ describe("runCasteCommand", () => {
     expect(result).toMatchObject({
       action: "review",
       issueId: "aegis-1002",
-      stage: "failed",
+      stage: "rework_required",
     });
     expect(createFollowUpIssue).not.toHaveBeenCalled();
     expect(JSON.parse(
       readFileSync(path.join(root, ".aegis", "sentinel", "aegis-1002.json"), "utf8"),
     )).toMatchObject({
-      verdict: "fail",
-      followUpIssueIds: ["aegis-2002", "aegis-2001"],
+      verdict: "fail_blocking",
+      blockingFindings: ["update tests", "tighten validation"],
     });
   });
 
-  it("fails fast when Oracle requests unsupported decomposition", async () => {
+  it("rejects legacy Oracle decomposition fields at the tool-contract boundary", async () => {
     const root = createTempRoot();
     saveDispatchState(root, emptyDispatchState());
 
@@ -1053,7 +1042,7 @@ describe("runCasteCommand", () => {
           }),
         }),
       }),
-    })).rejects.toThrow("Oracle decomposition is not supported for executable issue progression.");
+    })).rejects.toThrow("Oracle assessment contains an unexpected field: decompose");
 
     const state = JSON.parse(
       readFileSync(path.join(root, ".aegis", "dispatch-state.json"), "utf8"),
@@ -1066,12 +1055,7 @@ describe("runCasteCommand", () => {
       }>;
     };
 
-    expect(state.records["aegis-decompose"]).toMatchObject({
-      stage: "failed",
-      oracleAssessmentRef: path.join(".aegis", "oracle", "aegis-decompose.json"),
-      oracleReady: true,
-      oracleDecompose: true,
-    });
+    expect(state.records["aegis-decompose"]).toBeUndefined();
   });
 
   it("writes janus start and completion phase logs during integration resolution", async () => {
@@ -1123,7 +1107,11 @@ describe("runCasteCommand", () => {
             filesTouched: ["src/index.ts"],
             validationsRun: ["npm test"],
             residualRisks: [],
-            recommendedNextAction: "requeue",
+            mutation_proposal: {
+              proposal_type: "requeue_parent",
+              summary: "Refresh parent candidate with integration context.",
+              scope_evidence: ["Conflict is in touched parent scope."],
+            },
           }),
         }),
       }),
@@ -1132,7 +1120,7 @@ describe("runCasteCommand", () => {
     expect(result).toMatchObject({
       action: "process",
       issueId: "aegis-janus-1",
-      stage: "queued_for_merge",
+      stage: "rework_required",
     });
 
     const phaseLogDirectory = path.join(root, ".aegis", "logs", "phases");
@@ -1149,7 +1137,7 @@ describe("runCasteCommand", () => {
     const completed = phaseActions.find((entry) => entry.action === "janus_resolution_completed");
     expect(started).toBeTruthy();
     expect(completed).toBeTruthy();
-    expect(completed?.outcome).toBe("queued_for_merge");
+    expect(completed?.outcome).toBe("rework_required");
 
     const startedDetail = JSON.parse(started?.detail ?? "{}") as Record<string, unknown>;
     expect(startedDetail).toMatchObject({
@@ -1166,18 +1154,18 @@ describe("runCasteCommand", () => {
       queueItemId: "queue-aegis-janus-1",
       conflictSummary: "deterministic conflict context",
       resolutionStrategy: "keep both changes",
-      recommendedNextAction: "requeue",
+      mutationProposal: "requeue_parent",
     });
   });
 
-  it("does not persist reviewed when tracker close fails after a passing review", async () => {
+  it("does not close tracker issue during passing pre-merge review", async () => {
     const root = createTempRoot();
     saveDispatchState(root, {
       schemaVersion: 1,
       records: {
         "aegis-1000": {
           issueId: "aegis-1000",
-          stage: "merged",
+          stage: "implemented",
           runningAgent: null,
           oracleAssessmentRef: path.join(".aegis", "oracle", "aegis-1000.json"),
           titanHandoffRef: path.join(".aegis", "titan", "aegis-1000.json"),
@@ -1193,28 +1181,28 @@ describe("runCasteCommand", () => {
       },
     });
 
+    const closeIssue = vi.fn(async () => {
+      throw new Error("bd close failed");
+    });
+
     await expect(runCasteCommand({
       root,
       action: "review",
       issueId: "aegis-1000",
       tracker: {
         getIssue: vi.fn(async () => createIssue("aegis-1000")),
-        closeIssue: vi.fn(async () => {
-          throw new Error("bd close failed");
-        }),
+        closeIssue,
       },
       runtime: new ScriptedCasteRuntime({
         sentinel: () => ({
-          output: JSON.stringify({
-            verdict: "pass",
-            reviewSummary: "looks good",
-            issuesFound: [],
-            followUpIssueIds: [],
-            riskAreas: [],
-          }),
+          output: createSentinelPassOutput(),
         }),
       }),
-    })).rejects.toThrow("bd close failed");
+    })).resolves.toMatchObject({
+      issueId: "aegis-1000",
+      stage: "queued_for_merge",
+    });
+    expect(closeIssue).not.toHaveBeenCalled();
 
     const state = JSON.parse(
       readFileSync(path.join(root, ".aegis", "dispatch-state.json"), "utf8"),
@@ -1223,7 +1211,7 @@ describe("runCasteCommand", () => {
     };
 
     expect(state.records["aegis-1000"]).toMatchObject({
-      stage: "merged",
+      stage: "queued_for_merge",
     });
   });
 });
