@@ -1,5 +1,5 @@
 import path from "node:path";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -117,6 +117,79 @@ describe("applyMutationProposal", () => {
     });
   });
 
+  it("rejects Sentinel mutation proposals as not permitted", async () => {
+    const root = createTempRoot();
+
+    await expect(applyMutationProposal({
+      root,
+      tracker: createTracker(),
+      record: createRecord(),
+      proposal: createProposal({
+        originCaste: "sentinel",
+      }),
+      now: "2026-04-24T10:00:00.000Z",
+    })).resolves.toMatchObject({
+      outcome: "rejected",
+      rejectionReason: "caste_not_permitted",
+    });
+  });
+
+  it("rejects non-blocking issue creation in auto mode", async () => {
+    const root = createTempRoot();
+
+    await expect(applyMutationProposal({
+      root,
+      tracker: createTracker(),
+      record: createRecord(),
+      proposal: createProposal({ blocking: false }),
+      now: "2026-04-24T10:00:00.000Z",
+    })).resolves.toMatchObject({
+      outcome: "rejected",
+      rejectionReason: "non_blocking_not_allowed",
+    });
+  });
+
+  it("rejects blocker creation when tracker mutation methods are unavailable", async () => {
+    const root = createTempRoot();
+
+    await expect(applyMutationProposal({
+      root,
+      tracker: { listReadyIssues: vi.fn(async () => []) },
+      record: createRecord(),
+      proposal: createProposal(),
+      now: "2026-04-24T10:00:00.000Z",
+    })).resolves.toMatchObject({
+      outcome: "rejected",
+      rejectionReason: "missing_tracker_method",
+    });
+  });
+
+  it("accepts Janus same-parent requeue without creating a child issue", async () => {
+    const root = createTempRoot();
+    const tracker = createTracker();
+
+    const result = await applyMutationProposal({
+      root,
+      tracker,
+      record: createRecord({ stage: "resolving_integration" }),
+      proposal: createProposal({
+        originCaste: "janus",
+        proposalType: "requeue_parent",
+        blocking: false,
+        suggestedTitle: undefined,
+        suggestedDescription: undefined,
+      }),
+      now: "2026-04-24T10:00:00.000Z",
+    });
+
+    expect(result).toMatchObject({
+      outcome: "requeued",
+      parentStage: "rework_required",
+      childIssueId: null,
+    });
+    expect(tracker.createIssue).not.toHaveBeenCalled();
+  });
+
   it("reuses an existing open blocker when the fingerprint matches", async () => {
     const root = createTempRoot();
     const tracker = createTracker();
@@ -142,5 +215,21 @@ describe("applyMutationProposal", () => {
     });
 
     expect(tracker.createIssue).not.toHaveBeenCalled();
+  });
+
+  it("persists policy artifacts atomically under .aegis/policy", async () => {
+    const root = createTempRoot();
+
+    const result = await applyMutationProposal({
+      root,
+      tracker: createTracker(),
+      record: createRecord(),
+      proposal: createProposal(),
+      now: "2026-04-24T10:00:00.000Z",
+    });
+
+    expect(result.policyArtifactRef).toContain(path.join(".aegis", "policy"));
+    expect(existsSync(path.join(root, result.policyArtifactRef))).toBe(true);
+    expect(existsSync(path.join(root, `${result.policyArtifactRef}.tmp`))).toBe(false);
   });
 });

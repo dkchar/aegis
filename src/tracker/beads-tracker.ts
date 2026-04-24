@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import type {
   TrackerClient,
   TrackerCreateIssueInput,
+  TrackerLinkInput,
   TrackerReadyIssue,
 } from "./tracker.js";
 import type { AegisIssue, IssueStatus, WorkIssueClass } from "./issue-model.js";
@@ -280,6 +281,30 @@ export class BeadsTrackerClient implements TrackerClient {
           }
 
           resolve(issueId);
+        },
+      );
+    });
+  }
+
+  async linkBlockingIssue(input: TrackerLinkInput, root = process.cwd()): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.execFileImpl(
+        "bd",
+        ["link", input.blockingIssueId, input.blockedIssueId, "--type", "blocks"],
+        {
+          cwd: root,
+          encoding: "utf8",
+          maxBuffer: 10 * 1024 * 1024,
+          windowsHide: true,
+        },
+        (error, _stdout, stderr) => {
+          if (error) {
+            const detail = stderr?.trim() ? ` ${stderr.trim()}` : "";
+            reject(new Error(`bd link failed:${detail}`));
+            return;
+          }
+
+          resolve();
         },
       );
     });

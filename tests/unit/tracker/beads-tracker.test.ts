@@ -105,4 +105,54 @@ describe("BeadsTrackerClient", () => {
       expect.any(Function),
     );
   });
+
+  it("links a blocking issue through bd link with blocks relationship", async () => {
+    const execFile = vi.fn(
+      (
+        _command: string,
+        _args: readonly string[],
+        _options: object,
+        callback: (error: Error | null, stdout: string, stderr: string) => void,
+      ) => {
+        callback(null, "", "");
+      },
+    );
+    const tracker = new BeadsTrackerClient({ execFile });
+
+    await tracker.linkBlockingIssue?.({
+      blockingIssueId: "aegis-child-1",
+      blockedIssueId: "aegis-parent-1",
+    }, "repo");
+
+    expect(execFile).toHaveBeenCalledWith(
+      "bd",
+      ["link", "aegis-child-1", "aegis-parent-1", "--type", "blocks"],
+      expect.objectContaining({
+        cwd: "repo",
+        encoding: "utf8",
+        maxBuffer: 10 * 1024 * 1024,
+        windowsHide: true,
+      }),
+      expect.any(Function),
+    );
+  });
+
+  it("reports bd link stderr when blocking link creation fails", async () => {
+    const execFile = vi.fn(
+      (
+        _command: string,
+        _args: readonly string[],
+        _options: object,
+        callback: (error: Error | null, stdout: string, stderr: string) => void,
+      ) => {
+        callback(new Error("exit 1"), "", "cannot link");
+      },
+    );
+    const tracker = new BeadsTrackerClient({ execFile });
+
+    await expect(tracker.linkBlockingIssue?.({
+      blockingIssueId: "aegis-child-1",
+      blockedIssueId: "aegis-parent-1",
+    }, "repo")).rejects.toThrow("bd link failed: cannot link");
+  });
 });
