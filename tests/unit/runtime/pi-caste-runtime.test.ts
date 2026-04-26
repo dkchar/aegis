@@ -782,6 +782,39 @@ describe("PiCasteRuntime", () => {
     expect(originalBashTool?.execute).not.toHaveBeenCalled();
   });
 
+  it("blocks Titan file mutations outside declared file scope", async () => {
+    const fixture = CONTRACT_FIXTURES.find((candidate) => candidate.caste === "titan");
+    if (!fixture) {
+      throw new Error("Missing titan fixture.");
+    }
+
+    configureToolSuccess(fixture);
+    const runtime = createSingleCasteRuntime("titan");
+
+    await runtime.run({
+      caste: "titan",
+      issueId: "aegis-file-scope",
+      root: "repo",
+      workingDirectory: "repo/titan",
+      prompt: "Allowed file scope: docs/setup-contract.md",
+    });
+
+    const createSessionCall = mockedAgent.createAgentSession.mock.calls.at(-1) as [
+      { tools?: Array<{ name: string; execute: (...args: any[]) => Promise<unknown> }> },
+    ] | undefined;
+    const writeTool = createSessionCall?.[0].tools?.find((tool) => tool.name === "write");
+
+    await expect(writeTool?.execute("call-1", {
+      path: "package.json",
+      content: "{}\n",
+    }, undefined, undefined)).rejects.toThrow("write path is outside allowed file scope");
+
+    await expect(writeTool?.execute("call-2", {
+      path: "docs/setup-contract.md",
+      content: "contract\n",
+    }, undefined, undefined)).resolves.toEqual({ content: [], isError: false });
+  });
+
   it("isolates Pi sessions from discovered extensions", async () => {
     const fixture = CONTRACT_FIXTURES.find((candidate) => candidate.caste === "titan");
     if (!fixture) {

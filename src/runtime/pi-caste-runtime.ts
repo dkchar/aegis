@@ -377,6 +377,40 @@ function assertPathWithinWorkingDirectory(
   }
 }
 
+function normalizeScopedPath(candidate: string, workingDirectory: string) {
+  const resolvedWorkingDirectory = path.resolve(workingDirectory);
+  const resolvedCandidate = resolvePathWithinWorkingDirectory(candidate, workingDirectory);
+  return path.relative(resolvedWorkingDirectory, resolvedCandidate)
+    .replace(/\\/g, "/")
+    .replace(/^\.\//, "")
+    .trim();
+}
+
+function assertPathWithinAllowedFileScope(
+  candidate: string,
+  workingDirectory: string,
+  allowedFileScope: string[],
+  toolName: string,
+) {
+  if (allowedFileScope.length === 0) {
+    return;
+  }
+
+  const normalizedCandidate = normalizeScopedPath(candidate, workingDirectory);
+  const allowed = allowedFileScope.some((entry) => {
+    const normalizedEntry = entry.replace(/\\/g, "/").replace(/^\.\//, "").trim();
+    return normalizedCandidate === normalizedEntry
+      || (normalizedEntry.endsWith("/") && normalizedCandidate.startsWith(normalizedEntry));
+  });
+  if (allowed) {
+    return;
+  }
+
+  throw new Error(
+    `${toolName} path is outside allowed file scope: ${normalizedCandidate}`,
+  );
+}
+
 function tokenizeShellCommand(command: string) {
   return command.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
 }
@@ -521,12 +555,24 @@ function assertTitanGitCommandAllowed(args: string[]) {
 function wrapTitanFileTool<TTool extends { name: string; execute: (...args: any[]) => any }>(
   tool: TTool,
   workingDirectory: string,
+  options: {
+    allowedFileScope?: string[];
+    enforceAllowedScope?: boolean;
+  } = {},
 ) {
   return {
     ...tool,
     async execute(toolCallId: string, params: { path?: string }, signal: AbortSignal | undefined, onUpdate: unknown) {
       if (typeof params?.path === "string") {
         assertPathWithinWorkingDirectory(params.path, workingDirectory, tool.name);
+        if (options.enforceAllowedScope) {
+          assertPathWithinAllowedFileScope(
+            params.path,
+            workingDirectory,
+            options.allowedFileScope ?? [],
+            tool.name,
+          );
+        }
       }
 
       return tool.execute(toolCallId, params, signal, onUpdate);
@@ -572,8 +618,14 @@ function resolveTools(
         workingDirectory,
         allowedFileScope,
       ),
-      wrapTitanFileTool(piCodingAgent.createEditTool(workingDirectory), workingDirectory),
-      wrapTitanFileTool(piCodingAgent.createWriteTool(workingDirectory), workingDirectory),
+      wrapTitanFileTool(piCodingAgent.createEditTool(workingDirectory), workingDirectory, {
+        allowedFileScope,
+        enforceAllowedScope: true,
+      }),
+      wrapTitanFileTool(piCodingAgent.createWriteTool(workingDirectory), workingDirectory, {
+        allowedFileScope,
+        enforceAllowedScope: true,
+      }),
     ];
   }
 
