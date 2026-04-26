@@ -72,18 +72,18 @@ function defaultModelConfigs() {
 function runCodexExec(request: CodexRunRequest): Promise<CodexRunResult> {
   return new Promise((resolve) => {
     const child = spawn("codex", [
+      "-C",
+      request.cwd,
+      "-s",
+      "workspace-write",
+      "-a",
+      "never",
+      "-m",
+      request.modelId,
       "exec",
       "--json",
       "--output-last-message",
       request.outputPath,
-      "--cd",
-      request.cwd,
-      "--sandbox",
-      "workspace-write",
-      "--ask-for-approval",
-      "never",
-      "--model",
-      request.modelId,
       "-",
     ], {
       cwd: request.cwd,
