@@ -817,6 +817,14 @@ describe("PiCasteRuntime", () => {
       path: "docs/setup-contract.md",
       content: "contract\n",
     }, undefined, undefined)).resolves.toEqual({ content: [], isError: false });
+
+    const originalWriteTool = mockedAgent.createWriteTool.mock.results.at(-1)?.value as
+      | { execute: ReturnType<typeof vi.fn> }
+      | undefined;
+    expect(originalWriteTool?.execute).toHaveBeenLastCalledWith("call-2", {
+      path: path.resolve("repo/titan", "docs/setup-contract.md"),
+      content: "contract\n",
+    }, undefined, undefined);
   });
 
   it("blocks Titan package scaffolds outside declared package file scope", async () => {

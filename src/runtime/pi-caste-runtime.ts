@@ -612,6 +612,7 @@ function wrapTitanFileTool<TTool extends { name: string; execute: (...args: any[
   return {
     ...tool,
     async execute(toolCallId: string, params: { path?: string }, signal: AbortSignal | undefined, onUpdate: unknown) {
+      let normalizedParams = params;
       if (typeof params?.path === "string") {
         assertPathWithinWorkingDirectory(params.path, workingDirectory, tool.name);
         if (options.enforceAllowedScope) {
@@ -622,9 +623,13 @@ function wrapTitanFileTool<TTool extends { name: string; execute: (...args: any[
             tool.name,
           );
         }
+        normalizedParams = {
+          ...params,
+          path: resolvePathWithinWorkingDirectory(params.path, workingDirectory),
+        };
       }
 
-      return tool.execute(toolCallId, params, signal, onUpdate);
+      return tool.execute(toolCallId, normalizedParams, signal, onUpdate);
     },
   };
 }
