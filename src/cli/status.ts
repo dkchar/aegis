@@ -38,6 +38,14 @@ function calculateUptimeMs(startedAt: string) {
   return Math.max(0, Date.now() - startedEpoch);
 }
 
+function isActiveDispatchRecord(record: ReturnType<typeof loadDispatchState>["records"][string]) {
+  if (record.runningAgent !== null) {
+    return true;
+  }
+
+  return record.stage === "reviewing" && record.sentinelVerdictRef === null;
+}
+
 export function createStatusCommandContract(): StatusCommandContract {
   return {
     command: STATUS_COMMAND_NAME,
@@ -62,7 +70,7 @@ export async function getAegisStatus(
     : false;
   const activeAgentCount = isLiveDaemon
     ? Object.values(dispatchState.records).filter(
-      (record) => record.runningAgent !== null,
+      (record) => isActiveDispatchRecord(record),
     ).length
     : 0;
   const tracker = options.tracker ?? new BeadsTrackerClient();

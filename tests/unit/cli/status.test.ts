@@ -118,4 +118,57 @@ describe("getAegisStatus", () => {
       uptime_ms: 0,
     });
   });
+
+  it("counts pre-merge reviewing records without Sentinel verdict as active while daemon is live", async () => {
+    const root = createTempRoot();
+    mkdirSync(path.join(root, ".aegis"), { recursive: true });
+    writeFileSync(
+      path.join(root, ".aegis", "dispatch-state.json"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        records: {
+          "issue-review": {
+            issueId: "issue-review",
+            stage: "reviewing",
+            runningAgent: null,
+            oracleAssessmentRef: ".aegis/oracle/issue-review.json",
+            titanHandoffRef: ".aegis/titan/issue-review.json",
+            titanClarificationRef: null,
+            sentinelVerdictRef: null,
+            janusArtifactRef: null,
+            failureTranscriptRef: null,
+            fileScope: null,
+            failureCount: 0,
+            consecutiveFailures: 0,
+            failureWindowStartMs: null,
+            cooldownUntil: null,
+            sessionProvenanceId: String(process.pid),
+            updatedAt: "2026-04-21T00:00:00.000Z",
+          },
+        },
+      }, null, 2)}\n`,
+      "utf8",
+    );
+    writeFileSync(
+      path.join(root, ".aegis", "runtime-state.json"),
+      `${JSON.stringify({
+        schema_version: 1,
+        pid: process.pid,
+        server_state: "running",
+        mode: "auto",
+        started_at: "2026-04-21T00:00:00.000Z",
+      }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const status = await getAegisStatus(root, {
+      tracker: {
+        async listReadyIssues() {
+          return [];
+        },
+      },
+    });
+
+    expect(status.active_agents).toBe(1);
+  });
 });

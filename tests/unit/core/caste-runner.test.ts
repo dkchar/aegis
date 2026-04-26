@@ -1117,6 +1117,51 @@ describe("runCasteCommand", () => {
     expect(closeIssue).not.toHaveBeenCalled();
   });
 
+  it("runs Sentinel when daemon pre-marked an implemented issue as reviewing", async () => {
+    const root = createTempRoot();
+    writeTitanArtifact(root, "aegis-reviewing");
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: {
+        "aegis-reviewing": {
+          issueId: "aegis-reviewing",
+          stage: "reviewing",
+          runningAgent: null,
+          oracleAssessmentRef: path.join(".aegis", "oracle", "aegis-reviewing.json"),
+          titanHandoffRef: path.join(".aegis", "titan", "aegis-reviewing.json"),
+          sentinelVerdictRef: null,
+          fileScope: null,
+          failureCount: 0,
+          consecutiveFailures: 0,
+          failureWindowStartMs: null,
+          cooldownUntil: null,
+          sessionProvenanceId: "test",
+          updatedAt: "2026-04-14T12:00:00.000Z",
+        },
+      },
+    });
+
+    const result = await runCasteCommand({
+      root,
+      action: "review",
+      issueId: "aegis-reviewing",
+      tracker: {
+        getIssue: vi.fn(async () => createIssue("aegis-reviewing")),
+      },
+      runtime: new ScriptedCasteRuntime({
+        sentinel: () => ({
+          output: createSentinelPassOutput(),
+        }),
+      }),
+    });
+
+    expect(result).toMatchObject({
+      action: "review",
+      issueId: "aegis-reviewing",
+      stage: "queued_for_merge",
+    });
+  });
+
   it("sends Sentinel blocking findings to same-parent rework without creating issues", async () => {
     const root = createTempRoot();
     writeTitanArtifact(root, "aegis-1001");
