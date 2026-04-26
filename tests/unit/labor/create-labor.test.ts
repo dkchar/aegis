@@ -1,8 +1,19 @@
 import path from "node:path";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 import { describe, expect, it } from "vitest";
 
-import { buildLaborBranchName, planLaborCreation } from "../../../src/labor/create-labor.js";
+import { buildLaborBranchName, planLaborCreation, prepareLaborWorktree } from "../../../src/labor/create-labor.js";
+
+function runGit(cwd: string, args: string[]) {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
 
 describe("planLaborCreation", () => {
   it("creates a deterministic labor branch and worktree path per issue", () => {
@@ -23,5 +34,38 @@ describe("planLaborCreation", () => {
       plan.laborPath,
       "main",
     ]);
+  });
+
+  it("adds labor-local excludes for generated dependency artifacts", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "aegis-labor-"));
+    try {
+      runGit(root, ["init", "-b", "main"]);
+      runGit(root, ["config", "user.email", "test@example.com"]);
+      runGit(root, ["config", "user.name", "Test User"]);
+      writeFileSync(path.join(root, ".gitignore"), "labors/\n", "utf8");
+      writeFileSync(path.join(root, "README.md"), "baseline\n", "utf8");
+      runGit(root, ["add", ".gitignore", "README.md"]);
+      runGit(root, ["commit", "-m", "baseline"]);
+
+      const plan = planLaborCreation({
+        issueId: "aegis-123",
+        projectRoot: root,
+        baseBranch: "main",
+        laborBasePath: "labors",
+      });
+      prepareLaborWorktree(plan);
+
+      const commonGitDir = runGit(plan.laborPath, ["rev-parse", "--git-common-dir"]).trim();
+      const excludePath = path.join(path.resolve(plan.laborPath, commonGitDir), "info", "exclude");
+      const exclude = readFileSync(excludePath, "utf8");
+      expect(exclude).toContain("node_modules/");
+      expect(exclude).toContain("dist/");
+
+      mkdirSync(path.join(plan.laborPath, "node_modules", ".bin"), { recursive: true });
+      writeFileSync(path.join(plan.laborPath, "node_modules", ".bin", "vite"), "", "utf8");
+      expect(runGit(plan.laborPath, ["status", "--porcelain", "--untracked-files=all"])).toBe("");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
