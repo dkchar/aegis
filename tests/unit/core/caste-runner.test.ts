@@ -738,14 +738,15 @@ describe("runCasteCommand", () => {
       runtime: new ScriptedCasteRuntime({
         titan: (input) => {
           prompt = input.prompt;
-          writeFileSync(path.join(input.workingDirectory, "phase-i-proof.txt"), "proof\n", "utf8");
-          runGit(input.workingDirectory, ["add", "phase-i-proof.txt"]);
+          mkdirSync(path.join(input.workingDirectory, "src"), { recursive: true });
+          writeFileSync(path.join(input.workingDirectory, "src", "App.jsx"), "export default function App() { return null; }\n", "utf8");
+          runGit(input.workingDirectory, ["add", "src/App.jsx"]);
           runGit(input.workingDirectory, ["commit", "-m", "phase i"]);
           return {
             output: JSON.stringify({
               outcome: "success",
               summary: "implemented in worktree",
-              files_changed: ["phase-i-proof.txt"],
+              files_changed: ["src/App.jsx"],
               tests_and_checks_run: [],
               known_risks: [],
               follow_up_work: [],
@@ -954,6 +955,122 @@ describe("runCasteCommand", () => {
     };
 
     expect(state.records["aegis-236"]?.stage).toBe("scouted");
+  });
+
+  it("rejects Titan success when the project root head changes during implementation", async () => {
+    const root = createTempRoot();
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: {
+        "aegis-root-head": {
+          issueId: "aegis-root-head",
+          stage: "scouted",
+          runningAgent: null,
+          oracleAssessmentRef: path.join(".aegis", "oracle", "aegis-root-head.json"),
+          sentinelVerdictRef: null,
+          fileScope: null,
+          failureCount: 0,
+          consecutiveFailures: 0,
+          failureWindowStartMs: null,
+          cooldownUntil: null,
+          sessionProvenanceId: "test",
+          updatedAt: "2026-04-14T12:00:00.000Z",
+        },
+      },
+    });
+
+    initializeGitRepository(root);
+
+    await expect(runCasteCommand({
+      root,
+      action: "implement",
+      issueId: "aegis-root-head",
+      tracker: {
+        getIssue: vi.fn(async () => createIssue("aegis-root-head")),
+      },
+      runtime: new ScriptedCasteRuntime({
+        titan: (input) => {
+          writeFileSync(path.join(input.workingDirectory, "candidate.txt"), "candidate\n", "utf8");
+          runGit(input.workingDirectory, ["add", "candidate.txt"]);
+          runGit(input.workingDirectory, ["commit", "-m", "candidate commit"]);
+          writeFileSync(path.join(root, "root-commit.txt"), "root\n", "utf8");
+          runGit(root, ["add", "root-commit.txt"]);
+          runGit(root, ["commit", "-m", "root commit"]);
+          return {
+            output: JSON.stringify({
+              outcome: "success",
+              summary: "committed candidate and root branch",
+              files_changed: ["candidate.txt"],
+              tests_and_checks_run: [],
+              known_risks: [],
+              follow_up_work: [],
+              learnings_written_to_mnemosyne: [],
+            }),
+            toolsUsed: ["bash"],
+          };
+        },
+      }),
+      resolveBaseBranch: () => "main",
+      resolveLaborBasePath: () => "scratchpad",
+    })).rejects.toThrow("changed the project root HEAD");
+  });
+
+  it("rejects Titan artifact file links instead of treating them as changed paths", async () => {
+    const root = createTempRoot();
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: {
+        "aegis-file-link": {
+          issueId: "aegis-file-link",
+          stage: "scouted",
+          runningAgent: null,
+          oracleAssessmentRef: path.join(".aegis", "oracle", "aegis-file-link.json"),
+          sentinelVerdictRef: null,
+          fileScope: {
+            files: ["src/index.ts"],
+          },
+          failureCount: 0,
+          consecutiveFailures: 0,
+          failureWindowStartMs: null,
+          cooldownUntil: null,
+          sessionProvenanceId: "test",
+          updatedAt: "2026-04-14T12:00:00.000Z",
+        },
+      },
+    });
+
+    initializeGitRepository(root);
+
+    await expect(runCasteCommand({
+      root,
+      action: "implement",
+      issueId: "aegis-file-link",
+      tracker: {
+        getIssue: vi.fn(async () => createIssue("aegis-file-link")),
+      },
+      runtime: new ScriptedCasteRuntime({
+        titan: (input) => {
+          mkdirSync(path.join(input.workingDirectory, "src"), { recursive: true });
+          writeFileSync(path.join(input.workingDirectory, "src", "index.ts"), "export {};\n", "utf8");
+          runGit(input.workingDirectory, ["add", "src/index.ts"]);
+          runGit(input.workingDirectory, ["commit", "-m", "add index"]);
+          return {
+            output: JSON.stringify({
+              outcome: "success",
+              summary: "reported markdown link path",
+              files_changed: [`[src/index.ts](file://${path.join(root, "src", "index.ts")})`],
+              tests_and_checks_run: [],
+              known_risks: [],
+              follow_up_work: [],
+              learnings_written_to_mnemosyne: [],
+            }),
+            toolsUsed: ["bash"],
+          };
+        },
+      }),
+      resolveBaseBranch: () => "main",
+      resolveLaborBasePath: () => "scratchpad",
+    })).rejects.toThrow("invalid files_changed path");
   });
 
   it("clears review-stage refs when implement reruns from same-parent rework", async () => {

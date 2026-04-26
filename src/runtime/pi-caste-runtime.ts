@@ -405,10 +405,41 @@ function assertCommandWithinWorkingDirectory(command: string, workingDirectory: 
       continue;
     }
 
+    if (token === "git" && index + 1 < tokens.length) {
+      assertTitanGitCommandAllowed(tokens.slice(index + 1));
+      continue;
+    }
+
     if (looksLikePathToken(token)) {
       assertPathWithinWorkingDirectory(token, workingDirectory, "bash");
     }
   }
+}
+
+function assertTitanGitCommandAllowed(args: string[]) {
+  const subcommand = args.find((arg) => !arg.startsWith("-"));
+  if (!subcommand) {
+    return;
+  }
+
+  const forbiddenSubcommands = new Set([
+    "branch",
+    "checkout",
+    "merge",
+    "pull",
+    "push",
+    "rebase",
+    "reset",
+    "switch",
+    "worktree",
+  ]);
+  if (!forbiddenSubcommands.has(subcommand)) {
+    return;
+  }
+
+  throw new Error(
+    `Titan bash command cannot change git branch state: git ${subcommand}`,
+  );
 }
 
 function wrapTitanFileTool<TTool extends { name: string; execute: (...args: any[]) => any }>(

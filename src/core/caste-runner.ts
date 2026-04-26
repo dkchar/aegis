@@ -23,6 +23,7 @@ import {
   completeGitProofPair,
   hasAdvancedGitHead,
   persistGitProofArtifacts,
+  resolveCommittedChangedFiles,
   summarizeOperationalStatusDrift,
 } from "./git-proof.js";
 import {
@@ -360,12 +361,39 @@ function validateTitanSessionOutcome(input: {
   issueId: string;
   artifact: ReturnType<typeof parseTitanArtifact>;
   candidateBranch: string;
+  fileScope: { files: string[] } | null;
+  laborWorkingDirectory: string;
   laborProofPair: { before: ReturnType<typeof captureGitProofPair>["before"]; after: ReturnType<typeof captureGitProofPair>["after"] };
   rootProofPair: { before: ReturnType<typeof captureGitProofPair>["before"]; after: ReturnType<typeof captureGitProofPair>["after"] };
 }) {
   const rootDrift = summarizeOperationalStatusDrift(input.rootProofPair);
   if (rootDrift) {
     return `Titan implementation for ${input.issueId} dirtied the project root outside .aegis: ${rootDrift}.`;
+  }
+
+  if (
+    input.rootProofPair.before?.headCommit
+    && input.rootProofPair.after?.headCommit
+    && input.rootProofPair.before.headCommit !== input.rootProofPair.after.headCommit
+  ) {
+    return `Titan implementation for ${input.issueId} changed the project root HEAD from ${input.rootProofPair.before.headCommit} to ${input.rootProofPair.after.headCommit}.`;
+  }
+
+  const normalizedArtifactFiles = normalizeTitanArtifactChangedFiles(
+    input.issueId,
+    input.artifact.files_changed,
+  );
+  const committedFiles = resolveCommittedChangedFiles(
+    input.laborWorkingDirectory,
+    input.laborProofPair,
+  ).map((entry) => normalizeScopeFile(entry));
+  const scopeError = validateTitanChangedFilesScope(
+    input.issueId,
+    input.fileScope,
+    [...normalizedArtifactFiles, ...committedFiles],
+  );
+  if (scopeError) {
+    return scopeError;
   }
 
   const hasDurableGitProof = input.laborProofPair.before !== null && input.laborProofPair.after !== null;
@@ -385,6 +413,61 @@ function validateTitanSessionOutcome(input: {
     if (input.artifact.tests_and_checks_run.length === 0) {
       return `Titan already_satisfied handoff for ${input.issueId} must include verification checks.`;
     }
+  }
+
+  if (
+    input.artifact.outcome === "success"
+    && committedFiles.length > 0
+    && normalizedArtifactFiles.join("\n") !== committedFiles.join("\n")
+  ) {
+    return `Titan artifact files_changed for ${input.issueId} must match committed git proof.`;
+  }
+
+  return null;
+}
+
+function normalizeTitanArtifactChangedFiles(issueId: string, filesChanged: string[]) {
+  return filesChanged.map((entry) => {
+    const trimmed = entry.trim();
+    if (
+      trimmed.length === 0
+      || /\[[^\]]+\]\([^)]+\)/.test(trimmed)
+      || /^[a-z][a-z0-9+.-]*:/i.test(trimmed)
+    ) {
+      throw new Error(`Titan artifact for ${issueId} contains invalid files_changed path: ${entry}`);
+    }
+
+    const normalized = normalizeScopeFile(trimmed);
+    if (
+      normalized.length === 0
+      || normalized.startsWith("../")
+      || normalized === ".."
+      || path.isAbsolute(normalized)
+      || /^[a-zA-Z]:\//.test(normalized)
+    ) {
+      throw new Error(`Titan artifact for ${issueId} contains invalid files_changed path: ${entry}`);
+    }
+
+    return normalized;
+  }).sort();
+}
+
+function validateTitanChangedFilesScope(
+  issueId: string,
+  fileScope: { files: string[] } | null,
+  changedFiles: string[],
+) {
+  if (!fileScope) {
+    return null;
+  }
+
+  const allowed = new Set(fileScope.files.map((entry) => normalizeScopeFile(entry)));
+  const outOfScope = [...new Set(changedFiles)]
+    .filter((entry) => entry.length > 0 && !allowed.has(entry))
+    .sort();
+
+  if (outOfScope.length > 0) {
+    return `Titan implementation for ${issueId} changed files outside allowed scope: ${outOfScope.join(", ")}.`;
   }
 
   return null;
@@ -609,6 +692,8 @@ async function runImplement(
     issueId: issue.id,
     artifact,
     candidateBranch: labor.branchName,
+    fileScope: record.fileScope,
+    laborWorkingDirectory: labor.laborPath,
     laborProofPair: completedGitProof,
     rootProofPair: completedRootGitProof,
   });

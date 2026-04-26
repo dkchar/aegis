@@ -735,6 +735,9 @@ describe("PiCasteRuntime", () => {
     await expect(bashTool?.execute("call-2", {
       command: "cd ../../.. && pwd",
     }, undefined, undefined)).rejects.toThrow("bash path escapes working directory");
+    await expect(bashTool?.execute("call-3", {
+      command: "git checkout main",
+    }, undefined, undefined)).rejects.toThrow("Titan bash command cannot change git branch state");
 
     const originalWriteTool = mockedAgent.createWriteTool.mock.results.at(-1)?.value as
       | { execute: ReturnType<typeof vi.fn> }

@@ -211,7 +211,7 @@ export function hasAdvancedGitHead(
   return proofPair.before.headCommit !== proofPair.after.headCommit;
 }
 
-function resolveCommittedChangedFiles(
+export function resolveCommittedChangedFiles(
   workingDirectory: string,
   proofPair: { before: GitSnapshot | null; after: GitSnapshot | null },
 ) {
