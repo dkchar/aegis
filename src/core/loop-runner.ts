@@ -239,11 +239,11 @@ function createPreMergeReviewLauncher(
   };
 }
 
-function runPreMergeReviews(
+async function runPreMergeReviews(
   root: string,
   timestamp: string,
   launchPreMergeReview?: RunLoopPhaseOptions["launchPreMergeReview"],
-) {
+): Promise<void> {
   const implementedRecords = Object.values(loadDispatchState(root).records)
     .filter((record) => record.stage === "implemented");
   const launchReview = createPreMergeReviewLauncher(root, launchPreMergeReview);
@@ -257,19 +257,18 @@ function runPreMergeReviews(
     }
 
     ACTIVE_PRE_MERGE_REVIEWS.add(record.issueId);
-    void Promise.resolve()
-      .then(() => launchReview({
+    try {
+      await launchReview({
         root,
         issueId: record.issueId,
         timestamp,
-      }))
-      .catch((error) => {
-        const detail = error instanceof Error ? error.message : String(error);
-        markReviewFailedOperational(root, record.issueId, timestamp, detail);
-      })
-      .finally(() => {
-        ACTIVE_PRE_MERGE_REVIEWS.delete(record.issueId);
       });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      markReviewFailedOperational(root, record.issueId, timestamp, detail);
+    } finally {
+      ACTIVE_PRE_MERGE_REVIEWS.delete(record.issueId);
+    }
   }
 }
 
@@ -374,6 +373,6 @@ export async function runDaemonCycle(
     dispatchResult.dispatchState,
   );
 
-  runPreMergeReviews(root, timestamp, options.launchPreMergeReview);
+  await runPreMergeReviews(root, timestamp, options.launchPreMergeReview);
   autoEnqueueImplementedIssuesForMerge(root, timestamp);
 }

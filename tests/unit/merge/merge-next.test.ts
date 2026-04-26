@@ -9,7 +9,7 @@ import { DEFAULT_AEGIS_CONFIG } from "../../../src/config/defaults.js";
 import { loadDispatchState, saveDispatchState, type DispatchRecord, type DispatchState } from "../../../src/core/dispatch-state.js";
 import { runDaemonCycle } from "../../../src/core/loop-runner.js";
 import { runMergeNext } from "../../../src/merge/merge-next.js";
-import { saveMergeQueueState, type MergeQueueItem } from "../../../src/merge/merge-state.js";
+import { loadMergeQueueState, saveMergeQueueState, type MergeQueueItem } from "../../../src/merge/merge-state.js";
 import { ScriptedCasteRuntime } from "../../../src/runtime/scripted-caste-runtime.js";
 import type { AgentRuntime } from "../../../src/runtime/agent-runtime.js";
 import { BeadsTrackerClient } from "../../../src/tracker/beads-tracker.js";
@@ -674,7 +674,7 @@ describe("runMergeNext", () => {
     });
   });
 
-  it("does not block the daemon cycle on slow pre-merge reviews", async () => {
+  it("waits for slow pre-merge reviews before enqueueing merge work", async () => {
     const root = createTempRoot();
     writeTitanArtifact(root, "aegis-555");
     saveDispatchState(root, {
@@ -698,7 +698,29 @@ describe("runMergeNext", () => {
       readSession: vi.fn(async () => null),
       terminate: vi.fn(async () => null),
     };
-    const launchPreMergeReview = vi.fn(async () => new Promise<void>(() => {}));
+    const launchPreMergeReview = vi.fn(async ({ issueId, timestamp }) => {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 25);
+      });
+      const state = loadDispatchState(root);
+      const record = state.records[issueId];
+      if (!record) {
+        throw new Error(`missing dispatch record ${issueId}`);
+      }
+      saveDispatchState(root, {
+        schemaVersion: state.schemaVersion,
+        records: {
+          ...state.records,
+          [issueId]: {
+            ...record,
+            stage: "queued_for_merge",
+            sentinelVerdictRef: path.join(".aegis", "sentinel", `${issueId}.json`),
+            reviewFeedbackRef: path.join(".aegis", "sentinel", `${issueId}.json`),
+            updatedAt: timestamp,
+          },
+        },
+      });
+    });
 
     const cycleResult = await Promise.race([
       runDaemonCycle(root, {
@@ -717,6 +739,14 @@ describe("runMergeNext", () => {
       root,
       timestamp: expect.any(String),
     });
-    expect(loadDispatchState(root).records["aegis-555"]?.stage).toBe("reviewing");
+    expect(loadDispatchState(root).records["aegis-555"]?.stage).toBe("queued_for_merge");
+    expect(loadMergeQueueState(root).items).toMatchObject([
+      {
+        issueId: "aegis-555",
+        candidateBranch: "aegis/aegis-555",
+        targetBranch: "main",
+        status: "queued",
+      },
+    ]);
   });
 });
