@@ -416,6 +416,82 @@ function assertCommandWithinWorkingDirectory(command: string, workingDirectory: 
   }
 }
 
+function extractAllowedFileScopeFromPrompt(prompt: string): string[] {
+  const match = prompt.match(/^Allowed file scope:\s*(.+)$/im);
+  if (!match) {
+    return [];
+  }
+
+  return match[1]!
+    .split(",")
+    .map((entry) => entry.replace(/\\/g, "/").replace(/^\.\//, "").trim())
+    .filter((entry) => entry.length > 0);
+}
+
+function normalizeExecutableToken(token: string) {
+  return path.basename(stripShellQuotes(token)).replace(/\.(cmd|exe|ps1|bat)$/i, "").toLowerCase();
+}
+
+function isPackageInstallCommand(tokens: string[]) {
+  for (let index = 0; index < tokens.length; index += 1) {
+    const executable = normalizeExecutableToken(tokens[index]!);
+    const subcommand = tokens[index + 1]?.toLowerCase();
+
+    if (executable === "npm" && (
+      subcommand === "install"
+      || subcommand === "i"
+      || subcommand === "add"
+      || subcommand === "ci"
+      || subcommand === "update"
+      || subcommand === "remove"
+      || subcommand === "uninstall"
+    )) {
+      return true;
+    }
+
+    if ((executable === "pnpm" || executable === "yarn" || executable === "bun") && (
+      subcommand === "install"
+      || subcommand === "add"
+      || subcommand === "update"
+      || subcommand === "remove"
+      || subcommand === "uninstall"
+    )) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function scopeAllowsPackageMutation(allowedFileScope: string[]) {
+  if (allowedFileScope.length === 0) {
+    return true;
+  }
+
+  const packageFiles = new Set([
+    "package.json",
+    "package-lock.json",
+    "npm-shrinkwrap.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "bun.lock",
+    "bun.lockb",
+  ]);
+
+  return allowedFileScope.some((entry) => packageFiles.has(entry));
+}
+
+function assertPackageCommandAllowed(command: string, allowedFileScope: string[]) {
+  const tokens = tokenizeShellCommand(command).map((token) => stripShellQuotes(token));
+  if (!isPackageInstallCommand(tokens) || scopeAllowsPackageMutation(allowedFileScope)) {
+    return;
+  }
+
+  throw new Error(
+    "Titan package install requires package files in allowed scope.",
+  );
+}
+
 function assertTitanGitCommandAllowed(args: string[]) {
   const subcommand = args.find((arg) => !arg.startsWith("-"));
   if (!subcommand) {
@@ -461,6 +537,7 @@ function wrapTitanFileTool<TTool extends { name: string; execute: (...args: any[
 function wrapTitanBashTool<TTool extends { execute: (...args: any[]) => any }>(
   tool: TTool,
   workingDirectory: string,
+  allowedFileScope: string[],
 ) {
   return {
     ...tool,
@@ -472,6 +549,7 @@ function wrapTitanBashTool<TTool extends { execute: (...args: any[]) => any }>(
     ) {
       if (typeof params?.command === "string") {
         assertCommandWithinWorkingDirectory(params.command, workingDirectory);
+        assertPackageCommandAllowed(params.command, allowedFileScope);
       }
 
       return tool.execute(toolCallId, params, signal, onUpdate);
@@ -483,13 +561,16 @@ function resolveTools(
   piCodingAgent: PiCodingAgentModule,
   caste: CasteName,
   workingDirectory: string,
+  prompt: string,
 ) {
   if (caste === "titan") {
+    const allowedFileScope = extractAllowedFileScopeFromPrompt(prompt);
     return [
       wrapTitanFileTool(piCodingAgent.createReadTool(workingDirectory), workingDirectory),
       wrapTitanBashTool(
         piCodingAgent.createBashTool(workingDirectory, HIDDEN_BASH_TOOL_OPTIONS),
         workingDirectory,
+        allowedFileScope,
       ),
       wrapTitanFileTool(piCodingAgent.createEditTool(workingDirectory), workingDirectory),
       wrapTitanFileTool(piCodingAgent.createWriteTool(workingDirectory), workingDirectory),
@@ -728,7 +809,7 @@ export class PiCasteRuntime implements CasteRuntime {
       content: input.prompt,
     }];
     const toolContract = CASTE_TOOL_CONTRACTS[input.caste];
-    const baseTools = resolveTools(piCodingAgent, input.caste, input.workingDirectory);
+    const baseTools = resolveTools(piCodingAgent, input.caste, input.workingDirectory, input.prompt);
     const customTools = resolveCustomTools(input.caste);
     const activeToolNames = [...new Set([
       ...baseTools.map((tool) => tool.name),

@@ -750,6 +750,38 @@ describe("PiCasteRuntime", () => {
     expect(originalBashTool?.execute).not.toHaveBeenCalled();
   });
 
+  it("blocks Titan package installs outside declared package file scope", async () => {
+    const fixture = CONTRACT_FIXTURES.find((candidate) => candidate.caste === "titan");
+    if (!fixture) {
+      throw new Error("Missing titan fixture.");
+    }
+
+    configureToolSuccess(fixture);
+    const runtime = createSingleCasteRuntime("titan");
+
+    await runtime.run({
+      caste: "titan",
+      issueId: "aegis-package-guard",
+      root: "repo",
+      workingDirectory: "repo/titan",
+      prompt: "Allowed file scope: docs/setup-contract.md",
+    });
+
+    const createSessionCall = mockedAgent.createAgentSession.mock.calls.at(-1) as [
+      { tools?: Array<{ name: string; execute: (...args: any[]) => Promise<unknown> }> },
+    ] | undefined;
+    const bashTool = createSessionCall?.[0].tools?.find((tool) => tool.name === "bash");
+
+    await expect(bashTool?.execute("call-1", {
+      command: "npm install react",
+    }, undefined, undefined)).rejects.toThrow("Titan package install requires package files in allowed scope");
+
+    const originalBashTool = mockedAgent.createBashTool.mock.results.at(-1)?.value as
+      | { execute: ReturnType<typeof vi.fn> }
+      | undefined;
+    expect(originalBashTool?.execute).not.toHaveBeenCalled();
+  });
+
   it("isolates Pi sessions from discovered extensions", async () => {
     const fixture = CONTRACT_FIXTURES.find((candidate) => candidate.caste === "titan");
     if (!fixture) {
