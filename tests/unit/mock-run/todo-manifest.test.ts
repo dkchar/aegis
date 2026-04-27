@@ -72,6 +72,8 @@ describe("TODO_MOCK_RUN_ISSUES", () => {
 
     expect(dependencies.description).toContain("dev/build/preview");
     expect(dependencies.description).toContain("Vite");
+    expect(dependencies.description).toContain("Do not require build or preview checks to pass");
+    expect(dependencies.description).toContain("Do not create blockers for scaffold or tooling files");
     expect(scaffold.description).not.toContain("npm scripts");
   });
 

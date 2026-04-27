@@ -38,7 +38,11 @@ export const TODO_MOCK_RUN_ISSUES: MockRunManifest["issues"] = [
   {
     key: "setup.dependencies",
     title: "[setup] Install core dependencies",
-    description: "Install React runtime, Vite/TypeScript toolchain, animation libs, UI utility packages, and deterministic dev/build/preview npm scripts.",
+    description: [
+      "Install React runtime, Vite/TypeScript toolchain, animation libs, UI utility packages, and deterministic dev/build/preview npm scripts.",
+      "Do not require build or preview checks to pass in this lane; scaffold and tooling lanes own those files.",
+      "Do not create blockers for scaffold or tooling files already represented by downstream seeded setup issues.",
+    ].join("\n"),
     fileScope: ["package.json", "package-lock.json"],
     issueType: "task",
     priority: 1,
