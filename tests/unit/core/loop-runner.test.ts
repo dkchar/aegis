@@ -302,4 +302,93 @@ describe("runDaemonCycle", () => {
     expect(launchPreMergeReview).toHaveBeenCalledTimes(1);
     expect(loadMergeQueueState(root).items).toEqual([]);
   });
+
+  it("recovers a stranded reviewing record from durable Sentinel verdict", async () => {
+    const root = createTempRoot();
+    initProject(root);
+    mkdirSync(path.join(root, ".aegis", "titan"), { recursive: true });
+    mkdirSync(path.join(root, ".aegis", "sentinel"), { recursive: true });
+    writeFileSync(
+      path.join(root, ".aegis", "titan", "ISSUE-REVIEW.json"),
+      `${JSON.stringify({
+        labor_path: ".aegis/labors/ISSUE-REVIEW",
+        candidate_branch: "aegis/ISSUE-REVIEW",
+        base_branch: "main",
+      }, null, 2)}\n`,
+      "utf8",
+    );
+    writeFileSync(
+      path.join(root, ".aegis", "sentinel", "ISSUE-REVIEW.json"),
+      `${JSON.stringify({
+        verdict: "fail_blocking",
+        reviewSummary: "needs rework",
+        blockingFindings: ["format drift remains"],
+        advisories: [],
+        touchedFiles: ["docs/setup-gate.md"],
+        contractChecks: ["format check"],
+        session: { sessionId: "sentinel-1" },
+      }, null, 2)}\n`,
+      "utf8",
+    );
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: {
+        "ISSUE-REVIEW": {
+          issueId: "ISSUE-REVIEW",
+          stage: "reviewing",
+          runningAgent: null,
+          oracleAssessmentRef: ".aegis/oracle/ISSUE-REVIEW.json",
+          titanHandoffRef: ".aegis/titan/ISSUE-REVIEW.json",
+          titanClarificationRef: null,
+          sentinelVerdictRef: ".aegis/sentinel/ISSUE-REVIEW.json",
+          janusArtifactRef: null,
+          failureTranscriptRef: null,
+          reviewFeedbackRef: null,
+          fileScope: null,
+          failureCount: 0,
+          consecutiveFailures: 0,
+          failureWindowStartMs: null,
+          cooldownUntil: null,
+          sessionProvenanceId: "daemon",
+          updatedAt: "2026-04-26T20:00:00.000Z",
+        },
+      },
+    });
+
+    vi.doMock("../../../src/tracker/beads-tracker.js", () => ({
+      BeadsTrackerClient: class {
+        async listReadyIssues() {
+          return [];
+        }
+      },
+    }));
+
+    const { runDaemonCycle } = await import("../../../src/core/loop-runner.js");
+    const launchPreMergeReview = vi.fn(async () => {
+      throw new Error("should not rerun Sentinel when verdict artifact exists");
+    });
+
+    await runDaemonCycle(root, {
+      runtime: {
+        async launch() {
+          throw new Error("unexpected dispatch launch");
+        },
+        async readSession() {
+          return null;
+        },
+        async terminate() {
+          return null;
+        },
+      },
+      launchPreMergeReview,
+    });
+
+    expect(loadDispatchState(root).records["ISSUE-REVIEW"]).toMatchObject({
+      stage: "rework_required",
+      sentinelVerdictRef: ".aegis/sentinel/ISSUE-REVIEW.json",
+      reviewFeedbackRef: ".aegis/sentinel/ISSUE-REVIEW.json",
+    });
+    expect(launchPreMergeReview).not.toHaveBeenCalled();
+    expect(loadMergeQueueState(root).items).toEqual([]);
+  });
 });

@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+
 import { loadConfig } from "../config/load-config.js";
 import { loadDispatchState, saveDispatchState } from "./dispatch-state.js";
 import { dispatchReadyWork } from "./dispatcher.js";
@@ -16,6 +19,7 @@ import {
   calculateFailureCooldown,
   resolveFailureWindowStartMs,
 } from "./failure-policy.js";
+import { parseSentinelVerdict } from "../castes/sentinel/sentinel-parser.js";
 
 export type LoopPhase = "poll" | "dispatch" | "monitor" | "reap";
 
@@ -156,7 +160,7 @@ async function runReapPipeline(
 function markRecordReviewing(root: string, issueId: string, timestamp: string) {
   const dispatchState = loadDispatchState(root);
   const record = dispatchState.records[issueId];
-  if (!record || record.stage !== "implemented") {
+  if (!record || (record.stage !== "implemented" && record.stage !== "reviewing")) {
     return false;
   }
 
@@ -170,6 +174,71 @@ function markRecordReviewing(root: string, issueId: string, timestamp: string) {
         updatedAt: timestamp,
       },
     },
+  });
+
+  return true;
+}
+
+function resolveDurableSentinelRef(root: string, issueId: string, currentRef: string | null) {
+  const candidates = [
+    currentRef,
+    path.join(".aegis", "sentinel", `${issueId}.json`),
+  ].filter((entry): entry is string => entry !== null);
+
+  return candidates.find((candidate) => existsSync(path.join(root, candidate))) ?? null;
+}
+
+function readDurableSentinelVerdict(root: string, artifactRef: string) {
+  const payload = JSON.parse(readFileSync(path.join(root, artifactRef), "utf8")) as Record<string, unknown>;
+
+  return parseSentinelVerdict(JSON.stringify({
+    verdict: payload["verdict"],
+    reviewSummary: payload["reviewSummary"],
+    blockingFindings: payload["blockingFindings"],
+    advisories: payload["advisories"],
+    touchedFiles: payload["touchedFiles"],
+    contractChecks: payload["contractChecks"],
+  }));
+}
+
+function recoverReviewingRecord(root: string, issueId: string, timestamp: string) {
+  const dispatchState = loadDispatchState(root);
+  const record = dispatchState.records[issueId];
+  if (!record || record.stage !== "reviewing") {
+    return false;
+  }
+
+  const sentinelVerdictRef = resolveDurableSentinelRef(root, issueId, record.sentinelVerdictRef);
+  if (!sentinelVerdictRef) {
+    return false;
+  }
+
+  const verdict = readDurableSentinelVerdict(root, sentinelVerdictRef);
+  const reviewStage = verdict.verdict === "pass" ? "queued_for_merge" : "rework_required";
+  saveDispatchState(root, {
+    schemaVersion: dispatchState.schemaVersion,
+    records: {
+      ...dispatchState.records,
+      [issueId]: {
+        ...record,
+        stage: reviewStage,
+        sentinelVerdictRef,
+        reviewFeedbackRef: sentinelVerdictRef,
+        updatedAt: timestamp,
+      },
+    },
+  });
+
+  writePhaseLog(root, {
+    timestamp,
+    phase: "dispatch",
+    issueId,
+    action: "sentinel_review_recovered",
+    outcome: reviewStage,
+    detail: JSON.stringify({
+      blockingFindingCount: verdict.blockingFindings.length,
+      advisoryCount: verdict.advisories.length,
+    }),
   });
 
   return true;
@@ -256,12 +325,17 @@ async function runPreMergeReviews(
   timestamp: string,
   launchPreMergeReview?: RunLoopPhaseOptions["launchPreMergeReview"],
 ): Promise<void> {
-  const implementedRecords = Object.values(loadDispatchState(root).records)
-    .filter((record) => record.stage === "implemented" && !isRecordCoolingDown(record, timestamp));
+  const reviewCandidates = Object.values(loadDispatchState(root).records)
+    .filter((record) => (
+      record.stage === "implemented" || record.stage === "reviewing"
+    ) && !isRecordCoolingDown(record, timestamp));
   const launchReview = createPreMergeReviewLauncher(root, launchPreMergeReview);
 
-  for (const record of implementedRecords) {
+  for (const record of reviewCandidates) {
     if (ACTIVE_PRE_MERGE_REVIEWS.has(record.issueId)) {
+      continue;
+    }
+    if (recoverReviewingRecord(root, record.issueId, timestamp)) {
       continue;
     }
     if (!markRecordReviewing(root, record.issueId, timestamp)) {

@@ -225,6 +225,7 @@ function buildTitanPrompt(
     ...(fileScope
       ? [
         `Allowed file scope: ${fileScope}`,
+        "Current allowed file scope is authoritative for this issue.",
         "Stay within the allowed file scope. If required work is truly outside that scope, emit a blocking mutation_proposal instead of editing unrelated files.",
       ]
       : []),

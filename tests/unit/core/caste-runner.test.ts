@@ -807,6 +807,7 @@ describe("runCasteCommand", () => {
     expect(prompt).toContain("Do not leave required implementation changes uncommitted.");
     expect(prompt).toContain("Allowed file scope: src/App.jsx, src/index.css");
     expect(prompt).toContain("Stay within the allowed file scope.");
+    expect(prompt).toContain("Current allowed file scope is authoritative for this issue.");
     expect(prompt).toContain("Preserve existing Aegis/Beads operational files and ignore rules.");
     expect(prompt).toContain("Report files_changed as paths relative to the working directory, never as absolute paths.");
     expect(prompt).toContain("Allowed mutation_proposal.proposal_type values: create_clarification_blocker, create_prerequisite_blocker, create_out_of_scope_blocker.");
