@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { CodexCasteRuntime, createCodexModelConfigs } from "../../../src/runtime/codex-caste-runtime.js";
+import {
+  buildCodexExecArgs,
+  buildCodexSpawnInvocation,
+  CodexCasteRuntime,
+  createCodexModelConfigs,
+} from "../../../src/runtime/codex-caste-runtime.js";
 
 const tempRoots: string[] = [];
 
@@ -52,6 +57,7 @@ describe("CodexCasteRuntime", () => {
     expect(runner).toHaveBeenCalledWith(expect.objectContaining({
       cwd: workingDirectory,
       modelId: "gpt-5.4-mini",
+      thinkingLevel: "medium",
       prompt: "Return Titan JSON.",
     }));
     expect(result).toMatchObject({
@@ -110,6 +116,42 @@ describe("CodexCasteRuntime", () => {
     expect(configs.titan).toMatchObject({
       provider: "openai-codex",
       modelId: "gpt-5.4",
+    });
+  });
+
+  it("passes configured thinking level to codex exec", () => {
+    const args = buildCodexExecArgs({
+      cwd: "C:\\repo\\labor",
+      modelId: "gpt-5.4-mini",
+      thinkingLevel: "medium",
+      prompt: "Run.",
+      outputPath: "C:\\tmp\\out.txt",
+      timeoutMs: 1000,
+    });
+
+    expect(args).toEqual([
+      "-C",
+      "C:\\repo\\labor",
+      "-s",
+      "workspace-write",
+      "-a",
+      "never",
+      "-m",
+      "gpt-5.4-mini",
+      "-c",
+      "model_reasoning_effort=\"medium\"",
+      "exec",
+      "--json",
+      "--output-last-message",
+      "C:\\tmp\\out.txt",
+      "-",
+    ]);
+  });
+
+  it("wraps codex command with cmd.exe on Windows", () => {
+    expect(buildCodexSpawnInvocation(["--version"], "win32")).toEqual({
+      command: "cmd.exe",
+      args: ["/d", "/s", "/c", "codex.cmd", "--version"],
     });
   });
 });

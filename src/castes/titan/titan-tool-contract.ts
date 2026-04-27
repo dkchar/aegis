@@ -23,7 +23,6 @@ const titanStructuredContract = createStructuredToolContract<TitanArtifact>({
       tests_and_checks_run: Type.Array(Type.String()),
       known_risks: Type.Array(Type.String()),
       follow_up_work: Type.Array(Type.String()),
-      learnings_written_to_mnemosyne: Type.Array(Type.String()),
       blocking_question: Type.Optional(Type.Union([Type.String(), Type.Null()])),
       handoff_note: Type.Optional(Type.Union([Type.String(), Type.Null()])),
       mutation_proposal: Type.Optional(Type.Union([

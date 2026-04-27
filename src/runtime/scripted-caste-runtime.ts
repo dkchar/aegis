@@ -189,7 +189,6 @@ function buildDeterministicTitanResponse(input: CasteRunInput): ScriptedResponse
         tests_and_checks_run: [],
         known_risks: [],
         follow_up_work: [],
-        learnings_written_to_mnemosyne: [],
       }),
       toolsUsed: ["write_file"],
     };
@@ -237,7 +236,6 @@ function buildDeterministicTitanResponse(input: CasteRunInput): ScriptedResponse
       tests_and_checks_run: ["git rev-parse HEAD"],
       known_risks: [],
       follow_up_work: [],
-      learnings_written_to_mnemosyne: [],
     }),
     toolsUsed: ["write_file", "shell"],
   };

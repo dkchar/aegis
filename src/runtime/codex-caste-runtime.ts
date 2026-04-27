@@ -23,6 +23,7 @@ interface CodexModelConfig {
 interface CodexRunRequest {
   cwd: string;
   modelId: string;
+  thinkingLevel: AegisThinkingLevel;
   prompt: string;
   outputPath: string;
   timeoutMs: number;
@@ -69,23 +70,47 @@ function defaultModelConfigs() {
   }));
 }
 
+export function buildCodexExecArgs(request: CodexRunRequest): string[] {
+  return [
+    "-C",
+    request.cwd,
+    "-s",
+    "workspace-write",
+    "-a",
+    "never",
+    "-m",
+    request.modelId,
+    "-c",
+    `model_reasoning_effort="${request.thinkingLevel}"`,
+    "exec",
+    "--json",
+    "--output-last-message",
+    request.outputPath,
+    "-",
+  ];
+}
+
+export function buildCodexSpawnInvocation(
+  codexArgs: string[],
+  platform: NodeJS.Platform = process.platform,
+) {
+  if (platform === "win32") {
+    return {
+      command: "cmd.exe",
+      args: ["/d", "/s", "/c", "codex.cmd", ...codexArgs],
+    };
+  }
+
+  return {
+    command: "codex",
+    args: codexArgs,
+  };
+}
+
 function runCodexExec(request: CodexRunRequest): Promise<CodexRunResult> {
   return new Promise((resolve) => {
-    const child = spawn("codex", [
-      "-C",
-      request.cwd,
-      "-s",
-      "workspace-write",
-      "-a",
-      "never",
-      "-m",
-      request.modelId,
-      "exec",
-      "--json",
-      "--output-last-message",
-      request.outputPath,
-      "-",
-    ], {
+    const invocation = buildCodexSpawnInvocation(buildCodexExecArgs(request));
+    const child = spawn(invocation.command, invocation.args, {
       cwd: request.cwd,
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
@@ -150,6 +175,7 @@ export class CodexCasteRuntime implements CasteRuntime {
     const result = await this.runner({
       cwd: input.workingDirectory,
       modelId: modelConfig.modelId,
+      thinkingLevel: modelConfig.thinkingLevel,
       prompt: input.prompt,
       outputPath,
       timeoutMs: this.sessionTimeoutMs,

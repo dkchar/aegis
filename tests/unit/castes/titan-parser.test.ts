@@ -12,7 +12,6 @@ describe("parseTitanArtifact", () => {
         tests_and_checks_run: ["npm test"],
         known_risks: [],
         follow_up_work: [],
-        learnings_written_to_mnemosyne: [],
       })),
     ).toMatchObject({
       outcome: "success",
@@ -30,7 +29,6 @@ describe("parseTitanArtifact", () => {
         tests_and_checks_run: ["npm run build"],
         known_risks: [],
         follow_up_work: [],
-        learnings_written_to_mnemosyne: [],
       })),
     ).toMatchObject({
       outcome: "already_satisfied",
@@ -48,7 +46,6 @@ describe("parseTitanArtifact", () => {
         tests_and_checks_run: [],
         known_risks: ["blocked on ambiguity"],
         follow_up_work: [],
-        learnings_written_to_mnemosyne: [],
         mutation_proposal: {
           proposal_type: "create_clarification_blocker",
           summary: "Need acceptance rule.",
@@ -75,7 +72,6 @@ describe("parseTitanArtifact", () => {
         tests_and_checks_run: [],
         known_risks: [],
         follow_up_work: [],
-        learnings_written_to_mnemosyne: [],
         mutation_proposal: {
           proposal_type: "create_follow_up",
           summary: "nice to have cleanup",
@@ -96,8 +92,21 @@ describe("parseTitanArtifact", () => {
         tests_and_checks_run: [],
         known_risks: [],
         follow_up_work: [],
-        learnings_written_to_mnemosyne: [],
         extra: true,
+      })),
+    ).toThrow(/unexpected keys/i);
+  });
+
+  it("rejects obsolete Mnemosyne artifact fields", () => {
+    expect(() =>
+      parseTitanArtifact(JSON.stringify({
+        outcome: "success",
+        summary: "done",
+        files_changed: [],
+        tests_and_checks_run: [],
+        known_risks: [],
+        follow_up_work: [],
+        learnings_written_to_mnemosyne: [],
       })),
     ).toThrow(/unexpected keys/i);
   });

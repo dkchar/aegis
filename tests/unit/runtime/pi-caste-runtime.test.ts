@@ -54,7 +54,6 @@ const CONTRACT_FIXTURES: ContractFixture[] = [
       tests_and_checks_run: [],
       known_risks: [],
       follow_up_work: [],
-      learnings_written_to_mnemosyne: [],
     },
     outputSnippet: "\"outcome\":\"success\"",
     expectedActiveTools: ["read", "bash", "edit", "write", TITAN_EMIT_ARTIFACT_TOOL_NAME],

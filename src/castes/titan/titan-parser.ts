@@ -20,7 +20,6 @@ export interface TitanArtifact {
   tests_and_checks_run: string[];
   known_risks: string[];
   follow_up_work: string[];
-  learnings_written_to_mnemosyne: string[];
   blocking_question?: string;
   handoff_note?: string;
   mutation_proposal?: TitanMutationProposal;
@@ -94,7 +93,6 @@ export function parseTitanArtifact(raw: string): TitanArtifact {
     "tests_and_checks_run",
     "known_risks",
     "follow_up_work",
-    "learnings_written_to_mnemosyne",
     "blocking_question",
     "handoff_note",
     "mutation_proposal",
@@ -121,7 +119,6 @@ export function parseTitanArtifact(raw: string): TitanArtifact {
     || !isStringArray(candidate["tests_and_checks_run"])
     || !isStringArray(candidate["known_risks"])
     || !isStringArray(candidate["follow_up_work"])
-    || !isStringArray(candidate["learnings_written_to_mnemosyne"])
   ) {
     throw new Error("Titan output must include string array artifact fields");
   }
@@ -132,7 +129,6 @@ export function parseTitanArtifact(raw: string): TitanArtifact {
     tests_and_checks_run: candidate["tests_and_checks_run"],
     known_risks: candidate["known_risks"],
     follow_up_work: candidate["follow_up_work"],
-    learnings_written_to_mnemosyne: candidate["learnings_written_to_mnemosyne"],
     blocking_question:
       typeof candidate["blocking_question"] === "string" ? candidate["blocking_question"] : undefined,
     handoff_note: typeof candidate["handoff_note"] === "string" ? candidate["handoff_note"] : undefined,

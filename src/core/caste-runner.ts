@@ -127,6 +127,7 @@ function buildOraclePrompt(issue: AegisIssue) {
     `Call tool '${ORACLE_EMIT_ASSESSMENT_TOOL_NAME}' exactly once as final step after analysis is complete.`,
     "Return only JSON. No markdown fences. No prose before or after JSON.",
     "JSON schema keys: files_affected, estimated_complexity, risks, suggested_checks, scope_notes.",
+    "estimated_complexity allowed values: trivial, moderate, complex.",
   ].join("\n");
 }
 
@@ -247,7 +248,7 @@ function buildTitanPrompt(
     "Use mutation_proposal only for hard blocking missing work: clarification, prerequisite, or required out-of-scope dependency.",
     "Do not create non-blocking follow-up work.",
     "Return only JSON. No markdown fences. No prose before or after JSON.",
-    "JSON schema keys: outcome, summary, files_changed, tests_and_checks_run, known_risks, follow_up_work, learnings_written_to_mnemosyne, optional mutation_proposal.",
+    "JSON schema keys: outcome, summary, files_changed, tests_and_checks_run, known_risks, follow_up_work, optional mutation_proposal.",
     "Allowed outcome values: success, already_satisfied, clarification, failure.",
     "mutation_proposal keys: proposal_type, summary, suggested_title, suggested_description, scope_evidence.",
   ].join("\n");

@@ -131,7 +131,6 @@ function writeTitanArtifact(root: string, issueId: string, laborPath = `.aegis/l
       tests_and_checks_run: ["npm test"],
       known_risks: [],
       follow_up_work: [],
-      learnings_written_to_mnemosyne: [],
       labor_path: laborPath,
       candidate_branch: `aegis/${issueId}`,
       base_branch: "main",
@@ -163,6 +162,9 @@ describe("runCasteCommand", () => {
     expect(JSON.parse(readFileSync(transcriptPath, "utf8"))).toMatchObject({
       prompt: expect.stringContaining("Do not decide readiness"),
     });
+    expect(JSON.parse(readFileSync(transcriptPath, "utf8")).prompt).toContain(
+      "estimated_complexity allowed values: trivial, moderate, complex.",
+    );
   });
 
   it("writes an oracle artifact and advances the issue to scouted", async () => {
@@ -408,7 +410,6 @@ describe("runCasteCommand", () => {
             tests_and_checks_run: ["npm test"],
             known_risks: [],
             follow_up_work: [],
-            learnings_written_to_mnemosyne: [],
           }),
           toolsUsed: ["write_file"],
         }),
@@ -472,7 +473,6 @@ describe("runCasteCommand", () => {
       tests_and_checks_run: [],
       known_risks: [],
       follow_up_work: [],
-      learnings_written_to_mnemosyne: [],
       blocking_question: "Which stack?",
       handoff_note: "Need defaults.",
       mutation_proposal: {
@@ -573,7 +573,6 @@ describe("runCasteCommand", () => {
             tests_and_checks_run: [],
             known_risks: [],
             follow_up_work: [],
-            learnings_written_to_mnemosyne: [],
           }),
           error: "Titan tool contract violation: missing emit_titan_artifact output",
         }),
@@ -635,7 +634,6 @@ describe("runCasteCommand", () => {
             tests_and_checks_run: [],
             known_risks: [],
             follow_up_work: [],
-            learnings_written_to_mnemosyne: [],
           }),
         }),
       }),
@@ -699,7 +697,6 @@ describe("runCasteCommand", () => {
               tests_and_checks_run: [],
               known_risks: [],
               follow_up_work: [],
-              learnings_written_to_mnemosyne: [],
             }),
             toolsUsed: ["write_file"],
           };
@@ -793,7 +790,6 @@ describe("runCasteCommand", () => {
               tests_and_checks_run: [],
               known_risks: [],
               follow_up_work: [],
-              learnings_written_to_mnemosyne: [],
             }),
             toolsUsed: ["write_file"],
           };
@@ -852,7 +848,6 @@ describe("runCasteCommand", () => {
               tests_and_checks_run: [],
               known_risks: [],
               follow_up_work: [],
-              learnings_written_to_mnemosyne: [],
             }),
             toolsUsed: ["write_file"],
           };
@@ -911,7 +906,6 @@ describe("runCasteCommand", () => {
             tests_and_checks_run: ["npm run build"],
             known_risks: [],
             follow_up_work: [],
-            learnings_written_to_mnemosyne: [],
           }),
         }),
       }),
@@ -981,7 +975,6 @@ describe("runCasteCommand", () => {
               tests_and_checks_run: [],
               known_risks: [],
               follow_up_work: [],
-              learnings_written_to_mnemosyne: [],
             }),
             toolsUsed: ["write_file"],
           };
@@ -1047,7 +1040,6 @@ describe("runCasteCommand", () => {
               tests_and_checks_run: [],
               known_risks: [],
               follow_up_work: [],
-              learnings_written_to_mnemosyne: [],
             }),
             toolsUsed: ["bash"],
           };
@@ -1105,7 +1097,6 @@ describe("runCasteCommand", () => {
               tests_and_checks_run: [],
               known_risks: [],
               follow_up_work: [],
-              learnings_written_to_mnemosyne: [],
             }),
             toolsUsed: ["bash"],
           };
@@ -1159,7 +1150,6 @@ describe("runCasteCommand", () => {
             tests_and_checks_run: [],
             known_risks: [],
             follow_up_work: [],
-            learnings_written_to_mnemosyne: [],
           }),
         }),
       }),
@@ -1199,7 +1189,6 @@ describe("runCasteCommand", () => {
         tests_and_checks_run: ["npm test"],
         known_risks: [],
         follow_up_work: [],
-        learnings_written_to_mnemosyne: [],
         labor_path: ".aegis/labors/aegis-123",
         candidate_branch: "aegis/aegis-123",
         base_branch: "main",
@@ -1745,7 +1734,6 @@ describe("runCasteCommand", () => {
         tests_and_checks_run: ["npm test"],
         known_risks: [],
         follow_up_work: [],
-        learnings_written_to_mnemosyne: [],
         labor_path: "scratchpad/aegis-1003",
         candidate_branch: "aegis/aegis-1003",
         base_branch: "main",
