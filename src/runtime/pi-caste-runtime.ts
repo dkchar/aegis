@@ -1020,7 +1020,7 @@ export class PiCasteRuntime implements CasteRuntime {
                 content: repairPrompt,
               });
 
-              void session.prompt(repairPrompt).catch((error: unknown) => {
+              void session.prompt(repairPrompt, { streamingBehavior: "followUp" }).catch((error: unknown) => {
                 settle(() => {
                   reject(error);
                 });

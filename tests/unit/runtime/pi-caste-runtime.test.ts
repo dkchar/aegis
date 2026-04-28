@@ -399,6 +399,10 @@ describe("PiCasteRuntime", () => {
     expect(result.status).toBe("succeeded");
     expect(result.outputText).toContain(fixture.outputSnippet);
     expect(mockedAgent.session.prompt).toHaveBeenCalledTimes(2);
+    const repairPromptCall = mockedAgent.session.prompt.mock.calls[1] as unknown[] | undefined;
+    expect(repairPromptCall?.[1]).toEqual({
+      streamingBehavior: "followUp",
+    });
     expect(result.messageLog.some((entry) => (
       entry.role === "user"
       && entry.content.includes("Tool contract repair required")
