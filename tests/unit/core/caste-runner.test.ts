@@ -1477,6 +1477,7 @@ describe("runCasteCommand", () => {
       "- package.json was failing format check.",
     ].join("\n");
 
+    let titanPrompt = "";
     await expect(runCasteCommand({
       root,
       action: "implement",
@@ -1485,7 +1486,9 @@ describe("runCasteCommand", () => {
         getIssue: vi.fn(async () => issue),
       },
       runtime: new ScriptedCasteRuntime({
-        titan: () => ({
+        titan: (input) => {
+          titanPrompt = input.prompt;
+          return {
           output: JSON.stringify({
             outcome: "already_satisfied",
             summary: "No changes needed.",
@@ -1494,11 +1497,110 @@ describe("runCasteCommand", () => {
             known_risks: [],
             follow_up_work: [],
           }),
-        }),
+          };
+        },
       }),
       resolveBaseBranch: () => "main",
       resolveLaborBasePath: () => "scratchpad",
     })).rejects.toThrow("policy-created blocker");
+    expect(titanPrompt).toContain("Policy-created blocker issue");
+    expect(titanPrompt).toContain("Do not resolve this blocker with already_satisfied");
+  });
+
+  it("includes Sentinel blocking feedback in Titan rework prompts", async () => {
+    const root = createTempRoot();
+    const sentinelRef = persistArtifact(root, {
+      family: "sentinel",
+      issueId: "aegis-rework",
+      artifact: {
+        verdict: "fail_blocking",
+        reviewSummary: "store persistence boundary violated",
+        blockingFindings: [
+          "src/state/todo-store.ts persists filter state outside the core contract.",
+        ],
+        advisories: [
+          "Add a focused persistence regression test.",
+        ],
+        touchedFiles: ["src/state/todo-store.ts"],
+        contractChecks: ["core gate"],
+      },
+    });
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: {
+        "aegis-rework": {
+          issueId: "aegis-rework",
+          stage: "rework_required",
+          runningAgent: null,
+          lastCompletedCaste: "sentinel",
+          blockedByIssueId: null,
+          reviewFeedbackRef: sentinelRef,
+          policyArtifactRef: null,
+          oracleAssessmentRef: path.join(".aegis", "oracle", "aegis-rework.json"),
+          titanHandoffRef: path.join(".aegis", "titan", "aegis-rework.json"),
+          titanClarificationRef: null,
+          sentinelVerdictRef: sentinelRef,
+          janusArtifactRef: null,
+          failureTranscriptRef: null,
+          fileScope: {
+            files: ["docs/core-gate.md"],
+          },
+          failureCount: 0,
+          consecutiveFailures: 0,
+          failureWindowStartMs: null,
+          cooldownUntil: null,
+          sessionProvenanceId: "test",
+          updatedAt: "2026-04-14T12:00:00.000Z",
+        },
+      },
+    });
+    persistArtifact(root, {
+      family: "oracle",
+      issueId: "aegis-rework",
+      artifact: {
+        files_affected: ["docs/core-gate.md"],
+        estimated_complexity: "moderate",
+        risks: [],
+        suggested_checks: ["npm test"],
+        scope_notes: [],
+      },
+    });
+    initializeGitRepository(root);
+
+    let titanPrompt = "";
+    await runCasteCommand({
+      root,
+      action: "implement",
+      issueId: "aegis-rework",
+      tracker: {
+        getIssue: vi.fn(async () => createIssue("aegis-rework")),
+      },
+      runtime: new ScriptedCasteRuntime({
+        titan: (input) => {
+          titanPrompt = input.prompt;
+          mkdirSync(path.join(input.workingDirectory, "docs"), { recursive: true });
+          writeFileSync(path.join(input.workingDirectory, "docs", "core-gate.md"), "core gate\n", "utf8");
+          runGit(input.workingDirectory, ["add", "docs/core-gate.md"]);
+          runGit(input.workingDirectory, ["commit", "-m", "address rework"]);
+          return {
+            output: JSON.stringify({
+              outcome: "success",
+              summary: "updated gate evidence",
+              files_changed: ["docs/core-gate.md"],
+              tests_and_checks_run: ["npm test"],
+              known_risks: [],
+              follow_up_work: [],
+            }),
+          };
+        },
+      }),
+      resolveBaseBranch: () => "main",
+      resolveLaborBasePath: () => "scratchpad",
+    });
+
+    expect(titanPrompt).toContain("Prior Sentinel or Janus feedback:");
+    expect(titanPrompt).toContain("src/state/todo-store.ts persists filter state outside the core contract.");
+    expect(titanPrompt).toContain("If resolving this feedback requires files outside the allowed file scope, emit a blocking mutation_proposal");
   });
 
   it("fails closed instead of creating repeated blockers after a resolved child", async () => {

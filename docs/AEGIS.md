@@ -21,6 +21,14 @@ Core loop:
 poll -> triage -> dispatch -> monitor -> reap
 ```
 
+Swarm posture:
+
+- Agents are free inside assigned scope to inspect, reason, edit, test, and choose implementation tactics.
+- Agents do not own orchestration truth, graph mutation, merge routing, retry policy, or durable completion semantics.
+- Swarm behavior comes from many scoped agents moving concurrently through deterministic shared state, not from a manager-agent prompt deciding the control plane.
+- Cross-agent handoffs must be typed artifacts that the control plane validates and routes mechanically. Prompt text may explain intent, but must not be the only enforcement layer.
+- Operational exhaustion is a first-class control outcome. The daemon must halt or skip exhausted work visibly rather than consuming adapter quota indefinitely.
+
 Truth planes:
 
 | Concern | Source |
@@ -332,6 +340,18 @@ Titan candidate -> Sentinel pre-merge gate -> merge queue -> complete
 
 Janus is only after merge/integration failure.
 
+Runtime session ownership:
+
+- Long-running caste work must be represented as adapter-owned sessions in dispatch state.
+- Oracle, Titan, and Sentinel review work use durable `runningAgent` records and advance only through monitor/reaper or explicit caste command completion.
+- The daemon dispatch loop may launch sessions, but must not synchronously wait on live model work as an inline side effect.
+- If Titan fails operationally after Oracle context exists, retry stays at Titan with the existing Oracle artifact instead of restarting scouting.
+- If a Sentinel review session is interrupted or fails operationally, the parent returns to `implemented` with cooldown so retry stays at the review layer.
+- Repeated Sentinel operational failure escalates to `failed_operational`; triage then routes Titan with the existing Oracle artifact and durable review feedback instead of relaunching review forever.
+- Repeated operational failures have a deterministic retry ceiling. Once exhausted, triage skips the issue with `operational_failure_limit` instead of draining adapter quota forever.
+- A stranded `reviewing` record with a durable Sentinel verdict is recovered from the artifact; without a verdict it retries Sentinel, not Oracle/Titan.
+- Rework dispatch must include the durable Sentinel or Janus feedback artifact in the Titan prompt. Repeating a parent handoff without the blocking finding is a control-plane bug.
+
 ## Mutation Policy
 
 Castes never write Beads directly.
@@ -354,6 +374,7 @@ Accepted blocker requirements:
 - dispatch state becomes `blocked_on_child`.
 - policy artifact is persisted.
 - policy-created blocker work must resolve with `success` or explicit `failure`; `already_satisfied` is not accepted because the blocker exists to change unresolved parent state.
+- Titan prompts for policy-created blocker issues must state this explicitly before the session starts.
 - if a resumed parent emits another blocker after its previous child closed, Aegis fails closed instead of creating a blocker chain.
 
 Rejected proposals fail closed as policy failures.

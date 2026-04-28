@@ -179,6 +179,42 @@ function markRecordReviewing(root: string, issueId: string, timestamp: string) {
   return true;
 }
 
+function markRecordReviewingWithAgent(input: {
+  root: string;
+  issueId: string;
+  timestamp: string;
+  sessionProvenanceId: string;
+  sessionId: string;
+  startedAt: string;
+}) {
+  const dispatchState = loadDispatchState(input.root);
+  const record = dispatchState.records[input.issueId];
+  if (!record || (record.stage !== "implemented" && record.stage !== "reviewing")) {
+    return false;
+  }
+
+  saveDispatchState(input.root, {
+    schemaVersion: dispatchState.schemaVersion,
+    records: {
+      ...dispatchState.records,
+      [input.issueId]: {
+        ...record,
+        stage: "reviewing",
+        runningAgent: {
+          caste: "sentinel",
+          sessionId: input.sessionId,
+          startedAt: input.startedAt,
+        },
+        cooldownUntil: null,
+        sessionProvenanceId: input.sessionProvenanceId,
+        updatedAt: input.timestamp,
+      },
+    },
+  });
+
+  return true;
+}
+
 function resolveDurableSentinelRef(root: string, issueId: string, currentRef: string | null) {
   const candidates = [
     currentRef,
@@ -323,6 +359,8 @@ function createPreMergeReviewLauncher(
 async function runPreMergeReviews(
   root: string,
   timestamp: string,
+  runtime: AgentRuntime,
+  sessionProvenanceId: string,
   launchPreMergeReview?: RunLoopPhaseOptions["launchPreMergeReview"],
 ): Promise<void> {
   const reviewCandidates = Object.values(loadDispatchState(root).records)
@@ -332,23 +370,58 @@ async function runPreMergeReviews(
   const launchReview = createPreMergeReviewLauncher(root, launchPreMergeReview);
 
   for (const record of reviewCandidates) {
+    if (record.runningAgent) {
+      continue;
+    }
     if (ACTIVE_PRE_MERGE_REVIEWS.has(record.issueId)) {
       continue;
     }
     if (recoverReviewingRecord(root, record.issueId, timestamp)) {
       continue;
     }
-    if (!markRecordReviewing(root, record.issueId, timestamp)) {
-      continue;
-    }
 
     ACTIVE_PRE_MERGE_REVIEWS.add(record.issueId);
     try {
-      await launchReview({
-        root,
-        issueId: record.issueId,
-        timestamp,
-      });
+      if (launchPreMergeReview) {
+        if (!markRecordReviewing(root, record.issueId, timestamp)) {
+          continue;
+        }
+        await launchReview({
+          root,
+          issueId: record.issueId,
+          timestamp,
+        });
+      } else {
+        const launched = await runtime.launch({
+          root,
+          issueId: record.issueId,
+          title: record.issueId,
+          caste: "sentinel",
+          stage: "reviewing",
+        });
+        if (!markRecordReviewingWithAgent({
+          root,
+          issueId: record.issueId,
+          timestamp,
+          sessionProvenanceId,
+          sessionId: launched.sessionId,
+          startedAt: launched.startedAt,
+        })) {
+          continue;
+        }
+        writePhaseLog(root, {
+          timestamp,
+          phase: "dispatch",
+          issueId: record.issueId,
+          action: "launch_sentinel",
+          outcome: "running",
+          sessionId: launched.sessionId,
+          detail: JSON.stringify({
+            caste: "sentinel",
+            stage: "reviewing",
+          }),
+        });
+      }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       markReviewRetryCooldown(root, record.issueId, timestamp, detail);
@@ -459,6 +532,12 @@ export async function runDaemonCycle(
     dispatchResult.dispatchState,
   );
 
-  await runPreMergeReviews(root, timestamp, options.launchPreMergeReview);
+  await runPreMergeReviews(
+    root,
+    timestamp,
+    runtime,
+    sessionProvenanceId,
+    options.launchPreMergeReview,
+  );
   autoEnqueueImplementedIssuesForMerge(root, timestamp);
 }

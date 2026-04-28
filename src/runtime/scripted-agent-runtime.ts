@@ -11,7 +11,7 @@ import { createCasteRuntime } from "./create-caste-runtime.js";
 import { BeadsTrackerClient } from "../tracker/beads-tracker.js";
 
 type DispatchRuntimeMode = "scripted" | "pi" | "codex";
-type DispatchAction = "scout" | "implement";
+type DispatchAction = "scout" | "implement" | "review";
 
 const TERMINATED_SESSIONS = new Set<string>();
 
@@ -22,6 +22,10 @@ function resolveDispatchAction(input: RuntimeLaunchInput): DispatchAction {
 
   if (input.caste === "titan" && input.stage === "implementing") {
     return "implement";
+  }
+
+  if (input.caste === "sentinel" && input.stage === "reviewing") {
+    return "review";
   }
 
   throw new Error(

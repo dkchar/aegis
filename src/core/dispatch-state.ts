@@ -1,6 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { resolveFailureWindowStartMs } from "./failure-policy.js";
+import {
+  calculateFailureCooldown,
+  resolveFailureWindowStartMs,
+  shouldEscalateSentinelOperationalFailure,
+} from "./failure-policy.js";
 import { renameWithRetries } from "../shared/atomic-write.js";
 
 export type AgentCaste = "oracle" | "titan" | "sentinel" | "janus";
@@ -145,6 +149,25 @@ export function reconcileDispatchState(
       IN_PROGRESS_STAGES.has(record.stage)
       && record.sessionProvenanceId !== liveSessionId
     ) {
+      if (record.stage === "reviewing" && record.runningAgent?.caste === "sentinel") {
+        const nextConsecutiveFailures = record.consecutiveFailures + 1;
+        reconciledRecords[issueId] = {
+          ...record,
+          stage: shouldEscalateSentinelOperationalFailure(nextConsecutiveFailures)
+            ? "failed_operational"
+            : "implemented",
+          runningAgent: null,
+          failureCount: record.failureCount + 1,
+          consecutiveFailures: nextConsecutiveFailures,
+          failureWindowStartMs: record.failureWindowStartMs
+            ?? resolveFailureWindowStartMs(timestamp),
+          cooldownUntil: calculateFailureCooldown(timestamp),
+          sessionProvenanceId: liveSessionId,
+          updatedAt: timestamp,
+        };
+        continue;
+      }
+
       reconciledRecords[issueId] = {
         ...record,
         stage: "failed_operational",

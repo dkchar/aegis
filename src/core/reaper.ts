@@ -7,6 +7,7 @@ import { writePhaseLog } from "./phase-log.js";
 import {
   calculateFailureCooldown,
   resolveFailureWindowStartMs,
+  shouldEscalateSentinelOperationalFailure,
 } from "./failure-policy.js";
 import { validateDispatchRecordStage } from "./stage-invariants.js";
 
@@ -49,6 +50,35 @@ function toCompletedRecord(record: DispatchRecord, timestamp: string): DispatchR
 }
 
 function toFailedRecord(record: DispatchRecord, timestamp: string): DispatchRecord {
+  if (record.stage === "reviewing" && record.runningAgent?.caste === "sentinel") {
+    const nextConsecutiveFailures = record.consecutiveFailures + 1;
+    if (shouldEscalateSentinelOperationalFailure(nextConsecutiveFailures)) {
+      return {
+        ...record,
+        stage: "failed_operational",
+        runningAgent: null,
+        failureCount: record.failureCount + 1,
+        consecutiveFailures: nextConsecutiveFailures,
+        failureWindowStartMs: record.failureWindowStartMs
+          ?? resolveFailureWindowStartMs(timestamp),
+        cooldownUntil: calculateFailureCooldown(timestamp),
+        updatedAt: timestamp,
+      };
+    }
+
+    return {
+      ...record,
+      stage: "implemented",
+      runningAgent: null,
+      failureCount: record.failureCount + 1,
+      consecutiveFailures: nextConsecutiveFailures,
+      failureWindowStartMs: record.failureWindowStartMs
+        ?? resolveFailureWindowStartMs(timestamp),
+      cooldownUntil: calculateFailureCooldown(timestamp),
+      updatedAt: timestamp,
+    };
+  }
+
   return {
     ...record,
     stage: "failed_operational",

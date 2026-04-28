@@ -229,6 +229,87 @@ describe("runDaemonCycle", () => {
     ]);
   });
 
+  it("launches pre-merge Sentinel as a durable runtime session", async () => {
+    const root = createTempRoot();
+    initProject(root);
+    mkdirSync(path.join(root, ".aegis", "titan"), { recursive: true });
+    writeFileSync(
+      path.join(root, ".aegis", "titan", "ISSUE-REVIEW.json"),
+      `${JSON.stringify({
+        labor_path: ".aegis/labors/ISSUE-REVIEW",
+        candidate_branch: "aegis/ISSUE-REVIEW",
+        base_branch: "main",
+      }, null, 2)}\n`,
+      "utf8",
+    );
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: {
+        "ISSUE-REVIEW": {
+          issueId: "ISSUE-REVIEW",
+          stage: "implemented",
+          runningAgent: null,
+          oracleAssessmentRef: ".aegis/oracle/ISSUE-REVIEW.json",
+          titanHandoffRef: ".aegis/titan/ISSUE-REVIEW.json",
+          titanClarificationRef: null,
+          sentinelVerdictRef: null,
+          janusArtifactRef: null,
+          failureTranscriptRef: null,
+          fileScope: null,
+          failureCount: 0,
+          consecutiveFailures: 0,
+          failureWindowStartMs: null,
+          cooldownUntil: null,
+          sessionProvenanceId: "daemon-old",
+          updatedAt: "2026-04-26T20:00:00.000Z",
+        },
+      },
+    });
+
+    vi.doMock("../../../src/tracker/beads-tracker.js", () => ({
+      BeadsTrackerClient: class {
+        async listReadyIssues() {
+          return [];
+        }
+      },
+    }));
+
+    const launch = vi.fn(async (input: any) => ({
+      sessionId: `session-${input.caste}`,
+      startedAt: "2026-04-26T20:01:00.000Z",
+    }));
+    const { runDaemonCycle } = await import("../../../src/core/loop-runner.js");
+
+    await runDaemonCycle(root, {
+      runtime: {
+        launch,
+        async readSession() {
+          return null;
+        },
+        async terminate() {
+          return null;
+        },
+      },
+      sessionProvenanceId: "daemon-new",
+    });
+
+    expect(launch).toHaveBeenCalledWith(expect.objectContaining({
+      root,
+      issueId: "ISSUE-REVIEW",
+      caste: "sentinel",
+      stage: "reviewing",
+    }));
+    expect(loadDispatchState(root).records["ISSUE-REVIEW"]).toMatchObject({
+      stage: "reviewing",
+      runningAgent: {
+        caste: "sentinel",
+        sessionId: "session-sentinel",
+      },
+      sessionProvenanceId: "daemon-new",
+    });
+    expect(loadMergeQueueState(root).items).toEqual([]);
+  });
+
   it("keeps implemented work in cooldown when pre-merge review crashes", async () => {
     const root = createTempRoot();
     initProject(root);

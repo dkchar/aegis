@@ -191,6 +191,48 @@ function readOracleImplementationContext(root: string, artifactRef: string | nul
   }
 }
 
+function readReviewFeedbackContext(root: string, artifactRef: string | null) {
+  if (!artifactRef) {
+    return [];
+  }
+
+  const artifactPath = path.join(root, artifactRef);
+  if (!existsSync(artifactPath)) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(readFileSync(artifactPath, "utf8")) as Record<string, unknown>;
+    const lines: string[] = [];
+    const reviewSummary = parsed["reviewSummary"];
+    if (typeof reviewSummary === "string" && reviewSummary.trim().length > 0) {
+      lines.push(`Review summary: ${reviewSummary.trim()}`);
+    }
+
+    const blockingFindings = parsed["blockingFindings"];
+    if (Array.isArray(blockingFindings)) {
+      for (const finding of blockingFindings) {
+        if (typeof finding === "string" && finding.trim().length > 0) {
+          lines.push(`Blocking finding: ${finding.trim()}`);
+        }
+      }
+    }
+
+    const advisories = parsed["advisories"];
+    if (Array.isArray(advisories)) {
+      for (const advisory of advisories) {
+        if (typeof advisory === "string" && advisory.trim().length > 0) {
+          lines.push(`Advisory: ${advisory.trim()}`);
+        }
+      }
+    }
+
+    return lines;
+  } catch {
+    return [];
+  }
+}
+
 function buildTitanPrompt(
   issue: AegisIssue,
   laborPath: string,
@@ -198,6 +240,7 @@ function buildTitanPrompt(
     fileScope?: { files: string[] } | null;
     suggestedChecks?: string[];
     scopeNotes?: string[];
+    reviewFeedback?: string[];
     resolvedBlockerIssueId?: string | null;
   },
 ) {
@@ -212,6 +255,9 @@ function buildTitanPrompt(
     : null;
   const suggestedChecks = options?.suggestedChecks?.length
     ? options.suggestedChecks.map((entry) => `- ${entry}`).join("\n")
+    : null;
+  const reviewFeedback = options?.reviewFeedback?.length
+    ? options.reviewFeedback.map((entry) => `- ${entry}`).join("\n")
     : null;
   const resolvedBlockerIssueId = options?.resolvedBlockerIssueId ?? null;
 
@@ -242,10 +288,24 @@ function buildTitanPrompt(
         suggestedChecks,
       ]
       : []),
+    ...(reviewFeedback
+      ? [
+        "Prior Sentinel or Janus feedback:",
+        reviewFeedback,
+        "Resolve this feedback before returning success or already_satisfied.",
+        "If resolving this feedback requires files outside the allowed file scope, emit a blocking mutation_proposal instead of repeating the same handoff.",
+      ]
+      : []),
     ...(resolvedBlockerIssueId
       ? [
         `Previously blocked by child issue ${resolvedBlockerIssueId}. Tracker now reports this parent ready, so the child is closed.`,
         "Do not create another blocker for the same out-of-scope need; inspect the current workspace and continue remaining owned-scope work. If the issue contract is already satisfied, return already_satisfied.",
+      ]
+      : []),
+    ...(isPolicyCreatedBlockerDescription(description)
+      ? [
+        "Policy-created blocker issue: this issue exists to resolve a previously accepted blocking mutation proposal.",
+        "Do not resolve this blocker with already_satisfied. Make the required in-scope change and return success, or return failure with evidence if the blocker cannot be resolved.",
       ]
       : []),
     "Preserve existing Aegis/Beads operational files and ignore rules. Do not modify .aegis/, .beads/, or remove their existing .gitignore coverage.",
@@ -810,6 +870,7 @@ async function runImplement(
   }
 
   const oracleContext = readOracleImplementationContext(input.root, record.oracleAssessmentRef);
+  const reviewFeedback = readReviewFeedbackContext(input.root, record.reviewFeedbackRef ?? null);
   const runInput = {
     caste: "titan",
     issueId: issue.id,
@@ -819,6 +880,7 @@ async function runImplement(
       fileScope: record.fileScope,
       suggestedChecks: oracleContext?.suggestedChecks,
       scopeNotes: oracleContext?.scopeNotes,
+      reviewFeedback,
       resolvedBlockerIssueId: record.blockedByIssueId ?? null,
     }),
   } satisfies CasteRunInput;

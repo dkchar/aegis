@@ -511,6 +511,93 @@ describe("reapFinishedWork", () => {
     });
   });
 
+  it("returns failed Sentinel sessions to implemented cooldown for review retry", async () => {
+    const root = createTempRoot();
+    const runtime: AgentRuntime = {
+      async launch() {
+        throw new Error("unused");
+      },
+      async readSession() {
+        return {
+          sessionId: "session-9",
+          status: "failed",
+          finishedAt: "2026-04-24T10:00:00.000Z",
+          error: "Sentinel timed out",
+        };
+      },
+      async terminate() {
+        return null;
+      },
+    };
+
+    const result = await reapFinishedWork({
+      dispatchState: createSentinelRunningState(),
+      runtime,
+      issueIds: ["ISSUE-9"],
+      root,
+      now: "2026-04-24T10:00:00.000Z",
+    });
+
+    expect(result.completed).toEqual([]);
+    expect(result.failed).toEqual(["ISSUE-9"]);
+    expect(result.state.records["ISSUE-9"]).toMatchObject({
+      stage: "implemented",
+      runningAgent: null,
+      titanHandoffRef: ".aegis/titan/ISSUE-9.json",
+      failureCount: 1,
+      consecutiveFailures: 1,
+    });
+    expect(result.state.records["ISSUE-9"]?.cooldownUntil).toBeTruthy();
+  });
+
+  it("escalates repeated Sentinel operational failures back to Titan dispatch", async () => {
+    const root = createTempRoot();
+    const runtime: AgentRuntime = {
+      async launch() {
+        throw new Error("unused");
+      },
+      async readSession() {
+        return {
+          sessionId: "session-9",
+          status: "failed",
+          finishedAt: "2026-04-24T10:00:00.000Z",
+          error: "Sentinel timed out again",
+        };
+      },
+      async terminate() {
+        return null;
+      },
+    };
+    const state = createSentinelRunningState();
+    state.records["ISSUE-9"] = {
+      ...state.records["ISSUE-9"]!,
+      reviewFeedbackRef: ".aegis/sentinel/ISSUE-9.json",
+      failureCount: 1,
+      consecutiveFailures: 1,
+      failureWindowStartMs: 1777049700000,
+    };
+
+    const result = await reapFinishedWork({
+      dispatchState: state,
+      runtime,
+      issueIds: ["ISSUE-9"],
+      root,
+      now: "2026-04-24T10:00:00.000Z",
+    });
+
+    expect(result.completed).toEqual([]);
+    expect(result.failed).toEqual(["ISSUE-9"]);
+    expect(result.state.records["ISSUE-9"]).toMatchObject({
+      stage: "failed_operational",
+      runningAgent: null,
+      oracleAssessmentRef: ".aegis/oracle/ISSUE-9.json",
+      reviewFeedbackRef: ".aegis/sentinel/ISSUE-9.json",
+      failureCount: 2,
+      consecutiveFailures: 2,
+    });
+    expect(result.state.records["ISSUE-9"]?.cooldownUntil).toBeTruthy();
+  });
+
   it("moves successful titan runs to implemented stage while clearing running assignment", async () => {
     const root = createTempRoot();
     const runtime: AgentRuntime = {

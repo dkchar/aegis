@@ -269,6 +269,86 @@ describe("startAegis daemon loop", () => {
     await result.runtime.stop();
   });
 
+  it("reconciles stale reviewing state back to implemented cooldown instead of restarting Oracle", async () => {
+    const root = createTempRoot();
+    initProject(root);
+
+    const configPath = path.join(root, ".aegis", "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8")) as {
+      runtime: string;
+    };
+    writeFileSync(
+      configPath,
+      `${JSON.stringify({
+        ...config,
+        runtime: "scripted",
+      }, null, 2)}\n`,
+      "utf8",
+    );
+
+    writeFileSync(
+      path.join(root, ".aegis", "dispatch-state.json"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        records: {
+          "ISSUE-REVIEW": {
+            issueId: "ISSUE-REVIEW",
+            stage: "reviewing",
+            runningAgent: {
+              caste: "sentinel",
+              sessionId: "stale-sentinel",
+              startedAt: "2026-04-14T11:00:00.000Z",
+            },
+            oracleAssessmentRef: ".aegis/oracle/ISSUE-REVIEW.json",
+            titanHandoffRef: ".aegis/titan/ISSUE-REVIEW.json",
+            titanClarificationRef: null,
+            sentinelVerdictRef: null,
+            janusArtifactRef: null,
+            failureTranscriptRef: null,
+            fileScope: { files: ["src/App.tsx"] },
+            failureCount: 0,
+            consecutiveFailures: 0,
+            failureWindowStartMs: null,
+            cooldownUntil: null,
+            sessionProvenanceId: "stale-daemon",
+            updatedAt: "2026-04-14T11:00:00.000Z",
+          },
+        },
+      }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const startModule = await import("../../../src/cli/start.js");
+    const result = await startModule.startAegis(root, {}, {
+      verifyTracker: () => undefined,
+      verifyGitRepo: () => undefined,
+      probeBeadsCli: () => ({
+        ok: true,
+        detail: "Beads CLI is available.",
+      }),
+      registerSignalHandlers: false,
+      runDaemonCycle: async () => undefined,
+    });
+
+    const recovered = JSON.parse(
+      readFileSync(path.join(root, ".aegis", "dispatch-state.json"), "utf8"),
+    ) as {
+      records: Record<string, {
+        stage: string;
+        runningAgent: unknown;
+        cooldownUntil: string | null;
+        sessionProvenanceId: string;
+      }>;
+    };
+
+    expect(recovered.records["ISSUE-REVIEW"]?.stage).toBe("implemented");
+    expect(recovered.records["ISSUE-REVIEW"]?.runningAgent).toBeNull();
+    expect(recovered.records["ISSUE-REVIEW"]?.cooldownUntil).toBeTruthy();
+    expect(recovered.records["ISSUE-REVIEW"]?.sessionProvenanceId).toBe(String(process.pid));
+
+    await result.runtime.stop();
+  });
+
   it("serializes daemon-routed phase commands with an in-flight daemon cycle", async () => {
     vi.useFakeTimers();
     const root = createTempRoot();

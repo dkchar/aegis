@@ -1,6 +1,7 @@
 import type { AegisConfig } from "../config/schema.js";
 import type { DispatchRecord, DispatchState } from "./dispatch-state.js";
 import type { TrackerReadyIssue } from "../tracker/tracker.js";
+import { hasExhaustedOperationalRetries } from "./failure-policy.js";
 
 export type TriageSkipReason =
   | "capacity"
@@ -8,6 +9,7 @@ export type TriageSkipReason =
   | "in_progress"
   | "already_progressed"
   | "blocked"
+  | "operational_failure_limit"
   | "scope_overlap";
 
 export interface DispatchDecision {
@@ -59,6 +61,10 @@ function resolveFailedIssueSkipReason(record: DispatchRecord): TriageSkipReason 
     return null;
   }
 
+  if (hasExhaustedOperationalRetries(record.consecutiveFailures)) {
+    return "operational_failure_limit";
+  }
+
   return null;
 }
 
@@ -90,6 +96,7 @@ function resolveDecision(
     record?.stage === "scouted"
     || record?.stage === "rework_required"
     || record?.stage === "blocked_on_child"
+    || (record?.stage === "failed_operational" && record.oracleAssessmentRef !== null)
   ) {
     return {
       issueId: issue.id,
