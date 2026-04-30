@@ -235,8 +235,26 @@ function terminateProcessTree(pid: number) {
 }
 
 function normalizeProcessPath(candidate: string, platform: NodeJS.Platform) {
-  const normalized = path.resolve(candidate).replace(/\\/g, "/");
+  const normalized = (platform === "win32"
+    ? path.win32.resolve(candidate)
+    : path.posix.resolve(candidate)).replace(/\\/g, "/");
   return platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+
+function commandLineContainsWorkspace(commandLine: string, workspace: string) {
+  let searchFrom = 0;
+  while (searchFrom < commandLine.length) {
+    const index = commandLine.indexOf(workspace, searchFrom);
+    if (index === -1) {
+      return false;
+    }
+    const next = commandLine[index + workspace.length];
+    if (next === undefined || next === "/" || next === "\"" || next === "'" || /\s/.test(next)) {
+      return true;
+    }
+    searchFrom = index + workspace.length;
+  }
+  return false;
 }
 
 export function commandLineReferencesWorkspace(
@@ -249,7 +267,7 @@ export function commandLineReferencesWorkspace(
     ? normalizedCommand.toLowerCase()
     : normalizedCommand;
   const workspace = normalizeProcessPath(workingDirectory, platform);
-  return comparableCommand.includes(`${workspace}/`) || comparableCommand.includes(workspace);
+  return commandLineContainsWorkspace(comparableCommand, workspace);
 }
 
 export function terminateWorkspaceProcesses(

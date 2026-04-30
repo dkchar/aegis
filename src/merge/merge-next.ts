@@ -303,7 +303,6 @@ export async function runMergeNext(
 
   const executor = options.executor ?? createDefaultExecutor(root);
   const tracker = options.tracker ?? createDefaultTracker();
-  const runtime = options.runtime ?? createDefaultRuntime(root, queueItem.issueId);
 
   const mergingQueueState = updateMergeQueueItem(queueState, queueItem.queueItemId, (item) => ({
     ...item,
@@ -373,6 +372,7 @@ export async function runMergeNext(
     const janusInvocation = queueItem.janusInvocations + 1;
     const attemptNumber = queueItem.attempts + 1;
     const config = loadConfig(root);
+    const runtime = options.runtime ?? createDefaultRuntime(root, queueItem.issueId);
     updateDispatchStage(root, queueItem.issueId, dispatchRecord, "resolving_integration", now);
     const janus = await runCasteCommand({
       root,
