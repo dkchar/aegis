@@ -162,6 +162,7 @@ describe("dispatchReadyWork", () => {
 
     expect(result.failed).toEqual(["ISSUE-1"]);
     expect(result.state.records["ISSUE-1"]?.stage).toBe("failed_operational");
+    expect(result.state.records["ISSUE-1"]?.operationalFailureKind).toBe("runtime_failure");
     expect(result.state.records["ISSUE-1"]?.cooldownUntil).toBeTruthy();
   });
 
@@ -244,7 +245,43 @@ describe("dispatchReadyWork", () => {
 
     expect(result.failed).toEqual(["ISSUE-1"]);
     expect(result.state.records["ISSUE-1"]?.stage).toBe("failed_operational");
+    expect(result.state.records["ISSUE-1"]?.operationalFailureKind).toBe("runtime_failure");
     expect(result.state.records["ISSUE-1"]?.cooldownUntil).toBeTruthy();
+  });
+
+  it("classifies provider usage limit launch failures", async () => {
+    const root = createTempRoot();
+    const result = await dispatchReadyWork({
+      dispatchState: emptyDispatchState(),
+      decisions: [
+        {
+          issueId: "ISSUE-1",
+          title: "First",
+          caste: "oracle",
+          stage: "scouting",
+        },
+      ],
+      runtime: {
+        async launch() {
+          throw new Error("You've hit your usage limit. Try again at 11:30 PM.");
+        },
+        async readSession() {
+          return null;
+        },
+        async terminate() {
+          return null;
+        },
+      },
+      sessionProvenanceId: "daemon-1",
+      root,
+      now: "2026-04-29T20:01:00.000Z",
+    });
+
+    expect(result.state.records["ISSUE-1"]).toMatchObject({
+      stage: "failed_operational",
+      consecutiveFailures: 3,
+      operationalFailureKind: "provider_usage_limit",
+    });
   });
 
   it("stops dispatching the rest of the current pass after a launch failure", async () => {

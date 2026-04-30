@@ -29,6 +29,7 @@ import {
   type RuntimeCommandResponse,
 } from "./runtime-command.js";
 import { createCasteRuntime } from "../runtime/create-caste-runtime.js";
+import { createAgentRuntime } from "../runtime/scripted-agent-runtime.js";
 import { verifyConfiguredPiModels } from "../runtime/pi-model-config.js";
 import { runMergeNext as defaultRunMergeNext } from "../merge/merge-next.js";
 import {
@@ -559,6 +560,16 @@ export async function startAegis(
       }
       clearStopRequest(repoRoot);
       clearRuntimeCommandArtifacts(repoRoot);
+      const stopRuntime = createAgentRuntime(resolvedConfig.runtime);
+      const activeRecords = Object.values(loadDispatchState(repoRoot).records)
+        .filter((record) => record.runningAgent !== null);
+      for (const record of activeRecords) {
+        await stopRuntime.terminate(
+          repoRoot,
+          record.runningAgent!.sessionId,
+          `Daemon stopped: ${reason}.`,
+        );
+      }
       runningState = toStoppedRuntimeState(runningState, reason);
       writeRuntimeState(runningState, repoRoot);
       appendDaemonLog(repoRoot, `[daemon][stop] reason=${reason}`);

@@ -36,6 +36,43 @@ function createReviewingState(consecutiveFailures: number): DispatchState {
   };
 }
 
+function createImplementingState(): DispatchState {
+  return {
+    schemaVersion: 1,
+    records: {
+      "ISSUE-IMPLEMENT": {
+        issueId: "ISSUE-IMPLEMENT",
+        stage: "implementing",
+        runningAgent: {
+          caste: "titan",
+          sessionId: "titan-old",
+          startedAt: "2026-04-24T09:55:00.000Z",
+        },
+        oracleAssessmentRef: ".aegis/oracle/ISSUE-IMPLEMENT.json",
+        titanHandoffRef: null,
+        titanClarificationRef: null,
+        sentinelVerdictRef: null,
+        janusArtifactRef: null,
+        failureTranscriptRef: null,
+        reviewFeedbackRef: null,
+        policyArtifactRef: null,
+        blockedByIssueId: null,
+        oracleReady: null,
+        oracleDecompose: null,
+        oracleBlockers: null,
+        lastCompletedCaste: null,
+        fileScope: { files: ["src/App.tsx"] },
+        failureCount: 0,
+        consecutiveFailures: 0,
+        failureWindowStartMs: null,
+        cooldownUntil: null,
+        sessionProvenanceId: "daemon-old",
+        updatedAt: "2026-04-24T09:55:00.000Z",
+      },
+    },
+  };
+}
+
 describe("reconcileDispatchState", () => {
   it("keeps first stale Sentinel review retryable with cooldown", () => {
     const reconciled = reconcileDispatchState(
@@ -71,5 +108,20 @@ describe("reconcileDispatchState", () => {
       sessionProvenanceId: "daemon-new",
     });
     expect(reconciled.records["ISSUE-REVIEW"]?.cooldownUntil).toBeTruthy();
+  });
+
+  it("preserves stale Titan file scope for safe retry", () => {
+    const reconciled = reconcileDispatchState(
+      createImplementingState(),
+      "daemon-new",
+      "2026-04-24T10:00:00.000Z",
+    );
+
+    expect(reconciled.records["ISSUE-IMPLEMENT"]).toMatchObject({
+      stage: "failed_operational",
+      runningAgent: null,
+      fileScope: { files: ["src/App.tsx"] },
+      sessionProvenanceId: "daemon-new",
+    });
   });
 });

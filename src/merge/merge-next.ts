@@ -372,6 +372,7 @@ export async function runMergeNext(
   if (decision.action === "janus") {
     const janusInvocation = queueItem.janusInvocations + 1;
     const attemptNumber = queueItem.attempts + 1;
+    const config = loadConfig(root);
     updateDispatchStage(root, queueItem.issueId, dispatchRecord, "resolving_integration", now);
     const janus = await runCasteCommand({
       root,
@@ -379,6 +380,7 @@ export async function runMergeNext(
       issueId: queueItem.issueId,
       tracker,
       runtime,
+      artifactEmissionMode: config.runtime === "pi" ? "tool" : "json",
       janusContext: {
         queueItemId: queueItem.queueItemId,
         mergeOutcome: attempt.outcome,

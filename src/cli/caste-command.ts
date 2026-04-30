@@ -38,12 +38,14 @@ async function runUnsupportedLocalAction(
   action: RuntimeCasteAction,
   issueId: string,
 ) {
+  const config = loadConfig(root);
   return runCasteCommand({
     root,
     action,
     issueId,
     tracker: new BeadsTrackerClient(),
-    runtime: createCasteRuntime(loadConfig(root).runtime, {}, { root, issueId }),
+    runtime: createCasteRuntime(config.runtime, {}, { root, issueId }),
+    artifactEmissionMode: config.runtime === "pi" ? "tool" : "json",
   });
 }
 

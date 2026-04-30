@@ -96,7 +96,7 @@ function resolveDecision(
     record?.stage === "scouted"
     || record?.stage === "rework_required"
     || record?.stage === "blocked_on_child"
-    || (record?.stage === "failed_operational" && record.oracleAssessmentRef !== null)
+    || (record?.stage === "failed_operational" && record.oracleAssessmentRef !== null && record.fileScope !== null)
   ) {
     return {
       issueId: issue.id,

@@ -12,6 +12,7 @@ import type { CasteName } from "../../../src/runtime/caste-runtime.js";
 import {
   buildHiddenShellSpawnOptions,
   commandLineReferencesWorkspace,
+  isForbiddenLongRunningShellCommand,
   PiCasteRuntime,
 } from "../../../src/runtime/pi-caste-runtime.js";
 
@@ -517,6 +518,79 @@ describe("PiCasteRuntime", () => {
     }
   });
 
+  it("keeps Pi sessions alive while model events heartbeat", async () => {
+    vi.useFakeTimers();
+    try {
+      mockedAgent.session.prompt.mockImplementation(async () => {
+        const listener = mockedAgent.listeners.at(-1);
+        if (!listener) {
+          return;
+        }
+
+        setTimeout(() => {
+          listener({
+            type: "message_end",
+            message: {
+              role: "assistant",
+              content: "Still inspecting package graph.",
+            },
+          });
+        }, 8);
+
+        setTimeout(() => {
+          listener({
+            type: "tool_execution_start",
+            toolCallId: "call-heartbeat",
+            toolName: ORACLE_EMIT_ASSESSMENT_TOOL_NAME,
+            args: {},
+          });
+          listener({
+            type: "tool_execution_end",
+            toolCallId: "call-heartbeat",
+            toolName: ORACLE_EMIT_ASSESSMENT_TOOL_NAME,
+            isError: false,
+            result: {
+              content: [{ type: "text", text: "Oracle payload emitted." }],
+              details: {
+                assessment: {
+                  files_affected: ["package.json"],
+                  estimated_complexity: "moderate",
+                  risks: [],
+                  suggested_checks: ["npm.cmd install"],
+                  scope_notes: ["heartbeat kept session alive"],
+                },
+              },
+            },
+          });
+        }, 16);
+      });
+
+      const runtime = new PiCasteRuntime({
+        oracle: createModelConfig("oracle"),
+      }, {
+        sessionTimeoutMs: 10,
+        timeoutRetryCount: 0,
+      });
+
+      const resultPromise = runtime.run({
+        caste: "oracle",
+        issueId: "aegis-heartbeat",
+        root: "repo",
+        workingDirectory: "repo",
+        prompt: "Scout heartbeat",
+      });
+
+      await vi.advanceTimersByTimeAsync(16);
+      const result = await resultPromise;
+
+      expect(result.status).toBe("succeeded");
+      expect(result.outputText).toContain("\"estimated_complexity\":\"moderate\"");
+      expect(mockedAgent.session.abort).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("retries timed-out sessions once and succeeds when second attempt returns", async () => {
     let attempt = 0;
     mockedAgent.session.prompt.mockImplementation(async () => {
@@ -749,6 +823,15 @@ describe("PiCasteRuntime", () => {
     await expect(bashTool?.execute("call-3", {
       command: "git checkout main",
     }, undefined, undefined)).rejects.toThrow("Titan bash command cannot change git branch state");
+    await expect(bashTool?.execute("call-4", {
+      command: "npm.ps1 run build",
+    }, undefined, undefined)).rejects.toThrow("Titan bash command cannot invoke PowerShell scripts directly");
+    await expect(bashTool?.execute("call-5", {
+      command: "start npm.ps1",
+    }, undefined, undefined)).rejects.toThrow("Titan bash command cannot launch GUI/open/start commands");
+    await expect(bashTool?.execute("call-6", {
+      command: "npm.cmd run dev -- --host 127.0.0.1",
+    }, undefined, undefined)).rejects.toThrow("Titan bash command cannot run dev, preview, watch, or server processes");
 
     const originalWriteTool = mockedAgent.createWriteTool.mock.results.at(-1)?.value as
       | { execute: ReturnType<typeof vi.fn> }
@@ -759,6 +842,13 @@ describe("PiCasteRuntime", () => {
 
     expect(originalWriteTool?.execute).not.toHaveBeenCalled();
     expect(originalBashTool?.execute).not.toHaveBeenCalled();
+  });
+
+  it("detects forbidden long-running shell commands", () => {
+    expect(isForbiddenLongRunningShellCommand("npm.cmd run dev -- --host 127.0.0.1")).toBe(true);
+    expect(isForbiddenLongRunningShellCommand("node node_modules/vite/bin/vite.js --host 127.0.0.1")).toBe(true);
+    expect(isForbiddenLongRunningShellCommand("node node_modules/vite/bin/vite.js build")).toBe(false);
+    expect(isForbiddenLongRunningShellCommand("npm.cmd run build")).toBe(false);
   });
 
   it("blocks Titan package installs outside declared package file scope", async () => {
@@ -926,6 +1016,10 @@ describe("PiCasteRuntime", () => {
       expect.objectContaining({
         cwd: "repo/titan",
         noExtensions: true,
+        skillsOverride: expect.any(Function),
+        agentsFilesOverride: expect.any(Function),
+        promptsOverride: expect.any(Function),
+        systemPromptOverride: expect.any(Function),
       }),
     );
 

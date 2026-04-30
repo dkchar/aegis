@@ -1,9 +1,18 @@
 import { isProcessRunning, readRuntimeState } from "./runtime-state.js";
 import { loadDispatchState } from "../core/dispatch-state.js";
+import { hasExhaustedOperationalRetries } from "../core/failure-policy.js";
 import { BeadsTrackerClient } from "../tracker/beads-tracker.js";
 import { recoverStaleRuntimeState } from "./runtime-recovery.js";
 
 export const STATUS_COMMAND_NAME = "status";
+
+export interface TerminalOperationalFailure {
+  issue_id: string;
+  operational_failure_kind: string | null;
+  failure_count: number;
+  consecutive_failures: number;
+  failure_transcript_ref: string | null;
+}
 
 export interface StatusSnapshot {
   server_state: "running" | "stopped";
@@ -11,6 +20,7 @@ export interface StatusSnapshot {
   active_agents: number;
   queue_depth: number;
   uptime_ms: number;
+  terminal_operational_failures: TerminalOperationalFailure[];
 }
 
 export interface StatusCommandContract {
@@ -31,6 +41,7 @@ const DEFAULT_SNAPSHOT: StatusSnapshot = {
   active_agents: 0,
   queue_depth: 0,
   uptime_ms: 0,
+  terminal_operational_failures: [],
 };
 
 function calculateUptimeMs(startedAt: string) {
@@ -50,6 +61,24 @@ function isActiveDispatchRecord(record: ReturnType<typeof loadDispatchState>["re
   return record.stage === "reviewing" && record.sentinelVerdictRef === null;
 }
 
+function collectTerminalOperationalFailures(
+  dispatchState: ReturnType<typeof loadDispatchState>,
+): TerminalOperationalFailure[] {
+  return Object.values(dispatchState.records)
+    .filter((record) =>
+      record.stage === "failed_operational"
+      && record.runningAgent === null
+      && hasExhaustedOperationalRetries(record.consecutiveFailures))
+    .map((record) => ({
+      issue_id: record.issueId,
+      operational_failure_kind: record.operationalFailureKind ?? null,
+      failure_count: record.failureCount,
+      consecutive_failures: record.consecutiveFailures,
+      failure_transcript_ref: record.failureTranscriptRef ?? null,
+    }))
+    .sort((left, right) => left.issue_id.localeCompare(right.issue_id));
+}
+
 export function createStatusCommandContract(): StatusCommandContract {
   return {
     command: STATUS_COMMAND_NAME,
@@ -59,6 +88,7 @@ export function createStatusCommandContract(): StatusCommandContract {
       "active_agents",
       "queue_depth",
       "uptime_ms",
+      "terminal_operational_failures",
     ],
   };
 }
@@ -74,6 +104,7 @@ export async function getAegisStatus(
   });
   const recoveredRuntime = readRuntimeState(root);
   const dispatchState = loadDispatchState(root);
+  const terminalOperationalFailures = collectTerminalOperationalFailures(dispatchState);
   const isLiveDaemon = recoveredRuntime
     ? recoveredRuntime.server_state !== "stopped"
       && (options.isProcessRunning ?? isProcessRunning)(recoveredRuntime.pid)
@@ -96,6 +127,7 @@ export async function getAegisStatus(
     return {
       ...DEFAULT_SNAPSHOT,
       queue_depth: queueDepth,
+      terminal_operational_failures: terminalOperationalFailures,
     };
   }
 
@@ -106,6 +138,7 @@ export async function getAegisStatus(
       active_agents: activeAgentCount,
       queue_depth: queueDepth,
       uptime_ms: calculateUptimeMs(recoveredRuntime.started_at),
+      terminal_operational_failures: terminalOperationalFailures,
     };
   }
 
@@ -114,6 +147,7 @@ export async function getAegisStatus(
     mode: recoveredRuntime.mode,
     active_agents: activeAgentCount,
     queue_depth: queueDepth,
+    terminal_operational_failures: terminalOperationalFailures,
   };
 }
 

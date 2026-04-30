@@ -480,4 +480,220 @@ describe("runDaemonCycle", () => {
     expect(launchPreMergeReview).not.toHaveBeenCalled();
     expect(loadMergeQueueState(root).items).toEqual([]);
   });
+
+  it("returns resolved router-created blockers to fresh Oracle scout instead of stale review", async () => {
+    const root = createTempRoot();
+    initProject(root);
+    mkdirSync(path.join(root, ".aegis", "policy"), { recursive: true });
+    mkdirSync(path.join(root, ".aegis", "titan"), { recursive: true });
+    mkdirSync(path.join(root, ".aegis", "sentinel"), { recursive: true });
+    writeFileSync(
+      path.join(root, ".aegis", "policy", "ISSUE-PARENT--accepted.json"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        outcome: "accepted",
+        originIssueId: "ISSUE-PARENT",
+        originCaste: "router",
+        proposalType: "create_out_of_scope_blocker",
+        fingerprint: "contract-mismatch",
+        summary: "contract blocker",
+        childIssueId: "ISSUE-BLOCKER",
+        parentStage: "blocked_on_child",
+        createdAt: "2026-04-29T12:00:00.000Z",
+      }, null, 2)}\n`,
+      "utf8",
+    );
+    writeFileSync(
+      path.join(root, ".aegis", "titan", "ISSUE-PARENT.json"),
+      `${JSON.stringify({
+        labor_path: ".aegis/labors/ISSUE-PARENT",
+        candidate_branch: "aegis/ISSUE-PARENT",
+        base_branch: "main",
+      }, null, 2)}\n`,
+      "utf8",
+    );
+    writeFileSync(
+      path.join(root, ".aegis", "sentinel", "ISSUE-PARENT.json"),
+      `${JSON.stringify({
+        verdict: "fail_blocking",
+        reviewSummary: "needs contract blocker",
+        blockingFindings: [{
+          finding_kind: "out_of_scope_blocker",
+          summary: "contract mismatch",
+          required_files: ["docs/setup-contract.md"],
+          owner_issue: "ISSUE-PARENT",
+          route: "create_blocker",
+        }],
+        advisories: [],
+        touchedFiles: ["src/App.tsx"],
+        contractChecks: ["contract mismatch found"],
+      }, null, 2)}\n`,
+      "utf8",
+    );
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: {
+        "ISSUE-PARENT": {
+          issueId: "ISSUE-PARENT",
+          stage: "blocked_on_child",
+          runningAgent: null,
+          blockedByIssueId: "ISSUE-BLOCKER",
+          policyArtifactRef: ".aegis/policy/ISSUE-PARENT--accepted.json",
+          oracleAssessmentRef: ".aegis/oracle/ISSUE-PARENT.json",
+          titanHandoffRef: ".aegis/titan/ISSUE-PARENT.json",
+          titanClarificationRef: null,
+          sentinelVerdictRef: ".aegis/sentinel/ISSUE-PARENT.json",
+          reviewFeedbackRef: ".aegis/sentinel/ISSUE-PARENT.json",
+          janusArtifactRef: null,
+          failureTranscriptRef: null,
+          fileScope: { files: ["src/App.tsx"] },
+          failureCount: 0,
+          consecutiveFailures: 0,
+          failureWindowStartMs: null,
+          cooldownUntil: null,
+          sessionProvenanceId: "daemon-old",
+          updatedAt: "2026-04-29T12:00:00.000Z",
+        } as any,
+      },
+    });
+
+    vi.doMock("../../../src/tracker/beads-tracker.js", () => ({
+      BeadsTrackerClient: class {
+        async listReadyIssues() {
+          return [{ id: "ISSUE-PARENT", title: "Parent ready after blocker" }];
+        }
+      },
+    }));
+
+    const launch = vi.fn(async (input: any) => ({
+      sessionId: `session-${input.caste}`,
+      startedAt: "2026-04-29T12:01:00.000Z",
+    }));
+    const { runDaemonCycle } = await import("../../../src/core/loop-runner.js");
+
+    await runDaemonCycle(root, {
+      runtime: {
+        launch,
+        async readSession() {
+          return null;
+        },
+        async terminate() {
+          return null;
+        },
+      },
+      sessionProvenanceId: "daemon-new",
+    });
+
+    expect(launch).toHaveBeenCalledTimes(1);
+    expect(launch).toHaveBeenCalledWith(expect.objectContaining({
+      issueId: "ISSUE-PARENT",
+      caste: "oracle",
+      stage: "scouting",
+    }));
+    expect(loadDispatchState(root).records["ISSUE-PARENT"]).toMatchObject({
+      stage: "scouting",
+      blockedByIssueId: null,
+      oracleAssessmentRef: null,
+      reviewFeedbackRef: null,
+      titanHandoffRef: null,
+      sentinelVerdictRef: null,
+      fileScope: null,
+      runningAgent: {
+        caste: "oracle",
+        sessionId: "session-oracle",
+      },
+    });
+  });
+
+  it("recovers failed parents when a Titan-created policy blocker has closed", async () => {
+    const root = createTempRoot();
+    initProject(root);
+    mkdirSync(path.join(root, ".aegis", "policy"), { recursive: true });
+    writeFileSync(
+      path.join(root, ".aegis", "policy", "ISSUE-PARENT--accepted.json"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        outcome: "accepted",
+        originIssueId: "ISSUE-PARENT",
+        originCaste: "titan",
+        proposalType: "create_out_of_scope_blocker",
+        fingerprint: "test-wiring",
+        summary: "wire tests",
+        childIssueId: "ISSUE-BLOCKER",
+        parentStage: "blocked_on_child",
+        createdAt: "2026-04-29T12:00:00.000Z",
+      }, null, 2)}\n`,
+      "utf8",
+    );
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: {
+        "ISSUE-PARENT": {
+          issueId: "ISSUE-PARENT",
+          stage: "failed_operational",
+          runningAgent: null,
+          blockedByIssueId: "ISSUE-BLOCKER",
+          policyArtifactRef: ".aegis/policy/ISSUE-PARENT--accepted.json",
+          oracleAssessmentRef: ".aegis/oracle/ISSUE-PARENT.json",
+          titanHandoffRef: null,
+          titanClarificationRef: ".aegis/titan/ISSUE-PARENT.json",
+          sentinelVerdictRef: null,
+          reviewFeedbackRef: ".aegis/sentinel/ISSUE-PARENT.json",
+          janusArtifactRef: null,
+          failureTranscriptRef: ".aegis/transcripts/ISSUE-PARENT--titan.json",
+          fileScope: { files: ["docs/core-gate.md"] },
+          failureCount: 3,
+          consecutiveFailures: 3,
+          failureWindowStartMs: 1777562269020,
+          cooldownUntil: "2026-04-29T12:00:30.000Z",
+          sessionProvenanceId: "daemon-old",
+          updatedAt: "2026-04-29T12:00:00.000Z",
+        } as any,
+      },
+    });
+
+    vi.doMock("../../../src/tracker/beads-tracker.js", () => ({
+      BeadsTrackerClient: class {
+        async listReadyIssues() {
+          return [{ id: "ISSUE-PARENT", title: "Parent ready after Titan blocker" }];
+        }
+      },
+    }));
+
+    const launch = vi.fn(async (input: any) => ({
+      sessionId: `session-${input.caste}`,
+      startedAt: "2026-04-29T12:01:00.000Z",
+    }));
+    const { runDaemonCycle } = await import("../../../src/core/loop-runner.js");
+
+    await runDaemonCycle(root, {
+      runtime: {
+        launch,
+        async readSession() {
+          return null;
+        },
+        async terminate() {
+          return null;
+        },
+      },
+      sessionProvenanceId: "daemon-new",
+    });
+
+    expect(launch).toHaveBeenCalledWith(expect.objectContaining({
+      issueId: "ISSUE-PARENT",
+      caste: "oracle",
+      stage: "scouting",
+    }));
+    expect(loadDispatchState(root).records["ISSUE-PARENT"]).toMatchObject({
+      stage: "scouting",
+      blockedByIssueId: null,
+      policyArtifactRef: null,
+      oracleAssessmentRef: null,
+      reviewFeedbackRef: null,
+      titanClarificationRef: null,
+      fileScope: null,
+      failureCount: 3,
+      consecutiveFailures: 3,
+    });
+  });
 });

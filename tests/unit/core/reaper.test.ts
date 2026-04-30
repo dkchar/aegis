@@ -406,6 +406,81 @@ describe("reapFinishedWork", () => {
     expect(result.state.records["ISSUE-1"]?.cooldownUntil).toBeTruthy();
   });
 
+  it("records the failed caste transcript ref when one was persisted", async () => {
+    const root = createTempRoot();
+    mkdirSync(path.join(root, ".aegis", "transcripts"), { recursive: true });
+    writeFileSync(
+      path.join(root, ".aegis", "transcripts", "ISSUE-2--titan.json"),
+      `${JSON.stringify({ status: "failed" }, null, 2)}\n`,
+      "utf8",
+    );
+    const runtime: AgentRuntime = {
+      async launch() {
+        throw new Error("unused");
+      },
+      async readSession() {
+        return {
+          sessionId: "session-2",
+          status: "failed",
+          finishedAt: "2026-04-14T11:56:00.000Z",
+          error: "runtime unavailable",
+        };
+      },
+      async terminate() {
+        return null;
+      },
+    };
+
+    const result = await reapFinishedWork({
+      dispatchState: createTitanRunningState(),
+      runtime,
+      issueIds: ["ISSUE-2"],
+      root,
+      now: "2026-04-14T12:00:00.000Z",
+    });
+
+    expect(result.state.records["ISSUE-2"]).toMatchObject({
+      stage: "failed_operational",
+      failureTranscriptRef: path.join(".aegis", "transcripts", "ISSUE-2--titan.json"),
+      operationalFailureKind: "runtime_failure",
+    });
+  });
+
+  it("exhausts operational retries immediately for provider usage limits", async () => {
+    const root = createTempRoot();
+    const runtime: AgentRuntime = {
+      async launch() {
+        throw new Error("unused");
+      },
+      async readSession() {
+        return {
+          sessionId: "session-1",
+          status: "failed",
+          finishedAt: "2026-04-29T14:54:04.000Z",
+          error: "You've hit your usage limit. Upgrade to Pro or try again at 6:19 PM.",
+        };
+      },
+      async terminate() {
+        return null;
+      },
+    };
+
+    const result = await reapFinishedWork({
+      dispatchState: createRunningState(),
+      runtime,
+      issueIds: ["ISSUE-1"],
+      root,
+      now: "2026-04-29T14:55:00.000Z",
+    });
+
+    expect(result.state.records["ISSUE-1"]).toMatchObject({
+      stage: "failed_operational",
+      failureCount: 1,
+      consecutiveFailures: 3,
+      operationalFailureKind: "provider_usage_limit",
+    });
+  });
+
   it("marks failed sessions as failed_operational and increments counters", async () => {
     const root = createTempRoot();
     const runtime: AgentRuntime = {
@@ -441,6 +516,7 @@ describe("reapFinishedWork", () => {
       runningAgent: null,
       failureCount: 1,
       consecutiveFailures: 1,
+      operationalFailureKind: "runtime_failure",
     });
     expect(result.state.records["ISSUE-1"]?.cooldownUntil).toBeTruthy();
   });

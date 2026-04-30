@@ -1,5 +1,5 @@
 import path from "node:path";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -215,6 +215,148 @@ describe("applyMutationProposal", () => {
     });
 
     expect(tracker.createIssue).not.toHaveBeenCalled();
+  });
+
+  it("rejects a second blocker after a resolved router blocker already existed", async () => {
+    const root = createTempRoot();
+    const policyRef = path.join(".aegis", "policy", "aegis-parent-1--first--accepted.json");
+    mkdirSync(path.join(root, ".aegis", "policy"), { recursive: true });
+    writeFileSync(path.join(root, policyRef), `${JSON.stringify({
+      schemaVersion: 1,
+      outcome: "accepted",
+      originIssueId: "aegis-parent-1",
+      originCaste: "router",
+      proposalType: "create_out_of_scope_blocker",
+      fingerprint: "first",
+      childIssueId: "aegis-first-child",
+      parentStage: "blocked_on_child",
+      createdAt: "2026-04-24T10:00:00.000Z",
+    })}\n`, "utf8");
+
+    const tracker = createTracker();
+    await expect(applyMutationProposal({
+      root,
+      tracker,
+      record: createRecord({
+        stage: "implemented",
+        policyArtifactRef: policyRef,
+        blockedByIssueId: null,
+      }),
+      proposal: createProposal({
+        originCaste: "router",
+        proposalType: "create_out_of_scope_blocker",
+        suggestedTitle: "Resolve another blocker",
+        suggestedDescription: "Second blocker should not be created.",
+        fingerprint: "second",
+      }),
+      now: "2026-04-24T10:01:00.000Z",
+    })).resolves.toMatchObject({
+      outcome: "rejected",
+      parentStage: "failed_operational",
+      rejectionReason: "blocker_chain_not_allowed",
+    });
+
+    expect(tracker.createIssue).not.toHaveBeenCalled();
+    expect(tracker.linkBlockingIssue).not.toHaveBeenCalled();
+  });
+
+  it("rejects Titan blocker proposals after a parent already had a router-created blocker", async () => {
+    const root = createTempRoot();
+    const policyRef = path.join(".aegis", "policy", "aegis-parent-1--first--accepted.json");
+    mkdirSync(path.join(root, ".aegis", "policy"), { recursive: true });
+    writeFileSync(path.join(root, policyRef), `${JSON.stringify({
+      schemaVersion: 1,
+      outcome: "accepted",
+      originIssueId: "aegis-parent-1",
+      originCaste: "router",
+      proposalType: "create_out_of_scope_blocker",
+      fingerprint: "first",
+      childIssueId: "aegis-first-child",
+      parentStage: "blocked_on_child",
+      createdAt: "2026-04-24T10:00:00.000Z",
+    })}\n`, "utf8");
+
+    const tracker = createTracker();
+    await expect(applyMutationProposal({
+      root,
+      tracker,
+      record: createRecord({
+        stage: "rework_required",
+        policyArtifactRef: policyRef,
+        blockedByIssueId: null,
+      }),
+      proposal: createProposal({
+        originCaste: "titan",
+        proposalType: "create_out_of_scope_blocker",
+        suggestedTitle: "Resolve another blocker",
+        suggestedDescription: "Second blocker should not be created.",
+        fingerprint: "second",
+      }),
+      now: "2026-04-24T10:01:00.000Z",
+    })).resolves.toMatchObject({
+      outcome: "rejected",
+      parentStage: "failed_operational",
+      rejectionReason: "blocker_chain_not_allowed",
+    });
+
+    expect(tracker.createIssue).not.toHaveBeenCalled();
+    expect(tracker.linkBlockingIssue).not.toHaveBeenCalled();
+  });
+
+  it("rejects blocker chains even when the current policy ref points at a rejected artifact", async () => {
+    const root = createTempRoot();
+    const policyDir = path.join(root, ".aegis", "policy");
+    const acceptedRef = path.join(".aegis", "policy", "aegis-parent-1--first--accepted.json");
+    const rejectedRef = path.join(".aegis", "policy", "aegis-parent-1--second--rejected.json");
+    mkdirSync(policyDir, { recursive: true });
+    writeFileSync(path.join(root, acceptedRef), `${JSON.stringify({
+      schemaVersion: 1,
+      outcome: "accepted",
+      originIssueId: "aegis-parent-1",
+      originCaste: "router",
+      proposalType: "create_out_of_scope_blocker",
+      fingerprint: "first",
+      childIssueId: "aegis-first-child",
+      parentStage: "blocked_on_child",
+      createdAt: "2026-04-24T10:00:00.000Z",
+    })}\n`, "utf8");
+    writeFileSync(path.join(root, rejectedRef), `${JSON.stringify({
+      schemaVersion: 1,
+      outcome: "rejected",
+      rejectionReason: "blocker_chain_not_allowed",
+      originIssueId: "aegis-parent-1",
+      originCaste: "router",
+      proposalType: "create_out_of_scope_blocker",
+      fingerprint: "second",
+      summary: "rejected duplicate",
+      createdAt: "2026-04-24T10:01:00.000Z",
+    })}\n`, "utf8");
+
+    const tracker = createTracker();
+    await expect(applyMutationProposal({
+      root,
+      tracker,
+      record: createRecord({
+        stage: "rework_required",
+        policyArtifactRef: rejectedRef,
+        blockedByIssueId: null,
+      }),
+      proposal: createProposal({
+        originCaste: "titan",
+        proposalType: "create_out_of_scope_blocker",
+        suggestedTitle: "Resolve third blocker",
+        suggestedDescription: "Third blocker should not be created.",
+        fingerprint: "third",
+      }),
+      now: "2026-04-24T10:02:00.000Z",
+    })).resolves.toMatchObject({
+      outcome: "rejected",
+      parentStage: "failed_operational",
+      rejectionReason: "blocker_chain_not_allowed",
+    });
+
+    expect(tracker.createIssue).not.toHaveBeenCalled();
+    expect(tracker.linkBlockingIssue).not.toHaveBeenCalled();
   });
 
   it("persists policy artifacts atomically under .aegis/policy", async () => {

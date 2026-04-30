@@ -135,6 +135,39 @@ describe("triageReadyWork", () => {
     expect(result.skipped).toEqual([]);
   });
 
+  it("rescans failed operational work when Oracle context exists but file scope is missing", () => {
+    const result = triageReadyWork({
+      readyIssues: [{ id: "ISSUE-4", title: "Retry implementation" }],
+      dispatchState: createDispatchState({
+        "ISSUE-4": {
+          issueId: "ISSUE-4",
+          stage: "failed_operational",
+          runningAgent: null,
+          oracleAssessmentRef: ".aegis/oracle/ISSUE-4.json",
+          titanHandoffRef: null,
+          titanClarificationRef: null,
+          sentinelVerdictRef: null,
+          janusArtifactRef: null,
+          failureTranscriptRef: null,
+          fileScope: null,
+          failureCount: 1,
+          consecutiveFailures: 1,
+          failureWindowStartMs: null,
+          cooldownUntil: null,
+          sessionProvenanceId: "daemon-1",
+          updatedAt: "2026-04-24T10:00:00.000Z",
+        } as any,
+      }),
+      config: DEFAULT_AEGIS_CONFIG,
+      now: "2026-04-24T10:01:00.000Z",
+    });
+
+    expect(result.dispatchable).toEqual([
+      { issueId: "ISSUE-4", title: "Retry implementation", caste: "oracle", stage: "scouting" },
+    ]);
+    expect(result.skipped).toEqual([]);
+  });
+
   it("skips failed operational work after retry ceiling is exhausted", () => {
     const result = triageReadyWork({
       readyIssues: [{ id: "ISSUE-4", title: "Retry implementation" }],

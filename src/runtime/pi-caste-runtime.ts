@@ -46,6 +46,7 @@ import type {
   CasteSessionResult,
 } from "./caste-runtime.js";
 import type { ResolvedConfiguredCasteModel } from "./pi-model-config.js";
+import { buildCodexRunEnvironment } from "./codex-caste-runtime.js";
 
 type PiCodingAgentModule = typeof import("@mariozechner/pi-coding-agent");
 const require = createRequire(import.meta.url);
@@ -206,7 +207,7 @@ export function buildHiddenShellSpawnOptions(
   return {
     cwd,
     detached: process.platform !== "win32",
-    env: env ?? process.env,
+    env: buildCodexRunEnvironment(env ?? process.env),
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   };
@@ -214,11 +215,10 @@ export function buildHiddenShellSpawnOptions(
 
 function terminateProcessTree(pid: number) {
   if (process.platform === "win32") {
-    const killer = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
+    spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
       stdio: "ignore",
       windowsHide: true,
     });
-    killer.on("error", () => undefined);
     return;
   }
 
@@ -252,7 +252,7 @@ export function commandLineReferencesWorkspace(
   return comparableCommand.includes(`${workspace}/`) || comparableCommand.includes(workspace);
 }
 
-function terminateWorkspaceProcesses(
+export function terminateWorkspaceProcesses(
   workingDirectory: string,
   platform: NodeJS.Platform = process.platform,
 ) {
@@ -608,6 +608,41 @@ function assertPackageCommandAllowed(command: string, allowedFileScope: string[]
   );
 }
 
+function assertTerminalOnlyCommand(command: string) {
+  const tokens = tokenizeShellCommand(command).map((token) => stripShellQuotes(token));
+  for (const token of tokens) {
+    const executable = normalizeExecutableToken(token);
+    if (/\.ps1$/i.test(token)) {
+      throw new Error("Titan bash command cannot invoke PowerShell scripts directly; use .cmd launchers.");
+    }
+    if (executable === "start" || executable === "start-process" || executable === "invoke-item" || executable === "ii") {
+      throw new Error("Titan bash command cannot launch GUI/open/start commands.");
+    }
+  }
+}
+
+export function isForbiddenLongRunningShellCommand(command: string) {
+  const normalized = command.replace(/\\/g, "/").replace(/\s+/g, " ").trim().toLowerCase();
+  return /\b(npm|npm\.cmd|pnpm|pnpm\.cmd|yarn|yarn\.cmd|bun|bun\.cmd)\s+run\s+(dev|preview|start)\b/.test(normalized)
+    || /\b(npm|npm\.cmd|pnpm|pnpm\.cmd|yarn|yarn\.cmd|bun|bun\.cmd)\s+(dev|preview|start)\b/.test(normalized)
+    || /\b(vite|next|astro)\s+dev\b/.test(normalized)
+    || /\b(vite|vite\.cmd|vite\.js)\s+(--host|--port|dev|preview|serve)\b/.test(normalized)
+    || /node_modules\/(\.bin\/)?vite\b.*\s(dev|preview|serve|--host|--port)\b/.test(normalized)
+    || /vite\/bin\/vite\.js\b.*\s(dev|preview|serve|--host|--port)\b/.test(normalized)
+    || /\b(vitest|tsc)\b.*\s--watch\b/.test(normalized)
+    || /\bwebpack\s+serve\b/.test(normalized);
+}
+
+function assertNoLongRunningShellCommand(command: string) {
+  if (!isForbiddenLongRunningShellCommand(command)) {
+    return;
+  }
+
+  throw new Error(
+    "Titan bash command cannot run dev, preview, watch, or server processes; use finite build/test checks.",
+  );
+}
+
 function readGitChangedFiles(workingDirectory: string) {
   const probe = spawnSync("git", ["status", "--porcelain", "--untracked-files=all"], {
     cwd: workingDirectory,
@@ -716,6 +751,8 @@ function wrapTitanBashTool<TTool extends { execute: (...args: any[]) => any }>(
     ) {
       if (typeof params?.command === "string") {
         assertCommandWithinWorkingDirectory(params.command, workingDirectory);
+        assertTerminalOnlyCommand(params.command);
+        assertNoLongRunningShellCommand(params.command);
         assertPackageCommandAllowed(params.command, allowedFileScope);
       }
 
@@ -866,6 +903,10 @@ async function createIsolatedResourceLoader(
   const resourceLoader = new piCodingAgent.DefaultResourceLoader({
     cwd: workingDirectory,
     noExtensions: true,
+    skillsOverride: () => ({ skills: [], diagnostics: [] }),
+    agentsFilesOverride: () => ({ agentsFiles: [] }),
+    promptsOverride: () => ({ prompts: [], diagnostics: [] }),
+    systemPromptOverride: () => "You are an Aegis caste subagent. Follow the user prompt exactly and use only the provided tools.",
   });
   await resourceLoader.reload();
   return resourceLoader;
@@ -1012,14 +1053,8 @@ export class PiCasteRuntime implements CasteRuntime {
       await new Promise<void>((resolve, reject) => {
         let settled = false;
         let repairAttempted = false;
-        const sessionTimeout = setTimeout(() => {
-          void session.abort().catch(() => undefined);
-          settle(() => {
-            reject(new Error(
-              `Pi ${input.caste} session timed out after ${sessionTimeoutMs}ms.`,
-            ));
-          });
-        }, sessionTimeoutMs);
+        let sessionTimeout: ReturnType<typeof setTimeout> | null = null;
+        let unsubscribe: () => void = () => undefined;
 
         const settle = (action: () => void) => {
           if (settled) {
@@ -1027,12 +1062,31 @@ export class PiCasteRuntime implements CasteRuntime {
           }
 
           settled = true;
-          clearTimeout(sessionTimeout);
+          if (sessionTimeout) {
+            clearTimeout(sessionTimeout);
+            sessionTimeout = null;
+          }
           unsubscribe();
           action();
         };
 
-        const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
+        const refreshSessionTimeout = () => {
+          if (sessionTimeout) {
+            clearTimeout(sessionTimeout);
+          }
+
+          sessionTimeout = setTimeout(() => {
+            void session.abort().catch(() => undefined);
+            settle(() => {
+              reject(new Error(
+                `Pi ${input.caste} session timed out after ${sessionTimeoutMs}ms.`,
+              ));
+            });
+          }, sessionTimeoutMs);
+        };
+
+        unsubscribe = session.subscribe((event: AgentSessionEvent) => {
+          refreshSessionTimeout();
           const casteOutput = toolContract.extractStructuredOutput(event);
           if (casteOutput) {
             structuredOutput = casteOutput;
@@ -1104,6 +1158,7 @@ export class PiCasteRuntime implements CasteRuntime {
           }
         });
 
+        refreshSessionTimeout();
         void session.prompt(input.prompt).catch((error: unknown) => {
           settle(() => {
             reject(error);

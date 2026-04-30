@@ -12,6 +12,7 @@ export interface LaborCreationRequest {
   projectRoot: string;
   baseBranch: string;
   laborBasePath: string;
+  refreshExisting?: boolean;
 }
 
 export interface LaborCreationPlan {
@@ -20,6 +21,7 @@ export interface LaborCreationPlan {
   laborPath: string;
   branchName: string;
   baseBranch: string;
+  refreshExisting: boolean;
   createWorktreeCommand: LaborGitCommand;
 }
 
@@ -52,6 +54,7 @@ export function planLaborCreation(request: LaborCreationRequest): LaborCreationP
     laborPath,
     branchName,
     baseBranch: request.baseBranch,
+    refreshExisting: request.refreshExisting ?? false,
     createWorktreeCommand: {
       command: "git",
       args: ["worktree", "add", "-b", branchName, laborPath, request.baseBranch],
@@ -150,6 +153,20 @@ function ensureLaborGitInfoExcludes(laborPath: string) {
 
 export function prepareLaborWorktree(plan: LaborCreationPlan) {
   if (isKnownWorktreePath(plan.projectRoot, plan.laborPath)) {
+    if (plan.refreshExisting) {
+      const reset = runGit(plan.laborPath, ["reset", "--hard", plan.baseBranch]);
+      if (reset.status !== 0) {
+        throw new Error(
+          `Failed to refresh labor worktree ${plan.laborPath} for issue ${plan.issueId}. ${formatGitFailure(reset)}`,
+        );
+      }
+      const clean = runGit(plan.laborPath, ["clean", "-fdx"]);
+      if (clean.status !== 0) {
+        throw new Error(
+          `Failed to clean labor worktree ${plan.laborPath} for issue ${plan.issueId}. ${formatGitFailure(clean)}`,
+        );
+      }
+    }
     ensureLaborGitInfoExcludes(plan.laborPath);
     return;
   }

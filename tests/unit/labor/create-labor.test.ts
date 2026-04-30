@@ -68,4 +68,38 @@ describe("planLaborCreation", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("refreshes an existing labor worktree from the current base branch when requested", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "aegis-labor-refresh-"));
+    try {
+      runGit(root, ["init", "-b", "main"]);
+      runGit(root, ["config", "user.email", "test@example.com"]);
+      runGit(root, ["config", "user.name", "Test User"]);
+      writeFileSync(path.join(root, ".gitignore"), "labors/\n", "utf8");
+      writeFileSync(path.join(root, "README.md"), "baseline\n", "utf8");
+      runGit(root, ["add", "."]);
+      runGit(root, ["commit", "-m", "baseline"]);
+
+      const plan = planLaborCreation({
+        issueId: "aegis-123",
+        projectRoot: root,
+        baseBranch: "main",
+        laborBasePath: "labors",
+      });
+      prepareLaborWorktree(plan);
+      writeFileSync(path.join(plan.laborPath, "README.md"), "stale labor\n", "utf8");
+      writeFileSync(path.join(plan.laborPath, "scratch.txt"), "delete me\n", "utf8");
+
+      writeFileSync(path.join(root, "README.md"), "fresh main\n", "utf8");
+      runGit(root, ["add", "README.md"]);
+      runGit(root, ["commit", "-m", "update main"]);
+
+      prepareLaborWorktree({ ...plan, refreshExisting: true });
+
+      expect(readFileSync(path.join(plan.laborPath, "README.md"), "utf8").replace(/\r\n/g, "\n")).toBe("fresh main\n");
+      expect(runGit(plan.laborPath, ["status", "--porcelain", "--untracked-files=all"])).toBe("");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

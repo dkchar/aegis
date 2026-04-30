@@ -4,6 +4,8 @@ import type { AgentRuntime } from "../runtime/agent-runtime.js";
 import { writePhaseLog } from "./phase-log.js";
 import {
   calculateFailureCooldown,
+  classifyOperationalFailure,
+  resolveNextOperationalFailureCount,
   resolveFailureWindowStartMs,
 } from "./failure-policy.js";
 
@@ -40,6 +42,7 @@ function createInitialRecord(issueId: string, sessionProvenanceId: string, times
     sentinelVerdictRef: null,
     janusArtifactRef: null,
     failureTranscriptRef: null,
+    operationalFailureKind: null,
     fileScope: null,
     failureCount: 0,
     consecutiveFailures: 0,
@@ -55,6 +58,7 @@ function toFailedOperationalRecord(
   issueId: string,
   sessionProvenanceId: string,
   timestamp: string,
+  errorMessage?: string | null,
 ): DispatchRecord {
   const record = previous ?? createInitialRecord(issueId, sessionProvenanceId, timestamp);
   return {
@@ -63,7 +67,11 @@ function toFailedOperationalRecord(
     stage: "failed_operational",
     runningAgent: null,
     failureCount: record.failureCount + 1,
-    consecutiveFailures: record.consecutiveFailures + 1,
+    consecutiveFailures: resolveNextOperationalFailureCount(
+      record.consecutiveFailures,
+      errorMessage,
+    ),
+    operationalFailureKind: classifyOperationalFailure(errorMessage),
     failureWindowStartMs: record.failureWindowStartMs
       ?? resolveFailureWindowStartMs(timestamp),
     cooldownUntil: calculateFailureCooldown(timestamp),
@@ -124,6 +132,7 @@ export async function dispatchReadyWork(input: DispatchInput): Promise<DispatchR
         decision.issueId,
         input.sessionProvenanceId,
         timestamp,
+        detail,
       );
       failed.push(decision.issueId);
       writePhaseLog(input.root, {

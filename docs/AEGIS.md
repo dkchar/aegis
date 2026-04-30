@@ -29,6 +29,7 @@ Swarm posture:
 - Cross-agent handoffs must be typed artifacts that the control plane validates and routes mechanically. Prompt text may explain intent, but must not be the only enforcement layer.
 - Review findings are typed control inputs. Sentinel may identify `finding_kind`, `required_files`, `owner_issue`, and `route`, but Aegis routes those findings deterministically.
 - Operational exhaustion is a first-class control outcome. The daemon must halt or skip exhausted work visibly rather than consuming adapter quota indefinitely.
+- Step 1 proof allows typed, bounded graph amplification. Agents may discover blockers, but Aegis decides mechanically whether to rework the owner, reopen prior work, or create a child issue.
 
 Truth planes:
 
@@ -52,7 +53,7 @@ Required proof:
 - Generated app is an animated React todo app matching seeded graph intent.
 - App installs, builds, and runs.
 - Oracle, Titan, Sentinel, Janus, merge, and dispatch artifacts explain the path.
-- No ready-graph amplification occurs.
+- Any graph amplification is typed, bounded, auditable, and routed by Aegis rather than inferred by Titan from prose.
 - No agent writes outside its labor or permitted merge/integration scope.
 - No hidden root mutation is accepted. Clean, in-scope root commits made by a live agent may be adopted as explicit candidates when Aegis can prove the diff, scope, and artifact match.
 - Merge queue lands work deterministically.
@@ -333,7 +334,7 @@ Side paths:
 
 - `rework_required`: same parent returns to Titan with Sentinel or Janus feedback.
 - `blocked_on_child`: parent blocked in Beads by accepted child issue.
-- `failed_operational`: runtime/tool/provider/policy failure, retry only through cooldown/manual policy.
+- `failed_operational`: runtime/tool/provider/policy failure, retry only through cooldown/manual policy. Exhausted provider/runtime failures must be reported explicitly in terminal status so a raw tracker queue cannot masquerade as runnable work.
 - `resolving_integration`: Janus owns merge-boundary failure.
 
 Merge boundary:
@@ -352,7 +353,7 @@ Runtime session ownership:
 - If Titan fails operationally after Oracle context exists, retry stays at Titan with the existing Oracle artifact instead of restarting scouting.
 - If a Sentinel review session is interrupted or fails operationally, the parent returns to `implemented` with cooldown so retry stays at the review layer.
 - Repeated Sentinel operational failure escalates to `failed_operational`; triage then routes Titan with the existing Oracle artifact and durable review feedback instead of relaunching review forever.
-- Repeated operational failures have a deterministic retry ceiling. Once exhausted, triage skips the issue with `operational_failure_limit` instead of draining adapter quota forever.
+- Repeated operational failures have a deterministic retry ceiling. Once exhausted, triage skips the issue with `operational_failure_limit` and status reports the terminal operational failure instead of draining adapter quota forever.
 - A stranded `reviewing` record with a durable Sentinel verdict is recovered from the artifact; without a verdict it retries Sentinel, not Oracle/Titan.
 - Rework dispatch must include the durable Sentinel or Janus feedback artifact in the Titan prompt. Repeating a parent handoff without the blocking finding is a control-plane bug.
 
@@ -421,6 +422,7 @@ Expected graph shape:
 - integration/gate work
 - review/merge closure
 - at least one path exercising Janus if seeded conflict is present
+- gate issues may own cross-lane integration files, and any discovered missing work may become a typed child blocker when Aegis policy accepts the route
 
 Expected product:
 

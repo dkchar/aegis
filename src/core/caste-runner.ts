@@ -63,6 +63,7 @@ export interface RunCasteCommandInput {
   issueId: string;
   tracker: TrackerLike;
   runtime: CasteRuntime;
+  artifactEmissionMode?: "tool" | "json";
   janusContext?: JanusConflictContext;
   resolveBaseBranch?: () => string;
   resolveLaborBasePath?: () => string;
@@ -108,13 +109,29 @@ function createBaseRecord(issueId: string, now: string): DispatchRecord {
   };
 }
 
-function buildOraclePrompt(issue: AegisIssue) {
+function artifactEmissionInstruction(
+  toolName: string,
+  phase: string,
+  mode: RunCasteCommandInput["artifactEmissionMode"],
+) {
+  if (mode === "json") {
+    return `Return the final artifact as the JSON object itself after ${phase}; no ${toolName} tool call is available in this adapter.`;
+  }
+
+  return `Call tool '${toolName}' exactly once as final step after ${phase}.`;
+}
+
+function buildOraclePrompt(
+  issue: AegisIssue,
+  emissionMode?: RunCasteCommandInput["artifactEmissionMode"],
+) {
   const description = issue.description?.trim() || "No description provided.";
   const blockers = issue.blockers.length > 0 ? issue.blockers.join(", ") : "none";
   const labels = issue.labels.length > 0 ? issue.labels.join(", ") : "none";
   const declaredScope = extractDeclaredFileScope(issue.description ?? "");
 
   return [
+    ...AEGIS_CASTE_SESSION_GUARD,
     `Scout ${issue.id}: ${issue.title}`,
     `Description: ${description}`,
     `Status: ${issue.status}`,
@@ -124,8 +141,9 @@ function buildOraclePrompt(issue: AegisIssue) {
       ? [`Declared file ownership: ${declaredScope.join(", ")}`]
       : []),
     "Produce only scout context: files, risks, suggested checks, and scope notes.",
+    ...WINDOWS_TERMINAL_GUARD,
     "Do not decide readiness, do not decompose, and do not propose new issues.",
-    `Call tool '${ORACLE_EMIT_ASSESSMENT_TOOL_NAME}' exactly once as final step after analysis is complete.`,
+    artifactEmissionInstruction(ORACLE_EMIT_ASSESSMENT_TOOL_NAME, "analysis is complete", emissionMode),
     "Return only JSON. No markdown fences. No prose before or after JSON.",
     "JSON schema keys: files_affected, estimated_complexity, risks, suggested_checks, scope_notes.",
     "files_affected must be an array of path strings, not objects.",
@@ -158,6 +176,20 @@ function normalizeFileScope(files: string[]) {
 
   return normalized.length > 0 ? { files: normalized } : null;
 }
+
+const AEGIS_CASTE_SESSION_GUARD = [
+  "You are a dispatched Aegis caste subagent running one bounded assignment inside a labor worktree.",
+  "If local agent skills or workflow guides mention SUBAGENT-STOP, that applies to this session; skip those skills and follow this Aegis prompt directly.",
+  "Do not invoke or read local assistant skills, plugin workflows, or broad development playbooks unless this prompt explicitly asks for them.",
+];
+
+const WINDOWS_TERMINAL_GUARD = [
+  "Windows command guard: run package-manager commands as npm.cmd, npx.cmd, pnpm.cmd, yarn.cmd, or bun.cmd; never invoke .ps1 scripts directly.",
+  "Do not use GUI/open/start/invoke-item/Start-Process for checks. All checks must run in the terminal and return to the shell.",
+  "Do not run dev, preview, watch, or server commands such as npm run dev, npm run preview, vite, next dev, vitest --watch, or tsc --watch during caste work. Use finite checks like npm.cmd run build or npm.cmd test.",
+  "Guard optional file reads and probes so missing paths do not exit nonzero: use Test-Path before Get-Content, rg --files before reading discovered paths, or handle expected misses explicitly.",
+  "PowerShell `rg` no-match exits 1 and fails the adapter. For exploratory searches where no match is acceptable, wrap it as: rg -n \"pattern\" path; if ($LASTEXITCODE -eq 1) { exit 0 }.",
+];
 
 function readOracleImplementationContext(root: string, artifactRef: string | null) {
   if (!artifactRef) {
@@ -249,6 +281,59 @@ function readReviewFeedbackContext(root: string, artifactRef: string | null) {
   }
 }
 
+function readTitanChangedFiles(root: string, artifactRef: string | null | undefined) {
+  if (!artifactRef) {
+    return [];
+  }
+
+  const artifactPath = path.join(root, artifactRef);
+  if (!existsSync(artifactPath)) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(readFileSync(artifactPath, "utf8")) as Record<string, unknown>;
+    return Array.isArray(parsed["files_changed"])
+      ? parsed["files_changed"]
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => normalizeScopeFile(entry))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function isGateLikeIssue(issue: AegisIssue) {
+  const labels = new Set(issue.labels.map((label) => label.toLowerCase()));
+  return labels.has("gate") || labels.has("release") || labels.has("integration");
+}
+
+function hasScopeIntersection(left: string[], right: string[]) {
+  const rightSet = new Set(right.map((entry) => normalizeScopeFile(entry)));
+  return left.map((entry) => normalizeScopeFile(entry)).some((entry) => rightSet.has(entry));
+}
+
+function isAmbientCrossScopeFinding(input: {
+  root: string;
+  issue: AegisIssue;
+  record: DispatchRecord;
+  finding: SentinelFinding;
+}) {
+  if (input.finding.route !== "create_blocker" || isGateLikeIssue(input.issue)) {
+    return false;
+  }
+
+  const requiredFiles = input.finding.required_files.map((entry) => normalizeScopeFile(entry));
+  if (requiredFiles.length === 0) {
+    return false;
+  }
+
+  const ownerScope = input.record.fileScope?.files ?? extractDeclaredFileScope(input.issue.description ?? "");
+  const changedFiles = readTitanChangedFiles(input.root, input.record.titanHandoffRef);
+  return !hasScopeIntersection(requiredFiles, ownerScope)
+    && !hasScopeIntersection(requiredFiles, changedFiles);
+}
+
 function buildTitanPrompt(
   issue: AegisIssue,
   laborPath: string,
@@ -258,6 +343,7 @@ function buildTitanPrompt(
     scopeNotes?: string[];
     reviewFeedback?: string[];
     resolvedBlockerIssueId?: string | null;
+    artifactEmissionMode?: RunCasteCommandInput["artifactEmissionMode"];
   },
 ) {
   const description = issue.description?.trim() || "No description provided.";
@@ -278,6 +364,7 @@ function buildTitanPrompt(
   const resolvedBlockerIssueId = options?.resolvedBlockerIssueId ?? null;
 
   return [
+    ...AEGIS_CASTE_SESSION_GUARD,
     `Implement issue ${issue.id}.`,
     `Title: ${issue.title}`,
     `Description: ${description}`,
@@ -322,16 +409,18 @@ function buildTitanPrompt(
       ? [
         "Policy-created blocker issue: this issue exists to resolve a previously accepted blocking mutation proposal.",
         "Do not resolve this blocker with already_satisfied. Make the required in-scope change and return success, or return failure with evidence if the blocker cannot be resolved.",
+        "Do not create another blocker from this issue; policy-created blockers must terminate with success or failure.",
       ]
       : []),
     "Preserve existing Aegis/Beads operational files and ignore rules. Do not modify .aegis/, .beads/, or remove their existing .gitignore coverage.",
-    "If you start a long-running dev, preview, watcher, or server process for a check, stop it before calling the final artifact tool.",
+    ...WINDOWS_TERMINAL_GUARD,
+    "Do not run long-running dev, preview, watcher, or server commands. They block the adapter session and will be treated as an operational failure.",
     "Stage and commit all intended changes in the labor worktree before you call the final artifact tool so the candidate branch head advances.",
     "Use git add/git commit explicitly when you make required implementation changes.",
     "Do not leave required implementation changes uncommitted.",
     "If the issue contract is already satisfied by prior merged work, make no edits and emit outcome 'already_satisfied' with files_changed=[] and the checks you ran.",
     "Report files_changed as paths relative to the working directory, never as absolute paths.",
-    `Call tool '${TITAN_EMIT_ARTIFACT_TOOL_NAME}' exactly once as final step after all file edits and checks complete.`,
+    artifactEmissionInstruction(TITAN_EMIT_ARTIFACT_TOOL_NAME, "all file edits and checks complete", options?.artifactEmissionMode),
     "If required project files do not exist, create minimal versions that satisfy the issue contract.",
     "Treat ordinary naming/tooling ambiguity as solvable: choose reasonable defaults and proceed.",
     "Use mutation_proposal only for hard blocking missing work: clarification, prerequisite, or required out-of-scope dependency.",
@@ -344,20 +433,25 @@ function buildTitanPrompt(
   ].join("\n");
 }
 
-function buildSentinelPrompt(issue: AegisIssue) {
+function buildSentinelPrompt(
+  issue: AegisIssue,
+  emissionMode?: RunCasteCommandInput["artifactEmissionMode"],
+) {
   const description = issue.description?.trim() || "No description provided.";
   return [
+    ...AEGIS_CASTE_SESSION_GUARD,
     `Pre-merge review issue ${issue.id}.`,
     `Title: ${issue.title}`,
     `Description: ${description}`,
     "Return binary control verdict pass or fail_blocking.",
+    ...WINDOWS_TERMINAL_GUARD,
     "Blocking findings must only cover original issue contract, regressions in touched scope, or required out-of-scope blockers.",
     "blockingFindings must be typed objects with fields: finding_kind, summary, required_files, owner_issue, route.",
     "Allowed finding_kind: contract_gap, regression, out_of_scope_blocker, integration_blocker.",
     "Use route=rework_owner for in-scope parent rework. Use route=create_blocker only when required files are outside the owner issue scope.",
     "Sentinel does not create issues. Aegis router handles create_blocker findings deterministically after the verdict.",
     "Advisories are logged only and must not create issues.",
-    `Call tool '${SENTINEL_EMIT_VERDICT_TOOL_NAME}' exactly once as final step after review is complete.`,
+    artifactEmissionInstruction(SENTINEL_EMIT_VERDICT_TOOL_NAME, "review is complete", emissionMode),
     "Return only JSON. No markdown fences. No prose before or after JSON.",
     "JSON schema keys: verdict, reviewSummary, blockingFindings, advisories, touchedFiles, contractChecks.",
     "touchedFiles and contractChecks must be arrays of strings. blockingFindings must be an array of typed objects, not strings.",
@@ -462,7 +556,11 @@ function buildSentinelRouterPolicyProposal(
   };
 }
 
-function buildJanusPrompt(issue: AegisIssue, janusContext?: JanusConflictContext) {
+function buildJanusPrompt(
+  issue: AegisIssue,
+  janusContext?: JanusConflictContext,
+  emissionMode?: RunCasteCommandInput["artifactEmissionMode"],
+) {
   const description = issue.description?.trim() || "No description provided.";
   const contextLines = janusContext
     ? [
@@ -476,11 +574,13 @@ function buildJanusPrompt(issue: AegisIssue, janusContext?: JanusConflictContext
     : [];
 
   return [
+    ...AEGIS_CASTE_SESSION_GUARD,
     `Process integration conflict for issue ${issue.id}.`,
     `Title: ${issue.title}`,
     `Description: ${description}`,
     ...contextLines,
-    `Call tool '${JANUS_EMIT_RESOLUTION_TOOL_NAME}' exactly once as final step after conflict analysis is complete.`,
+    ...WINDOWS_TERMINAL_GUARD,
+    artifactEmissionInstruction(JANUS_EMIT_RESOLUTION_TOOL_NAME, "conflict analysis is complete", emissionMode),
     "Return only JSON. No markdown fences. No prose before or after JSON.",
     "JSON schema keys: originatingIssueId, queueItemId, preservedLaborPath, conflictSummary, resolutionStrategy, filesTouched, validationsRun, residualRisks, recommendedNextAction.",
   ].join("\n");
@@ -586,6 +686,13 @@ function validateTitanSessionOutcome(input: {
     if (isPolicyCreatedBlockerDescription(input.issueDescription)) {
       return `Titan policy-created blocker ${input.issueId} must resolve with success or failure, not already_satisfied.`;
     }
+  }
+
+  if (
+    input.artifact.mutation_proposal
+    && isPolicyCreatedBlockerDescription(input.issueDescription)
+  ) {
+    return `Titan policy-created blocker ${input.issueId} must resolve with success or failure, not another blocker.`;
   }
 
   if (
@@ -860,7 +967,7 @@ async function runScout(
     issueId: issue.id,
     root: input.root,
     workingDirectory: input.root,
-    prompt: buildOraclePrompt(issue),
+    prompt: buildOraclePrompt(issue, input.artifactEmissionMode),
   } satisfies CasteRunInput;
   const session = await input.runtime.run(runInput);
   const transcriptRef = persistSessionArtifact(input.root, input.action, runInput, session);
@@ -920,6 +1027,10 @@ async function runImplement(
     projectRoot: input.root,
     baseBranch,
     laborBasePath,
+    refreshExisting: record.stage === "scouted"
+      && record.titanHandoffRef === null
+      && record.reviewFeedbackRef === null
+      && record.failureCount > 0,
   });
 
   if (input.ensureLabor) {
@@ -941,6 +1052,7 @@ async function runImplement(
       scopeNotes: oracleContext?.scopeNotes,
       reviewFeedback,
       resolvedBlockerIssueId: record.blockedByIssueId ?? null,
+      artifactEmissionMode: input.artifactEmissionMode,
     }),
   } satisfies CasteRunInput;
   const gitProofPair = captureGitProofPair(labor.laborPath);
@@ -1085,6 +1197,33 @@ async function runImplement(
       proposal: buildTitanPolicyProposal(issue.id, artifact),
       now,
     });
+    if (
+      policyResult.outcome === "rejected"
+      && policyResult.rejectionReason === "blocker_chain_not_allowed"
+    ) {
+      saveRecord(input.root, issue.id, {
+        ...clearDownstreamArtifactRefs(record),
+        stage: "scouted",
+        oracleAssessmentRef: record.oracleAssessmentRef,
+        reviewFeedbackRef: null,
+        blockedByIssueId: null,
+        policyArtifactRef: policyResult.policyArtifactRef,
+        titanHandoffRef: null,
+        titanClarificationRef: null,
+        sentinelVerdictRef: null,
+        janusArtifactRef: null,
+        cooldownUntil: null,
+        updatedAt: now,
+      });
+
+      return {
+        action: input.action,
+        issueId: issue.id,
+        stage: "scouted",
+        artifactRefs: [artifactRef, policyResult.policyArtifactRef, ...transcriptRefs],
+      };
+    }
+
     saveRecord(input.root, issue.id, {
       ...clearDownstreamArtifactRefs(record),
       stage: policyResult.parentStage,
@@ -1149,12 +1288,28 @@ async function runReview(
       input.root,
       readTitanMergeCandidate(input.root, record.titanHandoffRef!).labor_path,
     ),
-    prompt: buildSentinelPrompt(issue),
+    prompt: buildSentinelPrompt(issue, input.artifactEmissionMode),
   } satisfies CasteRunInput;
   const session = await input.runtime.run(runInput);
   const transcriptRef = persistSessionArtifact(input.root, input.action, runInput, session);
   assertSuccessfulSession(runInput, session);
   const verdict = parseSentinelVerdict(session.outputText);
+  const ambientFindings = verdict.blockingFindings.filter((finding) => isAmbientCrossScopeFinding({
+    root: input.root,
+    issue,
+    record,
+    finding,
+  }));
+  const effectiveBlockingFindings = verdict.blockingFindings.filter((finding) => !ambientFindings.includes(finding));
+  const effectiveVerdict = verdict.verdict === "pass" || effectiveBlockingFindings.length === 0
+    ? "pass"
+    : "fail_blocking";
+  const effectiveAdvisories = [
+    ...verdict.advisories,
+    ...ambientFindings.map((finding) =>
+      `Ambient cross-scope finding ignored by deterministic router: ${finding.summary}`),
+  ];
+
   if (verdict.blockingFindings.length > 0) {
     writePhaseLog(input.root, {
       timestamp: offsetTimestamp(now, 10),
@@ -1164,20 +1319,67 @@ async function runReview(
       outcome: "found",
       detail: JSON.stringify({
         count: verdict.blockingFindings.length,
+        effectiveCount: effectiveBlockingFindings.length,
+        ambientIgnoredCount: ambientFindings.length,
       }),
     });
   }
-  const reviewStage = verdict.verdict === "pass" ? "queued_for_merge" : "rework_required";
+  const reviewStage = effectiveVerdict === "pass" ? "queued_for_merge" : "rework_required";
   const artifactRef = persistArtifact(input.root, {
     family: "sentinel",
     issueId: issue.id,
     artifact: {
       ...verdict,
+      verdict: effectiveVerdict,
+      blockingFindings: effectiveBlockingFindings,
+      advisories: effectiveAdvisories,
+      ignoredBlockingFindings: ambientFindings,
       session: createSessionMetadata(transcriptRef, runInput, session),
     },
   });
-  const blockerFinding = verdict.blockingFindings.find((finding) => finding.route === "create_blocker");
+  const blockerFinding = effectiveBlockingFindings.find((finding) => finding.route === "create_blocker");
   if (blockerFinding) {
+    const config = loadConfig(input.root);
+    if (!config.thresholds.allow_complex_auto_dispatch) {
+      saveRecord(input.root, issue.id, {
+        ...clearDownstreamArtifactRefs(record),
+        stage: "rework_required",
+        oracleAssessmentRef: record.oracleAssessmentRef,
+        titanHandoffRef: record.titanHandoffRef ?? null,
+        titanClarificationRef: record.titanClarificationRef ?? null,
+        sentinelVerdictRef: artifactRef,
+        reviewFeedbackRef: artifactRef,
+        blockedByIssueId: null,
+        policyArtifactRef: null,
+        updatedAt: now,
+      });
+      writePhaseLog(input.root, {
+        timestamp: offsetTimestamp(now, 50),
+        phase: "dispatch",
+        issueId: issue.id,
+        action: "sentinel_review_completed",
+        outcome: "rework_required",
+        sessionId: session.sessionId,
+        detail: JSON.stringify({
+          blockingFindingCount: verdict.blockingFindings.length,
+          effectiveBlockingFindingCount: effectiveBlockingFindings.length,
+          ambientIgnoredCount: ambientFindings.length,
+          routedFindingKind: blockerFinding.finding_kind,
+          routedFindingRoute: "rework_owner",
+          originalFindingRoute: blockerFinding.route,
+          routeOverride: "complex_auto_dispatch_disabled",
+          advisoryCount: effectiveAdvisories.length,
+        }),
+      });
+
+      return {
+        action: input.action,
+        issueId: issue.id,
+        stage: "rework_required",
+        artifactRefs: [artifactRef, transcriptRef],
+      };
+    }
+
     const policyResult = await applyMutationProposal({
       root: input.root,
       tracker: input.tracker,
@@ -1207,9 +1409,11 @@ async function runReview(
       sessionId: session.sessionId,
       detail: JSON.stringify({
         blockingFindingCount: verdict.blockingFindings.length,
+        effectiveBlockingFindingCount: effectiveBlockingFindings.length,
+        ambientIgnoredCount: ambientFindings.length,
         routedFindingKind: blockerFinding.finding_kind,
         routedFindingRoute: blockerFinding.route,
-        advisoryCount: verdict.advisories.length,
+        advisoryCount: effectiveAdvisories.length,
       }),
     });
 
@@ -1240,7 +1444,9 @@ async function runReview(
     sessionId: session.sessionId,
     detail: JSON.stringify({
       blockingFindingCount: verdict.blockingFindings.length,
-      advisoryCount: verdict.advisories.length,
+      effectiveBlockingFindingCount: effectiveBlockingFindings.length,
+      ambientIgnoredCount: ambientFindings.length,
+      advisoryCount: effectiveAdvisories.length,
     }),
   });
 
@@ -1272,7 +1478,7 @@ async function runJanus(
     issueId: issue.id,
     root: input.root,
     workingDirectory: input.root,
-    prompt: buildJanusPrompt(issue, input.janusContext),
+    prompt: buildJanusPrompt(issue, input.janusContext, input.artifactEmissionMode),
   } satisfies CasteRunInput;
   const gitProofPair = captureGitProofPair(runInput.workingDirectory);
   const session = await input.runtime.run(runInput);

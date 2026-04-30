@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import type { AgentCaste, DispatchRecord } from "./dispatch-state.js";
@@ -51,7 +51,8 @@ export type PolicyRejectionReason =
   | "missing_suggested_title"
   | "missing_suggested_description"
   | "non_blocking_not_allowed"
-  | "unsupported_proposal";
+  | "unsupported_proposal"
+  | "blocker_chain_not_allowed";
 
 export type ApplyMutationProposalResult =
   | {
@@ -142,6 +143,36 @@ function readPolicyArtifact(root: string, ref: string | null | undefined): unkno
   } catch {
     return null;
   }
+}
+
+function hasAcceptedChildPolicyForOrigin(root: string, originIssueId: string): boolean {
+  const policyDir = path.join(path.resolve(root), ".aegis", "policy");
+  if (!existsSync(policyDir)) {
+    return false;
+  }
+
+  let entries: string[];
+  try {
+    entries = readdirSync(policyDir);
+  } catch {
+    return false;
+  }
+
+  return entries.some((entry) => {
+    if (!entry.endsWith(".json")) {
+      return false;
+    }
+
+    const artifact = readPolicyArtifact(root, path.join(".aegis", "policy", entry));
+    if (!artifact || typeof artifact !== "object") {
+      return false;
+    }
+
+    const payload = artifact as Record<string, unknown>;
+    return payload["originIssueId"] === originIssueId
+      && payload["outcome"] !== "rejected"
+      && typeof payload["childIssueId"] === "string";
+  });
 }
 
 function findReusableIssueId(input: ApplyMutationProposalInput): string | null {
@@ -276,6 +307,12 @@ function validateProposal(input: ApplyMutationProposalInput): PolicyRejectionRea
 
   if (proposal.originCaste === "router" && !ROUTER_PROPOSALS.has(proposal.proposalType)) {
     return "unsupported_proposal";
+  }
+
+  if (proposal.proposalType.startsWith("create_")) {
+    if (hasAcceptedChildPolicyForOrigin(input.root, proposal.originIssueId)) {
+      return "blocker_chain_not_allowed";
+    }
   }
 
   if (proposal.originCaste !== "titan" && proposal.originCaste !== "janus" && proposal.originCaste !== "router") {

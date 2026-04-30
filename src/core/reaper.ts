@@ -6,6 +6,8 @@ import type { AgentRuntime } from "../runtime/agent-runtime.js";
 import { writePhaseLog } from "./phase-log.js";
 import {
   calculateFailureCooldown,
+  classifyOperationalFailure,
+  resolveNextOperationalFailureCount,
   resolveFailureWindowStartMs,
   shouldEscalateSentinelOperationalFailure,
 } from "./failure-policy.js";
@@ -49,9 +51,29 @@ function toCompletedRecord(record: DispatchRecord, timestamp: string): DispatchR
   };
 }
 
-function toFailedRecord(record: DispatchRecord, timestamp: string): DispatchRecord {
+function resolveFailureTranscriptRef(root: string, record: DispatchRecord) {
+  const caste = record.runningAgent?.caste;
+  if (!caste) {
+    return record.failureTranscriptRef ?? null;
+  }
+
+  const ref = path.join(".aegis", "transcripts", `${record.issueId}--${caste}.json`);
+  return existsSync(path.join(root, ref)) ? ref : (record.failureTranscriptRef ?? null);
+}
+
+function toFailedRecord(
+  root: string,
+  record: DispatchRecord,
+  timestamp: string,
+  errorMessage?: string | null,
+): DispatchRecord {
   if (record.stage === "reviewing" && record.runningAgent?.caste === "sentinel") {
-    const nextConsecutiveFailures = record.consecutiveFailures + 1;
+    const nextConsecutiveFailures = resolveNextOperationalFailureCount(
+      record.consecutiveFailures,
+      errorMessage,
+    );
+    const failureTranscriptRef = resolveFailureTranscriptRef(root, record);
+    const operationalFailureKind = classifyOperationalFailure(errorMessage);
     if (shouldEscalateSentinelOperationalFailure(nextConsecutiveFailures)) {
       return {
         ...record,
@@ -59,6 +81,8 @@ function toFailedRecord(record: DispatchRecord, timestamp: string): DispatchReco
         runningAgent: null,
         failureCount: record.failureCount + 1,
         consecutiveFailures: nextConsecutiveFailures,
+        failureTranscriptRef,
+        operationalFailureKind,
         failureWindowStartMs: record.failureWindowStartMs
           ?? resolveFailureWindowStartMs(timestamp),
         cooldownUntil: calculateFailureCooldown(timestamp),
@@ -72,6 +96,8 @@ function toFailedRecord(record: DispatchRecord, timestamp: string): DispatchReco
       runningAgent: null,
       failureCount: record.failureCount + 1,
       consecutiveFailures: nextConsecutiveFailures,
+      failureTranscriptRef,
+      operationalFailureKind,
       failureWindowStartMs: record.failureWindowStartMs
         ?? resolveFailureWindowStartMs(timestamp),
       cooldownUntil: calculateFailureCooldown(timestamp),
@@ -84,7 +110,12 @@ function toFailedRecord(record: DispatchRecord, timestamp: string): DispatchReco
     stage: "failed_operational",
     runningAgent: null,
     failureCount: record.failureCount + 1,
-    consecutiveFailures: record.consecutiveFailures + 1,
+    consecutiveFailures: resolveNextOperationalFailureCount(
+      record.consecutiveFailures,
+      errorMessage,
+    ),
+    failureTranscriptRef: resolveFailureTranscriptRef(root, record),
+    operationalFailureKind: classifyOperationalFailure(errorMessage),
     failureWindowStartMs: record.failureWindowStartMs
       ?? resolveFailureWindowStartMs(timestamp),
     cooldownUntil: calculateFailureCooldown(timestamp),
@@ -200,7 +231,7 @@ export async function reapFinishedWork(input: ReapInput): Promise<ReapResult> {
       );
       const invariantError = validateDispatchRecordStage(completedRecord);
       if (invariantError) {
-        records[issueId] = toFailedRecord(completedRecord, timestamp);
+        records[issueId] = toFailedRecord(input.root, completedRecord, timestamp, invariantError);
         failed.push(issueId);
         writePhaseLog(input.root, {
           timestamp,
@@ -227,7 +258,7 @@ export async function reapFinishedWork(input: ReapInput): Promise<ReapResult> {
       continue;
     }
 
-    records[issueId] = toFailedRecord(resolveLatestRecord(input.root, record), timestamp);
+    records[issueId] = toFailedRecord(input.root, resolveLatestRecord(input.root, record), timestamp, snapshot.error);
     failed.push(issueId);
     writePhaseLog(input.root, {
       timestamp,

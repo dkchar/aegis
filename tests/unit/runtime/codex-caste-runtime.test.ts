@@ -1,16 +1,19 @@
 import path from "node:path";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildCodexExecArgs,
+  buildCodexRunEnvironment,
   buildCodexSpawnInvocation,
+  buildTerminateCodexSessionProcessesScript,
   buildTerminateWorkspaceProcessesScript,
   CodexCasteRuntime,
   commandLineReferencesWorkspace,
   createCodexModelConfigs,
+  isForbiddenLongRunningWorkspaceCommand,
 } from "../../../src/runtime/codex-caste-runtime.js";
 
 const tempRoots: string[] = [];
@@ -132,17 +135,19 @@ describe("CodexCasteRuntime", () => {
     }, "linux");
 
     expect(args).toEqual([
+      "-a",
+      "never",
+      "exec",
       "-C",
       "C:\\repo\\labor",
       "-s",
       "workspace-write",
-      "-a",
-      "never",
       "-m",
       "gpt-5.4-mini",
       "-c",
       "model_reasoning_effort=\"medium\"",
-      "exec",
+      "--ignore-user-config",
+      "--ignore-rules",
       "--json",
       "--output-last-message",
       "C:\\tmp\\out.txt",
@@ -192,12 +197,64 @@ describe("CodexCasteRuntime", () => {
     )).toBe(false);
   });
 
-  it("builds a Windows cleanup script that excludes the current cleanup process", () => {
+  it("detects forbidden long-running workspace commands", () => {
+    expect(isForbiddenLongRunningWorkspaceCommand(
+      '"node" "C:/repo/.aegis/labors/ISSUE/node_modules/vite/bin/vite.js" --host 127.0.0.1',
+    )).toBe(true);
+    expect(isForbiddenLongRunningWorkspaceCommand(
+      '"node" "C:/repo/.aegis/labors/ISSUE/node_modules/vite/bin/vite.js" build',
+    )).toBe(false);
+    expect(isForbiddenLongRunningWorkspaceCommand("npm.cmd run dev -- --host 127.0.0.1")).toBe(true);
+    expect(isForbiddenLongRunningWorkspaceCommand("npm.cmd run build")).toBe(false);
+  });
+
+  it("builds a Windows cleanup script that only kills forbidden workspace processes", () => {
     const script = buildTerminateWorkspaceProcessesScript("C:\\repo\\.aegis\\labors\\ISSUE-1");
 
     expect(script).toContain("$current = $PID");
     expect(script).toContain("Stop-Process");
     expect(script).toContain("ISSUE-1");
-    expect(script).toContain("ProcessId -ne $current");
+    expect(script).toContain("ProcessId -eq $current");
+    expect(script).toContain("forbiddenPatterns");
+    expect(script).toContain("webpack");
+  });
+
+  it("builds a Windows session termination script for Codex exec processes", () => {
+    const script = buildTerminateCodexSessionProcessesScript("C:\\repo\\.aegis\\labors\\ISSUE-1");
+
+    expect(script).toContain("taskkill");
+    expect(script).toContain("ISSUE-1");
+    expect(script).toContain("codex");
+    expect(script).not.toContain("forbiddenPatterns");
+  });
+
+  it("prepends Windows command shims for npm and npx cmd launchers", () => {
+    const root = createTempRoot();
+    const shimDirectory = path.join(root, "shims");
+    const env = buildCodexRunEnvironment(
+      { Path: "C:\\Windows\\System32" },
+      "win32",
+      (commandName) => commandName === "npm.cmd" ? "C:\\Program Files\\nodejs\\npm.cmd" : null,
+      shimDirectory,
+    );
+
+    expect(env.Path?.startsWith(`${shimDirectory}${path.delimiter}`)).toBe(true);
+    expect(existsSync(path.join(shimDirectory, "npm.cmd"))).toBe(true);
+  });
+
+  it("adds a ripgrep shim that treats no-match as non-fatal for Codex shell sessions", () => {
+    const root = createTempRoot();
+    const shimDirectory = path.join(root, "shims");
+    const env = buildCodexRunEnvironment(
+      { Path: "C:\\Windows\\System32" },
+      "win32",
+      (commandName) => commandName === "rg.exe" ? "C:\\tools\\rg.exe" : null,
+      shimDirectory,
+    );
+
+    const shimPath = path.join(shimDirectory, "rg.cmd");
+    expect(env.Path?.startsWith(`${shimDirectory}${path.delimiter}`)).toBe(true);
+    expect(existsSync(shimPath)).toBe(true);
+    expect(readFileSync(shimPath, "utf8")).toContain("if %ERRORLEVEL% EQU 1 exit /B 0");
   });
 });

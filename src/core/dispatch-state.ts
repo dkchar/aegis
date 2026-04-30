@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   calculateFailureCooldown,
+  type OperationalFailureKind,
   resolveFailureWindowStartMs,
   shouldEscalateSentinelOperationalFailure,
 } from "./failure-policy.js";
@@ -47,6 +48,7 @@ export interface DispatchRecord {
   sentinelVerdictRef: string | null;
   janusArtifactRef?: string | null;
   failureTranscriptRef?: string | null;
+  operationalFailureKind?: OperationalFailureKind | null;
   fileScope: { files: string[] } | null;
   failureCount: number;
   consecutiveFailures: number;
@@ -159,6 +161,7 @@ export function reconcileDispatchState(
           runningAgent: null,
           failureCount: record.failureCount + 1,
           consecutiveFailures: nextConsecutiveFailures,
+          operationalFailureKind: "runtime_failure",
           failureWindowStartMs: record.failureWindowStartMs
             ?? resolveFailureWindowStartMs(timestamp),
           cooldownUntil: calculateFailureCooldown(timestamp),
@@ -172,9 +175,9 @@ export function reconcileDispatchState(
         ...record,
         stage: "failed_operational",
         runningAgent: null,
-        fileScope: null,
         failureCount: record.failureCount + 1,
         consecutiveFailures: record.consecutiveFailures + 1,
+        operationalFailureKind: "runtime_failure",
         failureWindowStartMs: record.failureWindowStartMs
           ?? resolveFailureWindowStartMs(timestamp),
         cooldownUntil: null,

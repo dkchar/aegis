@@ -60,6 +60,139 @@ interface DispatchPipelineResult {
   failed: string[];
 }
 
+function readPolicyArtifact(root: string, artifactRef: string | null | undefined) {
+  if (!artifactRef) {
+    return null;
+  }
+
+  const artifactPath = path.join(root, artifactRef);
+  if (!existsSync(artifactPath)) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(readFileSync(artifactPath, "utf8")) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function isResolvedPolicyBlockerReady(input: {
+  root: string;
+  readyIssueIds: Set<string>;
+  record: ReturnType<typeof loadDispatchState>["records"][string];
+}) {
+  const { record } = input;
+  if (
+    record.stage !== "blocked_on_child"
+    && record.stage !== "failed_operational"
+    || !input.readyIssueIds.has(record.issueId)
+    || !record.blockedByIssueId
+    || !record.policyArtifactRef
+  ) {
+    return false;
+  }
+
+  const artifact = readPolicyArtifact(input.root, record.policyArtifactRef);
+  return artifact?.["outcome"] !== "rejected"
+    && artifact?.["childIssueId"] === record.blockedByIssueId;
+}
+
+function isRejectedBlockerChainReady(input: {
+  root: string;
+  readyIssueIds: Set<string>;
+  record: ReturnType<typeof loadDispatchState>["records"][string];
+}) {
+  const { record } = input;
+  if (
+    record.runningAgent
+    || !input.readyIssueIds.has(record.issueId)
+    || !record.policyArtifactRef
+  ) {
+    return false;
+  }
+
+  const artifact = readPolicyArtifact(input.root, record.policyArtifactRef);
+  return artifact?.["outcome"] === "rejected"
+    && artifact?.["rejectionReason"] === "blocker_chain_not_allowed";
+}
+
+function toFreshScoutRecord(
+  record: ReturnType<typeof loadDispatchState>["records"][string],
+  timestamp: string,
+) {
+  return {
+    ...record,
+    stage: "pending" as const,
+    runningAgent: null,
+    blockedByIssueId: null,
+    policyArtifactRef: null,
+    oracleAssessmentRef: null,
+    oracleReady: null,
+    oracleDecompose: null,
+    oracleBlockers: null,
+    fileScope: null,
+    reviewFeedbackRef: null,
+    titanHandoffRef: null,
+    titanClarificationRef: null,
+    sentinelVerdictRef: null,
+    janusArtifactRef: null,
+    cooldownUntil: null,
+    updatedAt: timestamp,
+  };
+}
+
+function recoverResolvedPolicyBlockedParents(input: {
+  root: string;
+  dispatchState: ReturnType<typeof loadDispatchState>;
+  readyIssueIds: string[];
+  timestamp: string;
+}) {
+  const readyIssueIds = new Set(input.readyIssueIds);
+  let changed = false;
+  const records = Object.fromEntries(
+    Object.entries(input.dispatchState.records).map(([issueId, record]) => {
+      if (!isResolvedPolicyBlockerReady({
+        root: input.root,
+        readyIssueIds,
+        record,
+      }) && !isRejectedBlockerChainReady({
+        root: input.root,
+        readyIssueIds,
+        record,
+      })) {
+        return [issueId, record];
+      }
+
+      changed = true;
+      writePhaseLog(input.root, {
+        timestamp: input.timestamp,
+        phase: "triage",
+        issueId,
+        action: "resolved_policy_blocker_recovered",
+        outcome: "implemented",
+        detail: JSON.stringify({
+          blockedByIssueId: record.blockedByIssueId,
+          policyArtifactRef: record.policyArtifactRef,
+          nextStage: "pending",
+        }),
+      });
+
+      return [issueId, toFreshScoutRecord(record, input.timestamp)];
+    }),
+  );
+
+  return {
+    changed,
+    state: changed
+      ? {
+          schemaVersion: input.dispatchState.schemaVersion,
+          records,
+        }
+      : input.dispatchState,
+  };
+}
+
 async function runDispatchPipeline(
   root: string,
   runtime: AgentRuntime,
@@ -68,7 +201,7 @@ async function runDispatchPipeline(
 ): Promise<DispatchPipelineResult> {
   const config = loadConfig(root);
   const tracker = new BeadsTrackerClient();
-  const dispatchState = loadDispatchState(root);
+  let dispatchState = loadDispatchState(root);
   const snapshot = await pollReadyWork({
     dispatchState,
     tracker,
@@ -83,6 +216,17 @@ async function runDispatchPipeline(
     outcome: "ok",
     detail: snapshot.readyIssues.map((issue) => issue.id).join(","),
   });
+
+  const recoveredBlockedParents = recoverResolvedPolicyBlockedParents({
+    root,
+    dispatchState,
+    readyIssueIds: snapshot.readyIssues.map((issue) => issue.id),
+    timestamp,
+  });
+  dispatchState = recoveredBlockedParents.state;
+  if (recoveredBlockedParents.changed) {
+    saveDispatchState(root, dispatchState);
+  }
 
   const triage = triageReadyWork({
     readyIssues: snapshot.readyIssues,
@@ -351,6 +495,7 @@ function createPreMergeReviewLauncher(
         root,
         issueId,
       }),
+      artifactEmissionMode: config.runtime === "pi" ? "tool" : "json",
       now: timestamp,
     });
   };

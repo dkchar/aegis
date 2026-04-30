@@ -162,3 +162,144 @@ describe("createAgentRuntime(scripted)", () => {
     expect(state.records["ISSUE-1"]?.oracleAssessmentRef).toBeTruthy();
   });
 });
+
+describe("createAgentRuntime(codex)", () => {
+  it("terminates processes rooted in the issue labor workspace", async () => {
+    const root = createTempRoot();
+    initProject(root);
+    const terminateCodexSessionProcesses = vi.fn();
+
+    vi.doMock("../../../src/runtime/codex-caste-runtime.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../../../src/runtime/codex-caste-runtime.js")>();
+      return {
+        ...actual,
+        terminateCodexSessionProcesses,
+      };
+    });
+
+    const { createAgentRuntime } = await import("../../../src/runtime/scripted-agent-runtime.js");
+    const runtime = createAgentRuntime("codex");
+    const launched = await runtime.launch({
+      root,
+      issueId: "ISSUE-1",
+      title: "Example",
+      caste: "titan",
+      stage: "implementing",
+    });
+
+    await runtime.terminate(root, launched.sessionId, "test kill");
+
+    expect(terminateCodexSessionProcesses).toHaveBeenCalledWith(
+      path.join(root, ".aegis", "labors", "ISSUE-1"),
+    );
+    expect(await runtime.readSession(root, launched.sessionId)).toMatchObject({
+      status: "failed",
+      error: "test kill",
+    });
+  });
+
+  it("terminates Oracle sessions rooted at the repository", async () => {
+    const root = createTempRoot();
+    initProject(root);
+    const terminateCodexSessionProcesses = vi.fn();
+
+    vi.doMock("../../../src/runtime/codex-caste-runtime.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../../../src/runtime/codex-caste-runtime.js")>();
+      return {
+        ...actual,
+        terminateCodexSessionProcesses,
+      };
+    });
+
+    const { createAgentRuntime } = await import("../../../src/runtime/scripted-agent-runtime.js");
+    const runtime = createAgentRuntime("codex");
+    const launched = await runtime.launch({
+      root,
+      issueId: "ISSUE-1",
+      title: "Example",
+      caste: "oracle",
+      stage: "scouting",
+    });
+
+    await runtime.terminate(root, launched.sessionId, "test kill");
+
+    expect(terminateCodexSessionProcesses).toHaveBeenCalledWith(root);
+  });
+
+  it("terminates persisted Oracle sessions at the repository after daemon restart", async () => {
+    const root = createTempRoot();
+    initProject(root);
+    const terminateCodexSessionProcesses = vi.fn();
+
+    vi.doMock("../../../src/runtime/codex-caste-runtime.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../../../src/runtime/codex-caste-runtime.js")>();
+      return {
+        ...actual,
+        terminateCodexSessionProcesses,
+      };
+    });
+
+    const { createAgentRuntime } = await import("../../../src/runtime/scripted-agent-runtime.js");
+    const { saveDispatchState } = await import("../../../src/core/dispatch-state.js");
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: {
+        "ISSUE-1": {
+          issueId: "ISSUE-1",
+          stage: "scouting",
+          runningAgent: {
+            caste: "oracle",
+            sessionId: "persisted-session",
+            startedAt: "2026-04-29T10:00:00.000Z",
+          },
+          oracleAssessmentRef: null,
+          sentinelVerdictRef: null,
+          fileScope: null,
+          failureCount: 0,
+          consecutiveFailures: 0,
+          failureWindowStartMs: null,
+          cooldownUntil: null,
+          sessionProvenanceId: "old-daemon",
+          updatedAt: "2026-04-29T10:00:00.000Z",
+        },
+      },
+    });
+
+    const runtime = createAgentRuntime("codex");
+    await runtime.terminate(root, "persisted-session", "test kill");
+
+    expect(terminateCodexSessionProcesses).toHaveBeenCalledWith(root);
+  });
+});
+
+describe("createAgentRuntime(pi)", () => {
+  it("terminates Pi sessions rooted in the issue labor workspace", async () => {
+    const root = createTempRoot();
+    initProject(root);
+    const terminateWorkspaceProcesses = vi.fn();
+
+    vi.doMock("../../../src/runtime/pi-caste-runtime.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../../../src/runtime/pi-caste-runtime.js")>();
+      return {
+        ...actual,
+        terminateWorkspaceProcesses,
+      };
+    });
+
+    const { createAgentRuntime } = await import("../../../src/runtime/scripted-agent-runtime.js");
+    const runtime = createAgentRuntime("pi");
+    const launched = await runtime.launch({
+      root,
+      issueId: "ISSUE-1",
+      title: "Example",
+      caste: "titan",
+      stage: "implementing",
+    });
+
+    await runtime.terminate(root, launched.sessionId, "test kill");
+
+    expect(terminateWorkspaceProcesses).toHaveBeenCalledWith(
+      path.join(root, ".aegis", "labors", "ISSUE-1"),
+    );
+  });
+});

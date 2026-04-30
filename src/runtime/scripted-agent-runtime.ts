@@ -1,10 +1,17 @@
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 
 import type {
   AgentRuntime,
   RuntimeLaunchInput,
   RuntimeLaunchResult,
 } from "./agent-runtime.js";
+import {
+  terminateCodexSessionProcesses,
+} from "./codex-caste-runtime.js";
+import { terminateWorkspaceProcesses as terminatePiWorkspaceProcesses } from "./pi-caste-runtime.js";
+import { loadConfig } from "../config/load-config.js";
+import { loadDispatchState } from "../core/dispatch-state.js";
 import { readSessionReport, writeSessionReport } from "./session-report.js";
 import { runCasteCommand } from "../core/caste-runner.js";
 import { createCasteRuntime } from "./create-caste-runtime.js";
@@ -14,6 +21,12 @@ type DispatchRuntimeMode = "scripted" | "pi" | "codex";
 type DispatchAction = "scout" | "implement" | "review";
 
 const TERMINATED_SESSIONS = new Set<string>();
+const SESSION_CONTEXTS = new Map<string, {
+  root: string;
+  issueId: string;
+  caste: RuntimeLaunchInput["caste"];
+  mode: DispatchRuntimeMode;
+}>();
 
 function resolveDispatchAction(input: RuntimeLaunchInput): DispatchAction {
   if (input.caste === "oracle" && input.stage === "scouting") {
@@ -49,6 +62,12 @@ class CasteDispatchRuntime implements AgentRuntime {
     const sessionId = randomUUID();
     const startedAt = new Date().toISOString();
 
+    SESSION_CONTEXTS.set(sessionId, {
+      root: input.root,
+      issueId: input.issueId,
+      caste: input.caste,
+      mode: this.mode,
+    });
     writeSessionReport(input.root, {
       sessionId,
       status: "running",
@@ -80,6 +99,7 @@ class CasteDispatchRuntime implements AgentRuntime {
           root: input.root,
           issueId: input.issueId,
         }),
+        artifactEmissionMode: this.mode === "pi" ? "tool" : "json",
       });
 
       if (TERMINATED_SESSIONS.has(sessionId)) {
@@ -100,6 +120,7 @@ class CasteDispatchRuntime implements AgentRuntime {
       writeSessionReport(input.root, toFailureSnapshot(sessionId, detail));
     } finally {
       TERMINATED_SESSIONS.delete(sessionId);
+      SESSION_CONTEXTS.delete(sessionId);
     }
   }
 
@@ -109,10 +130,71 @@ class CasteDispatchRuntime implements AgentRuntime {
 
   async terminate(root: string, sessionId: string, reason: string) {
     TERMINATED_SESSIONS.add(sessionId);
+    terminateAdapterSessionProcesses({
+      root,
+      sessionId,
+      mode: this.mode,
+    });
     const snapshot = toFailureSnapshot(sessionId, reason);
     writeSessionReport(root, snapshot);
     return snapshot;
   }
+}
+
+function resolveSessionRecord(root: string, sessionId: string) {
+  const state = loadDispatchState(root);
+  return Object.values(state.records)
+    .find((record) => record.runningAgent?.sessionId === sessionId)
+    ?? null;
+}
+
+function resolveSessionIssueId(root: string, sessionId: string) {
+  const context = SESSION_CONTEXTS.get(sessionId);
+  if (context && context.root === root) {
+    return context.issueId;
+  }
+
+  return resolveSessionRecord(root, sessionId)?.issueId ?? null;
+}
+
+function resolveCodexSessionWorkspace(root: string, sessionId: string) {
+  const context = SESSION_CONTEXTS.get(sessionId);
+  if (context?.root === root && context.caste === "oracle") {
+    return root;
+  }
+
+  const record = resolveSessionRecord(root, sessionId);
+  if (record?.runningAgent?.caste === "oracle") {
+    return root;
+  }
+
+  const issueId = resolveSessionIssueId(root, sessionId);
+  if (!issueId) {
+    return null;
+  }
+
+  const config = loadConfig(root);
+  return path.join(root, config.labor.base_path, issueId);
+}
+
+function terminateAdapterSessionProcesses(input: {
+  root: string;
+  sessionId: string;
+  mode: DispatchRuntimeMode;
+}) {
+  if (input.mode !== "codex" && input.mode !== "pi") {
+    return;
+  }
+
+  const workspace = resolveCodexSessionWorkspace(input.root, input.sessionId);
+  if (!workspace) {
+    return;
+  }
+
+  const terminateWorkspaceProcesses = input.mode === "pi"
+    ? terminatePiWorkspaceProcesses
+    : terminateCodexSessionProcesses;
+  terminateWorkspaceProcesses(workspace);
 }
 
 export class ScriptedAgentRuntime implements AgentRuntime {

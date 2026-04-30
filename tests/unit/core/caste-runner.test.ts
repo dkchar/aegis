@@ -11,6 +11,7 @@ import { persistArtifact } from "../../../src/core/artifact-store.js";
 import { ScriptedCasteRuntime } from "../../../src/runtime/scripted-caste-runtime.js";
 import type { CasteSessionResult } from "../../../src/runtime/caste-runtime.js";
 import type { AegisIssue } from "../../../src/tracker/issue-model.js";
+import { DEFAULT_AEGIS_CONFIG } from "../../../src/config/defaults.js";
 
 const tempRoots: string[] = [];
 
@@ -18,6 +19,21 @@ function createTempRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "aegis-caste-runner-"));
   tempRoots.push(root);
   return root;
+}
+
+function writeConfig(root: string, config = DEFAULT_AEGIS_CONFIG) {
+  mkdirSync(path.join(root, ".aegis"), { recursive: true });
+  writeFileSync(path.join(root, ".aegis", "config.json"), `${JSON.stringify(config, null, 2)}\n`, "utf8");
+}
+
+function allowComplexAutoDispatch(root: string) {
+  writeConfig(root, {
+    ...DEFAULT_AEGIS_CONFIG,
+    thresholds: {
+      ...DEFAULT_AEGIS_CONFIG.thresholds,
+      allow_complex_auto_dispatch: true,
+    },
+  });
 }
 
 afterEach(() => {
@@ -983,8 +999,14 @@ describe("runCasteCommand", () => {
     expect(prompt).toContain("Allowed file scope: src/App.jsx, src/index.css");
     expect(prompt).toContain("Stay within the allowed file scope.");
     expect(prompt).toContain("Current allowed file scope is authoritative for this issue.");
+    expect(prompt).toContain("You are a dispatched Aegis caste subagent");
+    expect(prompt).toContain("skip those skills and follow this Aegis prompt directly");
     expect(prompt).toContain("Preserve existing Aegis/Beads operational files and ignore rules.");
-    expect(prompt).toContain("If you start a long-running dev, preview, watcher, or server process for a check, stop it before calling the final artifact tool.");
+    expect(prompt).toContain("run package-manager commands as npm.cmd");
+    expect(prompt).toContain("Do not use GUI/open/start/invoke-item/Start-Process");
+    expect(prompt).toContain("Do not run long-running dev, preview, watcher, or server commands.");
+    expect(prompt).toContain("Guard optional file reads and probes so missing paths do not exit nonzero");
+    expect(prompt).toContain("PowerShell `rg` no-match exits 1 and fails the adapter");
     expect(prompt).toContain("Report files_changed as paths relative to the working directory, never as absolute paths.");
     expect(prompt).toContain("Allowed mutation_proposal.proposal_type values: create_clarification_blocker, create_prerequisite_blocker, create_out_of_scope_blocker.");
   });
@@ -1539,6 +1561,164 @@ describe("runCasteCommand", () => {
     })).rejects.toThrow("policy-created blocker");
     expect(titanPrompt).toContain("Policy-created blocker issue");
     expect(titanPrompt).toContain("Do not resolve this blocker with already_satisfied");
+  });
+
+  it("rejects mutation proposals from policy-created blocker issues", async () => {
+    const root = createTempRoot();
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: {
+        "aegis-policy-child": {
+          issueId: "aegis-policy-child",
+          stage: "scouted",
+          runningAgent: null,
+          lastCompletedCaste: "oracle",
+          blockedByIssueId: null,
+          reviewFeedbackRef: null,
+          policyArtifactRef: null,
+          oracleAssessmentRef: path.join(".aegis", "oracle", "aegis-policy-child.json"),
+          titanHandoffRef: null,
+          titanClarificationRef: null,
+          sentinelVerdictRef: null,
+          janusArtifactRef: null,
+          failureTranscriptRef: null,
+          fileScope: {
+            files: ["package.json"],
+          },
+          failureCount: 0,
+          consecutiveFailures: 0,
+          failureWindowStartMs: null,
+          cooldownUntil: null,
+          sessionProvenanceId: "test",
+          updatedAt: "2026-04-14T12:00:00.000Z",
+        },
+      },
+    });
+    persistArtifact(root, {
+      family: "oracle",
+      issueId: "aegis-policy-child",
+      artifact: {
+        files_affected: ["package.json"],
+        estimated_complexity: "moderate",
+        risks: [],
+        suggested_checks: ["npm run format:check"],
+        scope_notes: [],
+      },
+    });
+    initializeGitRepository(root);
+
+    const issue = createIssue("aegis-policy-child");
+    issue.description = [
+      "Fix package formatting.",
+      "Policy proposal: create_out_of_scope_blocker",
+      "Fingerprint: abc123",
+      "Scope evidence:",
+      "- package.json was failing format check.",
+    ].join("\n");
+
+    await expect(runCasteCommand({
+      root,
+      action: "implement",
+      issueId: "aegis-policy-child",
+      tracker: {
+        getIssue: vi.fn(async () => issue),
+        createIssue: vi.fn(async () => "aegis-next-child"),
+        linkBlockingIssue: vi.fn(async () => undefined),
+      },
+      runtime: new ScriptedCasteRuntime({
+        titan: () => ({
+          output: JSON.stringify({
+            outcome: "failure",
+            summary: "Need another file.",
+            files_changed: [],
+            tests_and_checks_run: ["npm run format:check"],
+            known_risks: [],
+            follow_up_work: [],
+            mutation_proposal: {
+              proposal_type: "create_out_of_scope_blocker",
+              summary: "Need config change.",
+              suggested_title: "Fix config",
+              suggested_description: "Fix config before package formatting.",
+              scope_evidence: ["config file is outside package scope"],
+            },
+          }),
+        }),
+      }),
+      resolveBaseBranch: () => "main",
+      resolveLaborBasePath: () => "scratchpad",
+    })).rejects.toThrow("policy-created blocker");
+  });
+
+  it("uses JSON artifact instructions instead of tool-call instructions in JSON emission mode", async () => {
+    const root = createTempRoot();
+    initializeGitRepository(root);
+    persistArtifact(root, {
+      family: "titan",
+      issueId: "aegis-json-review",
+      artifact: {
+        labor_path: root,
+        candidate_branch: "main",
+        base_branch: "main",
+      },
+    });
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: {
+        "aegis-json-review": {
+          issueId: "aegis-json-review",
+          stage: "implemented",
+          runningAgent: null,
+          lastCompletedCaste: "titan",
+          blockedByIssueId: null,
+          reviewFeedbackRef: null,
+          policyArtifactRef: null,
+          oracleAssessmentRef: path.join(".aegis", "oracle", "aegis-json-review.json"),
+          titanHandoffRef: path.join(".aegis", "titan", "aegis-json-review.json"),
+          titanClarificationRef: null,
+          sentinelVerdictRef: null,
+          janusArtifactRef: null,
+          failureTranscriptRef: null,
+          fileScope: { files: ["docs/setup-contract.md"] },
+          failureCount: 0,
+          consecutiveFailures: 0,
+          failureWindowStartMs: null,
+          cooldownUntil: null,
+          sessionProvenanceId: "test",
+          updatedAt: "2026-04-14T12:00:00.000Z",
+        },
+      },
+    });
+
+    let sentinelPrompt = "";
+    await runCasteCommand({
+      root,
+      action: "review",
+      issueId: "aegis-json-review",
+      artifactEmissionMode: "json",
+      tracker: {
+        getIssue: vi.fn(async () => createIssue("aegis-json-review")),
+      },
+      runtime: new ScriptedCasteRuntime({
+        sentinel: (input) => {
+          sentinelPrompt = input.prompt;
+          return {
+            output: JSON.stringify({
+              verdict: "pass",
+              reviewSummary: "ok",
+              blockingFindings: [],
+              advisories: [],
+              touchedFiles: [],
+              contractChecks: ["reviewed"],
+            }),
+          };
+        },
+      }),
+      resolveBaseBranch: () => "main",
+      resolveLaborBasePath: () => "scratchpad",
+    });
+
+    expect(sentinelPrompt).not.toContain("Call tool 'emit_sentinel_verdict'");
+    expect(sentinelPrompt).toContain("Return the final artifact as the JSON object itself");
   });
 
   it("includes Sentinel blocking feedback in Titan rework prompts", async () => {
@@ -2139,6 +2319,7 @@ describe("runCasteCommand", () => {
 
   it("routes Sentinel out-of-scope findings through deterministic blocker policy", async () => {
     const root = createTempRoot();
+    allowComplexAutoDispatch(root);
     writeTitanArtifact(root, "aegis-1003");
     saveDispatchState(root, {
       schemaVersion: 1,
@@ -2169,7 +2350,10 @@ describe("runCasteCommand", () => {
       action: "review",
       issueId: "aegis-1003",
       tracker: {
-        getIssue: vi.fn(async () => createIssue("aegis-1003")),
+        getIssue: vi.fn(async () => ({
+          ...createIssue("aegis-1003"),
+          labels: ["gate"],
+        })),
         createIssue: createBlockerIssue,
         linkBlockingIssue,
       },
@@ -2197,6 +2381,135 @@ describe("runCasteCommand", () => {
     expect(record?.blockedByIssueId).toBe("aegis-blocker-1");
     expect(record?.reviewFeedbackRef).toBe(path.join(".aegis", "sentinel", "aegis-1003.json"));
     expect(record?.policyArtifactRef).toContain(path.join(".aegis", "policy"));
+  });
+
+  it("returns Sentinel create-blocker findings to owner rework when complex auto-dispatch is disabled", async () => {
+    const root = createTempRoot();
+    writeConfig(root);
+    writeTitanArtifact(root, "aegis-no-amplify");
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: {
+        "aegis-no-amplify": {
+          issueId: "aegis-no-amplify",
+          stage: "implemented",
+          runningAgent: null,
+          oracleAssessmentRef: path.join(".aegis", "oracle", "aegis-no-amplify.json"),
+          titanHandoffRef: path.join(".aegis", "titan", "aegis-no-amplify.json"),
+          sentinelVerdictRef: null,
+          fileScope: { files: ["src/index.ts"] },
+          failureCount: 0,
+          consecutiveFailures: 0,
+          failureWindowStartMs: null,
+          cooldownUntil: null,
+          sessionProvenanceId: "test",
+          updatedAt: "2026-04-14T12:00:00.000Z",
+        },
+      },
+    });
+
+    const createBlockerIssue = vi.fn(async () => "aegis-blocker-disabled");
+    const linkBlockingIssue = vi.fn(async () => undefined);
+
+    const result = await runCasteCommand({
+      root,
+      action: "review",
+      issueId: "aegis-no-amplify",
+      tracker: {
+        getIssue: vi.fn(async () => ({
+          ...createIssue("aegis-no-amplify"),
+          labels: ["gate"],
+        })),
+        createIssue: createBlockerIssue,
+        linkBlockingIssue,
+      },
+      runtime: new ScriptedCasteRuntime({
+        sentinel: () => ({
+          output: createSentinelOutOfScopeBlockerOutput(),
+        }),
+      }),
+    });
+
+    expect(result).toMatchObject({
+      action: "review",
+      issueId: "aegis-no-amplify",
+      stage: "rework_required",
+    });
+    expect(createBlockerIssue).not.toHaveBeenCalled();
+    expect(linkBlockingIssue).not.toHaveBeenCalled();
+
+    const record = loadDispatchState(root).records["aegis-no-amplify"];
+    expect(record).toMatchObject({
+      stage: "rework_required",
+      blockedByIssueId: null,
+      policyArtifactRef: null,
+      sentinelVerdictRef: path.join(".aegis", "sentinel", "aegis-no-amplify.json"),
+      reviewFeedbackRef: path.join(".aegis", "sentinel", "aegis-no-amplify.json"),
+    });
+  });
+
+  it("ignores ambient cross-scope Sentinel findings for normal slice reviews", async () => {
+    const root = createTempRoot();
+    writeTitanArtifact(root, "aegis-ambient");
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: {
+        "aegis-ambient": {
+          issueId: "aegis-ambient",
+          stage: "implemented",
+          runningAgent: null,
+          oracleAssessmentRef: path.join(".aegis", "oracle", "aegis-ambient.json"),
+          titanHandoffRef: path.join(".aegis", "titan", "aegis-ambient.json"),
+          sentinelVerdictRef: null,
+          fileScope: { files: ["src/index.ts"] },
+          failureCount: 0,
+          consecutiveFailures: 0,
+          failureWindowStartMs: null,
+          cooldownUntil: null,
+          sessionProvenanceId: "test",
+          updatedAt: "2026-04-14T12:00:00.000Z",
+        },
+      },
+    });
+
+    const createBlockerIssue = vi.fn(async () => "aegis-blocker-ambient");
+    const linkBlockingIssue = vi.fn(async () => undefined);
+
+    const result = await runCasteCommand({
+      root,
+      action: "review",
+      issueId: "aegis-ambient",
+      tracker: {
+        getIssue: vi.fn(async () => createIssue("aegis-ambient")),
+        createIssue: createBlockerIssue,
+        linkBlockingIssue,
+      },
+      runtime: new ScriptedCasteRuntime({
+        sentinel: () => ({
+          output: createSentinelOutOfScopeBlockerOutput(),
+        }),
+      }),
+    });
+
+    expect(result).toMatchObject({
+      action: "review",
+      issueId: "aegis-ambient",
+      stage: "queued_for_merge",
+    });
+    expect(createBlockerIssue).not.toHaveBeenCalled();
+    expect(linkBlockingIssue).not.toHaveBeenCalled();
+
+    const record = loadDispatchState(root).records["aegis-ambient"];
+    expect(record?.blockedByIssueId ?? null).toBeNull();
+    expect(record?.policyArtifactRef).toBeUndefined();
+    const sentinelArtifact = JSON.parse(readFileSync(path.join(root, ".aegis", "sentinel", "aegis-ambient.json"), "utf8")) as {
+      verdict: string;
+      blockingFindings: unknown[];
+      ignoredBlockingFindings: unknown[];
+    };
+    expect(sentinelArtifact.verdict).toBe("pass");
+    expect(sentinelArtifact.blockingFindings).toEqual([]);
+    expect(sentinelArtifact.ignoredBlockingFindings).toHaveLength(1);
   });
 
   it("does not create Sentinel follow-up issues on review rerun", async () => {
