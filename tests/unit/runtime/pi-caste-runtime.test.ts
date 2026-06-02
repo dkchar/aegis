@@ -11,7 +11,9 @@ import { TITAN_EMIT_ARTIFACT_TOOL_NAME } from "../../../src/castes/titan/titan-t
 import type { CasteName } from "../../../src/runtime/caste-runtime.js";
 import {
   buildHiddenShellSpawnOptions,
+  buildTerminateWorkspaceProcessesScript,
   commandLineReferencesWorkspace,
+  isAllowedPlaywrightManagedWorkspaceServer,
   isForbiddenLongRunningShellCommand,
   PiCasteRuntime,
 } from "../../../src/runtime/pi-caste-runtime.js";
@@ -1267,5 +1269,61 @@ describe("PiCasteRuntime", () => {
       "/tmp/aegis/.aegis/labors/OTHER",
       "linux",
     )).toBe(false);
+  });
+
+  it("allows Playwright-managed webServer children while still detecting direct dev servers", () => {
+    const parentByPid = new Map([
+      [42, 41],
+      [41, 40],
+    ]);
+    const commandByPid = new Map([
+      [40, "node C:/repo/node_modules/@playwright/test/cli.js test --config playwright.config.ts"],
+      [41, "npm.cmd run dev -- --host 127.0.0.1 --port 4173"],
+      [42, "node C:/repo/node_modules/vite/bin/vite.js --host 127.0.0.1 --port 4173"],
+    ]);
+
+    expect(isAllowedPlaywrightManagedWorkspaceServer(42, parentByPid, commandByPid)).toBe(true);
+    expect(isAllowedPlaywrightManagedWorkspaceServer(41, parentByPid, commandByPid)).toBe(true);
+    expect(isAllowedPlaywrightManagedWorkspaceServer(99, parentByPid, commandByPid)).toBe(false);
+  });
+
+  it("builds a Windows cleanup script that only kills forbidden workspace processes", () => {
+    const script = buildTerminateWorkspaceProcessesScript("C:\\repo\\.aegis\\labors\\ISSUE-1");
+
+    expect(script).toContain("$current = $PID");
+    expect(script).toContain("Stop-Process");
+    expect(script).toContain("ISSUE-1");
+    expect(script).toContain("ProcessId -eq $current");
+    expect(script).toContain("forbiddenPatterns");
+    expect(script).toContain("webpack");
+  });
+
+  it("fails bounded when a forbidden workspace process appears during a Pi session", async () => {
+    mockedAgent.session.prompt.mockImplementation(async () => {
+      // Simulate model turn still running while a child process leaks.
+    });
+
+    const runtime = new PiCasteRuntime({
+      oracle: createModelConfig("oracle"),
+    }, {
+      sessionTimeoutMs: 1_000,
+      timeoutRetryCount: 0,
+      processMonitorIntervalMs: 1,
+      findForbiddenWorkspaceProcess: () => "npm.cmd run dev -- --host 127.0.0.1",
+    });
+
+    const result = await runtime.run({
+      caste: "oracle",
+      issueId: "aegis-process-leak",
+      root: "repo",
+      workingDirectory: "repo",
+      prompt: "Scout process leak",
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.error).toBe(
+      "Pi oracle session launched forbidden long-running workspace process: npm.cmd run dev -- --host 127.0.0.1",
+    );
+    expect(mockedAgent.session.abort).toHaveBeenCalledTimes(1);
   });
 });

@@ -51,6 +51,18 @@ import type {
 } from "./caste-runtime.js";
 import type { ResolvedConfiguredCasteModel } from "./pi-model-config.js";
 import { buildCodexRunEnvironment } from "./codex-caste-runtime.js";
+import {
+  findForbiddenWorkspaceProcess,
+  isForbiddenLongRunningWorkspaceCommand,
+  terminateWorkspaceProcesses,
+} from "./workspace-processes.js";
+
+export {
+  buildTerminateWorkspaceProcessesScript,
+  commandLineReferencesWorkspace,
+  isAllowedPlaywrightManagedWorkspaceServer,
+  terminateWorkspaceProcesses,
+} from "./workspace-processes.js";
 
 type PiCodingAgentModule = typeof import("@mariozechner/pi-coding-agent");
 const require = createRequire(import.meta.url);
@@ -65,6 +77,16 @@ const DEFAULT_PI_SESSION_TIMEOUT_BY_CASTE: Record<CasteName, number> = {
 };
 const DEFAULT_PI_TIMEOUT_RETRY_COUNT = 1;
 const DEFAULT_PI_TIMEOUT_RETRY_DELAY_MS = 1_000;
+const DEFAULT_PI_PROCESS_MONITOR_INTERVAL_MS = 5_000;
+
+export interface PiCasteRuntimeOptions {
+  sessionTimeoutMs?: number;
+  sessionTimeoutMsByCaste?: Partial<Record<CasteName, number>>;
+  timeoutRetryCount?: number;
+  timeoutRetryDelayMs?: number;
+  processMonitorIntervalMs?: number;
+  findForbiddenWorkspaceProcess?: (workingDirectory: string) => string | null;
+}
 
 function withWindowsHide<T>(value: T): T | (T & { windowsHide: true }) {
   if (process.platform !== "win32") {
@@ -235,91 +257,6 @@ function terminateProcessTree(pid: number) {
     process.kill(pid, "SIGTERM");
   } catch {
     // Ignore missing process.
-  }
-}
-
-function normalizeProcessPath(candidate: string, platform: NodeJS.Platform) {
-  const normalized = (platform === "win32"
-    ? path.win32.resolve(candidate)
-    : path.posix.resolve(candidate)).replace(/\\/g, "/");
-  return platform === "win32" ? normalized.toLowerCase() : normalized;
-}
-
-function commandLineContainsWorkspace(commandLine: string, workspace: string) {
-  let searchFrom = 0;
-  while (searchFrom < commandLine.length) {
-    const index = commandLine.indexOf(workspace, searchFrom);
-    if (index === -1) {
-      return false;
-    }
-    const next = commandLine[index + workspace.length];
-    if (next === undefined || next === "/" || next === "\"" || next === "'" || /\s/.test(next)) {
-      return true;
-    }
-    searchFrom = index + workspace.length;
-  }
-  return false;
-}
-
-export function commandLineReferencesWorkspace(
-  commandLine: string,
-  workingDirectory: string,
-  platform: NodeJS.Platform = process.platform,
-) {
-  const normalizedCommand = commandLine.replace(/\\/g, "/");
-  const comparableCommand = platform === "win32"
-    ? normalizedCommand.toLowerCase()
-    : normalizedCommand;
-  const workspace = normalizeProcessPath(workingDirectory, platform);
-  return commandLineContainsWorkspace(comparableCommand, workspace);
-}
-
-export function terminateWorkspaceProcesses(
-  workingDirectory: string,
-  platform: NodeJS.Platform = process.platform,
-) {
-  const workspace = normalizeProcessPath(workingDirectory, platform);
-  if (platform === "win32") {
-    const script = [
-      "$ErrorActionPreference = 'SilentlyContinue'",
-      `$workspace = ${JSON.stringify(workspace)}`,
-      `$rawWorkspace = ${JSON.stringify(path.resolve(workingDirectory))}`,
-      "$current = $PID",
-      "Get-CimInstance Win32_Process | Where-Object {",
-      "  $_.ProcessId -ne $current -and $_.CommandLine -and (",
-      "    $_.CommandLine.ToLowerInvariant().Contains($rawWorkspace.ToLowerInvariant()) -or",
-      "    $_.CommandLine.Replace('\\','/').ToLowerInvariant().Contains($workspace)",
-      "  )",
-      "} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
-    ].join("\n");
-    spawnSync("powershell.exe", ["-NoProfile", "-Command", script], {
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    return;
-  }
-
-  const ps = spawnSync("ps", ["-eo", "pid=,command="], {
-    encoding: "utf8",
-    windowsHide: true,
-  });
-  if (ps.status !== 0) {
-    return;
-  }
-  for (const line of ps.stdout.split(/\r?\n/)) {
-    const match = line.trim().match(/^(\d+)\s+(.+)$/);
-    if (!match) {
-      continue;
-    }
-    const pid = Number(match[1]);
-    const commandLine = match[2] ?? "";
-    if (pid > 0 && pid !== process.pid && commandLineReferencesWorkspace(commandLine, workingDirectory, platform)) {
-      try {
-        process.kill(pid, "SIGTERM");
-      } catch {
-        // Ignore missing process.
-      }
-    }
   }
 }
 
@@ -674,15 +611,7 @@ function assertTerminalOnlyCommand(command: string) {
 }
 
 export function isForbiddenLongRunningShellCommand(command: string) {
-  const normalized = command.replace(/\\/g, "/").replace(/\s+/g, " ").trim().toLowerCase();
-  return /\b(npm|npm\.cmd|pnpm|pnpm\.cmd|yarn|yarn\.cmd|bun|bun\.cmd)\s+run\s+(dev|preview|start)\b/.test(normalized)
-    || /\b(npm|npm\.cmd|pnpm|pnpm\.cmd|yarn|yarn\.cmd|bun|bun\.cmd)\s+(dev|preview|start)\b/.test(normalized)
-    || /\b(vite|next|astro)\s+dev\b/.test(normalized)
-    || /\b(vite|vite\.cmd|vite\.js)\s+(--host|--port|dev|preview|serve)\b/.test(normalized)
-    || /node_modules\/(\.bin\/)?vite\b.*\s(dev|preview|serve|--host|--port)\b/.test(normalized)
-    || /vite\/bin\/vite\.js\b.*\s(dev|preview|serve|--host|--port)\b/.test(normalized)
-    || /\b(vitest|tsc)\b.*\s--watch\b/.test(normalized)
-    || /\bwebpack\s+serve\b/.test(normalized);
+  return isForbiddenLongRunningWorkspaceCommand(command);
 }
 
 function assertNoLongRunningShellCommand(command: string) {
@@ -1067,15 +996,12 @@ export class PiCasteRuntime implements CasteRuntime {
   private readonly sessionTimeoutMsByCaste: Record<CasteName, number>;
   private readonly timeoutRetryCount: number;
   private readonly timeoutRetryDelayMs: number;
+  private readonly processMonitorIntervalMs: number;
+  private readonly findForbiddenWorkspaceProcess: (workingDirectory: string) => string | null;
 
   constructor(
     private readonly modelConfigs: Partial<Record<CasteName, ResolvedConfiguredCasteModel>> = {},
-    options: {
-      sessionTimeoutMs?: number;
-      sessionTimeoutMsByCaste?: Partial<Record<CasteName, number>>;
-      timeoutRetryCount?: number;
-      timeoutRetryDelayMs?: number;
-    } = {},
+    options: PiCasteRuntimeOptions = {},
   ) {
     this.sessionTimeoutMs = Math.max(1, options.sessionTimeoutMs ?? DEFAULT_PI_SESSION_TIMEOUT_MS);
     const hasGlobalTimeoutOverride = options.sessionTimeoutMs !== undefined;
@@ -1103,6 +1029,11 @@ export class PiCasteRuntime implements CasteRuntime {
     };
     this.timeoutRetryCount = Math.max(0, options.timeoutRetryCount ?? DEFAULT_PI_TIMEOUT_RETRY_COUNT);
     this.timeoutRetryDelayMs = Math.max(0, options.timeoutRetryDelayMs ?? DEFAULT_PI_TIMEOUT_RETRY_DELAY_MS);
+    this.processMonitorIntervalMs = Math.max(
+      1,
+      options.processMonitorIntervalMs ?? DEFAULT_PI_PROCESS_MONITOR_INTERVAL_MS,
+    );
+    this.findForbiddenWorkspaceProcess = options.findForbiddenWorkspaceProcess ?? findForbiddenWorkspaceProcess;
   }
 
   private getSessionTimeoutMs(caste: CasteName): number {
@@ -1205,6 +1136,7 @@ export class PiCasteRuntime implements CasteRuntime {
         let settled = false;
         let repairAttempted = false;
         let sessionTimeout: ReturnType<typeof setTimeout> | null = null;
+        let workspaceMonitor: ReturnType<typeof setInterval> | null = null;
         let unsubscribe: () => void = () => undefined;
 
         const settle = (action: () => void) => {
@@ -1216,6 +1148,10 @@ export class PiCasteRuntime implements CasteRuntime {
           if (sessionTimeout) {
             clearTimeout(sessionTimeout);
             sessionTimeout = null;
+          }
+          if (workspaceMonitor) {
+            clearInterval(workspaceMonitor);
+            workspaceMonitor = null;
           }
           unsubscribe();
           action();
@@ -1235,6 +1171,20 @@ export class PiCasteRuntime implements CasteRuntime {
             });
           }, sessionTimeoutMs);
         };
+
+        workspaceMonitor = setInterval(() => {
+          const forbiddenCommand = this.findForbiddenWorkspaceProcess(input.workingDirectory);
+          if (!forbiddenCommand) {
+            return;
+          }
+          void session.abort().catch(() => undefined);
+          terminateWorkspaceProcesses(input.workingDirectory);
+          settle(() => {
+            reject(new Error(
+              `Pi ${input.caste} session launched forbidden long-running workspace process: ${forbiddenCommand}`,
+            ));
+          });
+        }, this.processMonitorIntervalMs);
 
         unsubscribe = session.subscribe((event: AgentSessionEvent) => {
           refreshSessionTimeout();
