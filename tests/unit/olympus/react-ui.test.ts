@@ -13,10 +13,15 @@ describe("Olympus React UI", () => {
     const index = readOlympusFile("index.html");
     const app = readOlympusFile(path.join("src", "App.jsx"));
     const liveOps = readOlympusFile(path.join("src", "LiveOps.jsx"));
+    const ticketBoard = readOlympusFile(path.join("src", "liveOps", "TicketBoard.jsx"));
+    const ticketCard = readOlympusFile(path.join("src", "liveOps", "TicketCard.jsx"));
+    const ticketForms = readOlympusFile(path.join("src", "liveOps", "TicketForms.jsx"));
     const terminalPane = readOlympusFile(path.join("src", "TerminalPane.jsx"));
     const css = readOlympusFile(path.join("src", "styles.css"));
     const viteConfig = readOlympusFile("vite.config.js");
     const server = readOlympusFile(path.join("server", "olympus-api.js"));
+    const stateReader = readOlympusFile(path.join("server", "state-reader.js"));
+    const sessionReader = readOlympusFile(path.join("server", "session-reader.js"));
     const packageJson = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
 
     expect(index).toContain('<div id="root"></div>');
@@ -24,23 +29,23 @@ describe("Olympus React UI", () => {
     expect(app).toContain("renderView");
     expect(app).toContain("lazy(() => import");
     expect(app).toContain("<Suspense");
-    expect(liveOps).toContain("DndContext");
-    expect(liveOps).toContain("DragOverlay");
+    expect(ticketBoard).toContain("DndContext");
+    expect(ticketBoard).toContain("DragOverlay");
     expect(liveOps).toContain("PointerSensor");
     expect(liveOps).toContain("KeyboardSensor");
-    expect(liveOps).toContain("useDroppable");
+    expect(ticketBoard).toContain("useDroppable");
     expect(terminalPane).toContain("Terminal");
-    expect(liveOps).toContain("motion.");
-    expect(liveOps).toContain("AddTicketDialog");
-    expect(liveOps).toContain("<Modal opened={open}");
+    expect(ticketCard).toContain("motion.");
+    expect(ticketBoard).toContain("AddTicketDialog");
+    expect(ticketBoard).toContain("<Modal opened={open}");
     expect(app).toContain("showDialog");
     expect(app).toContain("alert");
     expect(app).not.toContain("className=\"drag-handle\"");
     expect(css).toContain('@import "tailwindcss";');
     expect(liveOps).toContain("CompactSummary");
-    expect(liveOps).toContain("overflow-x-auto");
-    expect(liveOps).toContain("max-w-[calc(100vw-2rem)]");
-    expect(liveOps).toContain("w-full min-w-0");
+    expect(ticketBoard).toContain("overflow-x-auto");
+    expect(ticketCard).toContain("max-w-[calc(100vw-2rem)]");
+    expect(ticketForms).toContain("w-full min-w-0");
     expect(css).not.toContain("grid-template-columns:");
     expect(css).not.toContain("grid-auto-flow: column");
     expect(css).not.toContain("max-width:");
@@ -59,10 +64,10 @@ describe("Olympus React UI", () => {
     expect(server).toContain("openWorkspaceDirectory");
     expect(server).toContain("FolderBrowserDialog");
     expect(server).toContain("Workspace does not exist");
-    expect(server).toContain("getProviders");
-    expect(server).toContain("getModels");
-    expect(server).toContain("models_cache.json");
-    expect(server).toContain("!report.issueId && !report.caste");
+    expect(stateReader).toContain("getProviders");
+    expect(stateReader).toContain("getModels");
+    expect(stateReader).toContain("models_cache.json");
+    expect(sessionReader).toContain("!report.issueId && !report.caste");
     expect(server).toContain("spawnBackground");
     expect(server).toContain("waitForDaemonStart");
     expect(server).not.toContain("src/mock-run/mock-run.ts");
@@ -77,6 +82,8 @@ describe("Olympus React UI", () => {
     expect(packageJson.dependencies).toHaveProperty("react");
     expect(packageJson.dependencies).toHaveProperty("@dnd-kit/core");
     expect(packageJson.dependencies).toHaveProperty("@xterm/xterm");
+    expect(packageJson.dependencies).toHaveProperty("@xyflow/react");
+    expect(packageJson.dependencies).toHaveProperty("@dagrejs/dagre");
     expect(packageJson.dependencies).toHaveProperty("motion");
     expect(packageJson.devDependencies).toHaveProperty("vite");
     expect(packageJson.devDependencies).toHaveProperty("@vitejs/plugin-react");
@@ -88,13 +95,18 @@ describe("Olympus React UI", () => {
     const app = readOlympusFile(path.join("src", "App.jsx"));
     const agentSessions = readOlympusFile(path.join("src", "AgentSessions.jsx"));
     const chronos = readOlympusFile(path.join("src", "Chronos.jsx"));
+    const chronosGraph = readOlympusFile(path.join("src", "chronosGraph.js"));
+    const chronosNodes = readOlympusFile(path.join("src", "chronosNodes.jsx"));
     const liveOps = readOlympusFile(path.join("src", "LiveOps.jsx"));
     const records = readOlympusFile(path.join("src", "Records.jsx"));
     const shell = readOlympusFile(path.join("src", "Shell.jsx"));
     const logDeck = readOlympusFile(path.join("src", "LogDeck.jsx"));
+    const workspacePanel = readOlympusFile(path.join("src", "liveOps", "WorkspacePanel.jsx"));
+    const healthPanels = readOlympusFile(path.join("src", "liveOps", "HealthPanels.jsx"));
+    const ticketBoard = readOlympusFile(path.join("src", "liveOps", "TicketBoard.jsx"));
     const main = readOlympusFile(path.join("src", "main.jsx"));
     const state = readOlympusFile(path.join("src", "state.js"));
-    const uiSurface = `${app}\n${agentSessions}\n${chronos}\n${liveOps}\n${records}\n${shell}\n${logDeck}`;
+    const uiSurface = `${app}\n${agentSessions}\n${chronos}\n${chronosGraph}\n${chronosNodes}\n${liveOps}\n${records}\n${shell}\n${logDeck}\n${workspacePanel}\n${healthPanels}\n${ticketBoard}`;
     const requiredSurfaces = [
       "Daemon",
       "Agent Sessions",
@@ -117,22 +129,22 @@ describe("Olympus React UI", () => {
     expect(app).not.toContain("function Chronos");
     expect(app).not.toContain("function AgentSessions");
     expect(main).toContain('@mantine/core/styles.css');
+    expect(main).toContain('@xyflow/react/dist/style.css');
     expect(main).toContain("MantineProvider");
-    expect(chronos).toContain("Timeline");
-    expect(chronos).toContain("Tree");
-    expect(chronos).toContain("ScrollArea");
+    expect(chronos).toContain("ReactFlow");
+    expect(chronosGraph).toContain("@dagrejs/dagre");
+    expect(chronosNodes).toContain("Handle");
     expect(chronos).not.toContain("<svg");
     expect(app).toContain("EventSource");
     expect(logDeck).toContain("Live Terminal Logs");
-    expect(liveOps).toContain("Workspace");
-    expect(liveOps).toContain("Browse Folder");
-    expect(liveOps).toContain("browseOlympusWorkspace");
-    expect(liveOps).toContain("Open Folder");
-    expect(liveOps).toContain("openOlympusWorkspaceFolder");
-    expect(liveOps).toContain("Select Workspace");
-    expect(liveOps).toContain("Use Current Project");
-    expect(liveOps).toContain("resolveNextAction");
-    expect(liveOps).toContain("SupervisionStrip");
+    expect(workspacePanel).toContain("Workspace");
+    expect(workspacePanel).toContain("Browse Folder");
+    expect(workspacePanel).toContain("browseOlympusWorkspace");
+    expect(workspacePanel).toContain("Open Folder");
+    expect(workspacePanel).toContain("openOlympusWorkspaceFolder");
+    expect(workspacePanel).toContain("Select Workspace");
+    expect(workspacePanel).toContain("Use Current Project");
+    expect(workspacePanel).toContain("resolveNextAction");
     expect(app).not.toContain("Operator Queue");
     expect(app).not.toContain("Terminal Command");
     expect(app).not.toContain("Copy Command");
@@ -262,6 +274,7 @@ describe("Olympus React UI", () => {
     const app = readOlympusFile(path.join("src", "App.jsx"));
     const agentSessions = readOlympusFile(path.join("src", "AgentSessions.jsx"));
     const liveOps = readOlympusFile(path.join("src", "LiveOps.jsx"));
+    const ticketForms = readOlympusFile(path.join("src", "liveOps", "TicketForms.jsx"));
     const config = readOlympusFile(path.join("src", "ConfigView.jsx"));
     const setupDialog = readOlympusFile(path.join("src", "SetupDialog.jsx"));
     const state = readOlympusFile(path.join("src", "state.js"));
@@ -316,7 +329,7 @@ describe("Olympus React UI", () => {
       expect(state).toContain(setting);
     }
     for (const field of ticketFields) {
-      expect(liveOps).toContain(`name="${field}"`);
+      expect(ticketForms).toContain(`name="${field}"`);
     }
     expect(state).toContain("configMeta");
     expect(config).toContain("ConfigField");
@@ -329,7 +342,7 @@ describe("Olympus React UI", () => {
     expect(state).not.toContain("node dist/index.js status");
     expect(agentSessions).toContain("olympus.selectedSessionId");
     expect(agentSessions).toContain("#agents/");
-    expect(liveOps).toContain("TicketEditor");
+    expect(ticketForms).toContain("TicketEditor");
     expect(app).toContain("validateTicketDraft");
   });
 
