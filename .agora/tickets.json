@@ -1,0 +1,42 @@
+{
+  "schema": "agora.tickets.v1",
+  "nextId": 2,
+  "tickets": {
+    "AG-0001": {
+      "id": "AG-0001",
+      "title": "Bring Pi adapter to Codex parity",
+      "body": "Align Pi adapter process/session/model behavior with Codex adapter contract. Do not run seeded end-to-end proof.",
+      "kind": "task",
+      "column": "done",
+      "sprint": null,
+      "phase": null,
+      "parent": null,
+      "children": [],
+      "blockedBy": [],
+      "blocks": [],
+      "scope": [],
+      "labels": [],
+      "createdBy": "agent",
+      "createdAt": "2026-06-02T17:37:25.894Z",
+      "updatedAt": "2026-06-02T17:51:44.154Z",
+      "lease": {
+        "caste": null,
+        "sessionId": null,
+        "startedAt": null
+      },
+      "artifacts": {},
+      "attempts": {
+        "rework": 0,
+        "operational": 0,
+        "loop": 0
+      },
+      "loopSignatures": [
+        "backlog->ready:ready_for_pi_parity_implementation:",
+        "ready->in_progress:implementing_pi/codex_runtime_parity:",
+        "in_progress->in_review:pi_parity_implementation_verified:",
+        "in_review->ready_to_merge:verified_and_ready_to_merge:",
+        "ready_to_merge->done:completed_pi/codex_parity_work:"
+      ]
+    }
+  }
+}
