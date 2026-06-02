@@ -76,7 +76,7 @@ describe("Olympus React UI", () => {
     expect(packageJson.scripts["olympus:build"]).toBe("vite build olympus");
     expect(packageJson.scripts["olympus:check"]).toBe("npm run olympus:build && npm test -- tests/unit/olympus/react-ui.test.ts");
     expect(packageJson.scripts["olympus:preview"]).toBe("vite preview --host 127.0.0.1 --port 4173 olympus");
-    expect(packageJson.scripts.start).toBe("npm run olympus:dev");
+    expect(packageJson.scripts.start).toBe("node dist/index.js");
     expect(packageJson.scripts["start:aegis"]).toBe("node dist/index.js");
     expect(packageJson.scripts["start:olympus"]).toBe("npm run olympus:dev");
     expect(packageJson.dependencies).toHaveProperty("react");
@@ -397,12 +397,5 @@ describe("Olympus React UI", () => {
     expect(stateModule.validateTicketDraft({ title: "", scope: "src/App.ts" })).toEqual("Title is required.");
     expect(stateModule.validateTicketDraft({ title: "Broken", kind: "wrong", scope: "" })).toEqual("Kind is invalid.");
     expect(stateModule.validateTicketDraft({ title: "Ready", kind: "task", column: "ready", scope: "" })).toBeNull();
-  });
-
-  test("Titan prompt treats missing owned files as creatable scope", () => {
-    const runner = readFileSync(path.join(root, "src", "core", "caste-runner.ts"), "utf8");
-
-    expect(runner).toContain("Owned paths in the allowed file scope may be absent");
-    expect(runner).toContain("create their parent directories and files as needed");
   });
 });

@@ -22,7 +22,7 @@
     "olympus:build": "vite build olympus",
     "olympus:check": "npm run olympus:build && npm test -- tests/unit/olympus/react-ui.test.ts",
     "olympus:preview": "vite preview --host 127.0.0.1 --port 4173 olympus",
-    "start": "npm run olympus:dev",
+    "start": "node dist/index.js",
     "start:aegis": "node dist/index.js",
     "start:olympus": "npm run olympus:dev",
     "test": "npm run build:agora && vitest run --config vitest.config.ts --project default",
