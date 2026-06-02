@@ -18,7 +18,13 @@
     "mock:seed": "tsx src/mock-run/seed-mock-run.ts",
     "mock:run": "tsx src/mock-run/mock-run.ts",
     "mock:acceptance": "tsx src/mock-run/acceptance.ts",
-    "start": "node dist/index.js",
+    "olympus:dev": "vite --host 127.0.0.1 --port 4173 olympus",
+    "olympus:build": "vite build olympus",
+    "olympus:check": "npm run olympus:build && npm test -- tests/unit/olympus/react-ui.test.ts",
+    "olympus:preview": "vite preview --host 127.0.0.1 --port 4173 olympus",
+    "start": "npm run olympus:dev",
+    "start:aegis": "node dist/index.js",
+    "start:olympus": "npm run olympus:dev",
     "test": "npm run build:agora && vitest run --config vitest.config.ts --project default",
     "test:acceptance": "vitest run --config vitest.config.ts --project acceptance",
     "test:watch": "vitest --config vitest.config.ts",
@@ -38,14 +44,29 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@mantine/core": "^9.2.2",
+    "@mantine/hooks": "^9.2.2",
     "@mariozechner/pi-agent-core": "^0.66.1",
     "@mariozechner/pi-ai": "^0.66.1",
-    "@mariozechner/pi-coding-agent": "^0.66.1"
+    "@mariozechner/pi-coding-agent": "^0.66.1",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "lucide-react": "^1.14.0",
+    "motion": "^12.38.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.2.4",
     "@types/node": "^25.4.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "tailwindcss": "^4.2.4",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
+    "vite": "^8.0.11",
     "vitest": "^4.0.18"
   }
 }
