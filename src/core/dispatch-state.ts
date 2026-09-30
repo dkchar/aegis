@@ -269,16 +269,3 @@ export function countRunningAgents(state: DispatchState, caste?: AgentCaste) {
   return Object.values(state.records).filter((record) =>
     record.runningAgent !== null && (caste === undefined || record.runningAgent.caste === caste)).length;
 }
-
-export function activeTitanScopes(state: DispatchState): Array<{ issueId: string; files: string[] }> {
-  const result: Array<{ issueId: string; files: string[] }> = [];
-  for (const record of Object.values(state.records)) {
-    if (record.stage === "implementing" && record.fileScope !== null) {
-      result.push({
-        issueId: record.issueId,
-        files: [...record.fileScope.files],
-      });
-    }
-  }
-  return result;
-}

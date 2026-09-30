@@ -7,7 +7,6 @@ import {
 } from "./runtime-state.js";
 import { recoverStaleRuntimeState } from "./runtime-recovery.js";
 
-export const STOP_COMMAND_NAME = "stop";
 export const STOP_COMMAND_REASONS = [
   "manual",
   "signal",
@@ -16,12 +15,6 @@ export const STOP_COMMAND_REASONS = [
 export const DEFAULT_STOP_GRACEFUL_TIMEOUT_MS = 60_000;
 
 export type StopCommandReason = (typeof STOP_COMMAND_REASONS)[number];
-
-export interface StopCommandContract {
-  command: typeof STOP_COMMAND_NAME;
-  graceful_timeout_ms: number;
-  reasons: readonly StopCommandReason[];
-}
 
 export interface StopResult {
   stopped: boolean;
@@ -47,16 +40,6 @@ async function waitForExit(pid: number, timeoutMs: number) {
   }
 
   return !isProcessRunning(pid);
-}
-
-export function createStopCommandContract(
-  gracefulTimeoutMs = DEFAULT_STOP_GRACEFUL_TIMEOUT_MS,
-): StopCommandContract {
-  return {
-    command: STOP_COMMAND_NAME,
-    graceful_timeout_ms: gracefulTimeoutMs,
-    reasons: STOP_COMMAND_REASONS,
-  };
 }
 
 export async function stopAegis(

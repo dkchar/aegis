@@ -171,9 +171,30 @@ export async function reapFinishedWork(input: ReapInput): Promise<ReapResult> {
       continue;
     }
 
+    const latestRecord = resolveLatestRecord(input.root, record);
+    if (latestRecord.stage === "failed_operational") {
+      // The caste command already recorded a failure (for example a Titan
+      // `failure` outcome); keep its retry accounting instead of resetting it.
+      records[issueId] = {
+        ...latestRecord,
+        runningAgent: null,
+        updatedAt: timestamp,
+      };
+      failed.push(issueId);
+      writePhaseLog(input.root, {
+        timestamp,
+        phase: "reap",
+        issueId,
+        action: "finalize_session",
+        outcome: "failed_operational",
+        sessionId: snapshot.sessionId,
+      });
+      continue;
+    }
+
     const completedRecord = hydrateDurableArtifactRefs(
       input.root,
-      toCompletedRecord(resolveLatestRecord(input.root, record), timestamp),
+      toCompletedRecord(latestRecord, timestamp),
     );
     const invariantError = validateDispatchRecordStage(completedRecord);
     if (invariantError) {

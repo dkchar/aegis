@@ -5,8 +5,6 @@ import { createTrackerClient } from "../tracker/create-tracker.js";
 import type { TrackerClient } from "../tracker/tracker.js";
 import { recoverStaleRuntimeState } from "./runtime-recovery.js";
 
-export const STATUS_COMMAND_NAME = "status";
-
 export interface TerminalOperationalFailure {
   issue_id: string;
   operational_failure_kind: string | null;
@@ -22,11 +20,6 @@ export interface StatusSnapshot {
   queue_depth: number;
   uptime_ms: number;
   terminal_operational_failures: TerminalOperationalFailure[];
-}
-
-export interface StatusCommandContract {
-  command: typeof STATUS_COMMAND_NAME;
-  snapshot_fields: readonly (keyof StatusSnapshot)[];
 }
 
 export interface GetAegisStatusOptions {
@@ -78,20 +71,6 @@ function collectTerminalOperationalFailures(
       failure_transcript_ref: record.failureTranscriptRef ?? null,
     }))
     .sort((left, right) => left.issue_id.localeCompare(right.issue_id));
-}
-
-export function createStatusCommandContract(): StatusCommandContract {
-  return {
-    command: STATUS_COMMAND_NAME,
-    snapshot_fields: [
-      "server_state",
-      "mode",
-      "active_agents",
-      "queue_depth",
-      "uptime_ms",
-      "terminal_operational_failures",
-    ],
-  };
 }
 
 export async function getAegisStatus(
