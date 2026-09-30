@@ -1,9 +1,4 @@
-import type {
-  AdapterCasteName,
-  AdapterSessionSnapshot,
-  AdapterSessionStatus,
-  RuntimeAdapterContract,
-} from "./adapter-contract.js";
+import type { AdapterCasteName, AdapterSessionStatus } from "./adapter-contract.js";
 
 export interface RuntimeLaunchInput {
   root: string;
@@ -23,12 +18,9 @@ export interface RuntimeSessionSnapshot {
   status: AdapterSessionStatus;
   finishedAt?: string;
   error?: string;
+  /** Last adapter activity; the monitor measures stuck time from here. */
+  lastActivityAt?: string;
 }
-
-export type AgentRuntimeContractSurface = Pick<
-  RuntimeAdapterContract,
-  "spawn" | "abort" | "status"
->;
 
 // Existing daemon runtime method names map to the canonical contract as:
 // launch = spawn, terminate = abort, readSession = status.
@@ -41,5 +33,3 @@ export interface AgentRuntime {
     reason: string,
   ): Promise<RuntimeSessionSnapshot | null>;
 }
-
-export type { AdapterSessionSnapshot };

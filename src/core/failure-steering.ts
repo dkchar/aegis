@@ -83,7 +83,13 @@ export function buildFailureSteeringPromptLines(input: FailureSteeringInput): st
     );
   }
 
-  if (containsAny(transcriptText, ["missing", "no 'emit_", "tool contract violation", "Tool contract repair required"])) {
+  if (containsAny(transcriptText, [
+    "missing",
+    "no 'emit_",
+    "tool contract violation",
+    "Tool contract repair required",
+    "structured_output",
+  ])) {
     addUnique(
       lines,
       input.emissionMode === "json"

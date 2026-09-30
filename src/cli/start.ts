@@ -69,6 +69,8 @@ export interface StartRuntimeController {
 export interface StartResult {
   root: string;
   mode: "auto";
+  /** Configured runtime adapter name. */
+  adapter: string;
   runtime: StartRuntimeController;
 }
 
@@ -267,6 +269,12 @@ export async function startAegis(
     repoRoot,
     `[daemon][start] runtime=${resolvedConfig.runtime} poll_interval_seconds=${resolvedConfig.thresholds.poll_interval_seconds}`,
   );
+  if (resolvedConfig.runtime === "scripted") {
+    const warning = "runtime=scripted is the deterministic test runtime: it fakes agent work and merges. "
+      + "Set a live adapter (claude, codex, pi) in .aegis/config.json for real work.";
+    appendDaemonLog(repoRoot, `[daemon][warning] ${warning}`);
+    console.warn(`Aegis: ${warning}`);
+  }
 
   const runtime: StartRuntimeController = {
     async stop(reason = "shutdown") {
@@ -403,6 +411,7 @@ export async function startAegis(
   return {
     root: repoRoot,
     mode: "auto",
+    adapter: resolvedConfig.runtime,
     runtime,
   };
 }

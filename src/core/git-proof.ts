@@ -1,6 +1,6 @@
-import { spawnSync } from "node:child_process";
-
 import { persistArtifact } from "./artifact-store.js";
+import { normalizeScopeFile } from "../shared/file-scope.js";
+import { isAegisControlPlanePath, isGitWorkingTree, parseGitStatusPath, runGit } from "../shared/git.js";
 
 type GitProofFamily = "titan" | "janus";
 
@@ -19,65 +19,18 @@ export interface GitProofRefs {
   diffRef: string | null;
 }
 
-function runGit(workingDirectory: string, args: string[]) {
-  return spawnSync("git", args, {
-    cwd: workingDirectory,
-    encoding: "utf8",
-    windowsHide: true,
-  });
-}
-
-function isGitWorkingTree(workingDirectory: string) {
-  const probe = runGit(workingDirectory, ["rev-parse", "--is-inside-work-tree"]);
-  return probe.status === 0 && probe.stdout.trim() === "true";
-}
-
-function normalizeStatusPath(candidate: string) {
-  return candidate.replace(/\\/g, "/");
-}
-
-function extractStatusPath(line: string) {
-  const rawPath = line.length > 3 ? line.slice(3).trim() : "";
-  if (rawPath.length === 0) {
-    return null;
-  }
-
-  return normalizeStatusPath(
-    rawPath.includes(" -> ")
-      ? rawPath.split(" -> ").at(-1) ?? rawPath
-      : rawPath,
-  );
-}
-
-function isOperationalPath(candidate: string) {
-  return candidate !== ".aegis"
-    && !candidate.startsWith(".aegis/")
-    && candidate !== ".agora"
-    && !candidate.startsWith(".agora/");
-}
-
 function parseChangedFiles(statusLines: string[]) {
-  const files = new Set<string>();
-
-  for (const line of statusLines) {
-    if (line.startsWith("##")) {
-      continue;
-    }
-
-    const normalizedPath = extractStatusPath(line);
-    if (!normalizedPath) {
-      continue;
-    }
-    files.add(normalizedPath);
-  }
-
-  return [...files].sort();
+  return [...new Set(
+    statusLines
+      .map((line) => parseGitStatusPath(line))
+      .filter((entry): entry is string => entry !== null),
+  )].sort();
 }
 
 function parseChangedFileOutput(raw: string) {
   return raw
     .split(/\r?\n/)
-    .map((line) => normalizeStatusPath(line.trim()))
+    .map((line) => normalizeScopeFile(line))
     .filter((line) => line.length > 0)
     .sort();
 }
@@ -139,7 +92,7 @@ export function listOperationalDirtyFiles(snapshot: GitSnapshot | null) {
     return [] as string[];
   }
 
-  return snapshot.changedFiles.filter((candidate) => isOperationalPath(candidate));
+  return snapshot.changedFiles.filter((candidate) => !isAegisControlPlanePath(candidate));
 }
 
 function listOperationalStatusLines(snapshot: GitSnapshot | null) {
@@ -149,12 +102,8 @@ function listOperationalStatusLines(snapshot: GitSnapshot | null) {
 
   return snapshot.statusLines
     .filter((line) => {
-      if (line.startsWith("##")) {
-        return false;
-      }
-
-      const statusPath = extractStatusPath(line);
-      return statusPath !== null && isOperationalPath(statusPath);
+      const statusPath = parseGitStatusPath(line);
+      return statusPath !== null && !isAegisControlPlanePath(statusPath);
     })
     .sort();
 }
@@ -253,13 +202,6 @@ export function hasOnlyAegisRootControlCommits(
     && subjects.every((subject) =>
       isAegisMergeCommitSubject(subject)
       || isOtherAegisIssueCommitSubject(subject, currentIssueId));
-}
-
-export function hasOnlyAegisMergeCommits(
-  workingDirectory: string,
-  proofPair: { before: GitSnapshot | null; after: GitSnapshot | null },
-) {
-  return hasOnlyAegisRootControlCommits(workingDirectory, proofPair);
 }
 
 export function resolveCommittedChangedFiles(

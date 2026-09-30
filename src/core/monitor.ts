@@ -19,6 +19,20 @@ export interface MonitorResult {
   warnings: string[];
 }
 
+/**
+ * A session is stuck when it stops producing activity, not when it runs long:
+ * idle time counts from the latest of session start and last adapter activity.
+ */
+function resolveIdleSeconds(startedAt: string, lastActivityAt: string | undefined, nowMs: number) {
+  const lastSignalMs = Math.max(
+    Date.parse(startedAt),
+    lastActivityAt ? Date.parse(lastActivityAt) : Number.NEGATIVE_INFINITY,
+  );
+  return Number.isFinite(lastSignalMs)
+    ? Math.max(0, Math.floor((nowMs - lastSignalMs) / 1000))
+    : null;
+}
+
 export async function monitorActiveWork(input: MonitorInput): Promise<MonitorResult> {
   const timestamp = input.now ?? new Date().toISOString();
   const nowMs = Date.parse(timestamp);
@@ -49,17 +63,16 @@ export async function monitorActiveWork(input: MonitorInput): Promise<MonitorRes
       continue;
     }
 
-    const startedAtMs = Date.parse(record.runningAgent.startedAt);
-    if (!Number.isFinite(startedAtMs)) {
+    const idleSeconds = resolveIdleSeconds(record.runningAgent.startedAt, snapshot?.lastActivityAt, nowMs);
+    if (idleSeconds === null) {
       continue;
     }
 
-    const elapsedSeconds = Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
-    if (elapsedSeconds >= input.thresholds.stuck_kill_seconds) {
+    if (idleSeconds >= input.thresholds.stuck_kill_seconds) {
       await input.runtime.terminate(
         input.root,
         record.runningAgent.sessionId,
-        "Exceeded stuck kill threshold.",
+        `Exceeded stuck kill threshold: no session activity for ${idleSeconds}s.`,
       );
       killList.push(record.issueId);
       readyToReap.push(record.issueId);
@@ -70,11 +83,12 @@ export async function monitorActiveWork(input: MonitorInput): Promise<MonitorRes
         action: "stuck_kill_threshold",
         outcome: "kill",
         sessionId: record.runningAgent.sessionId,
+        detail: JSON.stringify({ idleSeconds }),
       });
       continue;
     }
 
-    if (elapsedSeconds >= input.thresholds.stuck_warning_seconds) {
+    if (idleSeconds >= input.thresholds.stuck_warning_seconds) {
       warnings.push(record.issueId);
       writePhaseLog(input.root, {
         timestamp,
@@ -83,6 +97,7 @@ export async function monitorActiveWork(input: MonitorInput): Promise<MonitorRes
         action: "stuck_warning_threshold",
         outcome: "warn",
         sessionId: record.runningAgent.sessionId,
+        detail: JSON.stringify({ idleSeconds }),
       });
     }
   }

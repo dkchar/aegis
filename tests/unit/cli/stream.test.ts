@@ -1,5 +1,5 @@
 import path from "node:path";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -99,6 +99,49 @@ describe("streamDaemonView", () => {
     expect(lines.some((line) => line.includes("[daemon] 2026-04-19T16:00:05.000Z [daemon][heartbeat] mode=auto"))).toBe(true);
     expect(lines.some((line) => line.includes("[phase] 2026-04-19T16:00:05.000Z phase=dispatch issue=aegis-1 action=launch_oracle outcome=running session=session-1"))).toBe(true);
     expect(lines.some((line) => line.includes("old.json"))).toBe(false);
+  });
+
+  it("follows live session activity streams labelled by issue and caste", async () => {
+    const root = createTempRoot();
+    const streamDirectory = path.join(root, ".aegis", "logs", "session-streams");
+    mkdirSync(streamDirectory, { recursive: true });
+    writeFileSync(
+      path.join(streamDirectory, "old-session.log"),
+      "2026-04-19T16:00:00.000Z [session] start issue=AG-1 caste=oracle stage=scouting runtime=claude\n",
+      "utf8",
+    );
+
+    const lines: string[] = [];
+    await streamDaemonView(root, {
+      maxPolls: 2,
+      pollIntervalMs: 0,
+      writeLine: (line) => {
+        lines.push(line);
+      },
+      sleep: async () => {
+        appendFileSync(
+          path.join(streamDirectory, "old-session.log"),
+          "2026-04-19T16:00:01.000Z [tool] Read src/App.tsx\n",
+          "utf8",
+        );
+        writeFileSync(
+          path.join(streamDirectory, "4f9c0d2e-new.log"),
+          [
+            "2026-04-19T16:00:02.000Z [session] start issue=AG-2 caste=titan stage=implementing runtime=claude",
+            "2026-04-19T16:00:03.000Z [tool] Bash npm test",
+            "2026-04-19T16:00:04.000Z [partial",
+          ].join("\n"),
+          "utf8",
+        );
+      },
+    });
+
+    const sessionLines = lines.filter((line) => line.startsWith("[session "));
+    expect(sessionLines).toEqual([
+      "[session AG-1/oracle] 2026-04-19T16:00:01.000Z [tool] Read src/App.tsx",
+      "[session AG-2/titan] 2026-04-19T16:00:02.000Z [session] start issue=AG-2 caste=titan stage=implementing runtime=claude",
+      "[session AG-2/titan] 2026-04-19T16:00:03.000Z [tool] Bash npm test",
+    ]);
   });
 
   it("prints Janus phase detail payloads for stream-visible conflict resolution context", async () => {

@@ -28,6 +28,7 @@ export async function runLocalCasteCommand(
   root: string,
   action: RuntimeCasteAction,
   issueId: string,
+  onActivity?: (line: string) => void,
 ) {
   const config = loadConfig(root);
   return runCasteCommand({
@@ -37,7 +38,15 @@ export async function runLocalCasteCommand(
     tracker: createTrackerClient(),
     runtime: createCasteRuntime(config.runtime, {}, { root, issueId }),
     artifactEmissionMode: resolveArtifactEmissionMode(config.runtime),
+    onActivity,
   });
+}
+
+/** Live session activity for terminal runs; stdout stays the JSON result. */
+function writeActivityToStderr(action: RuntimeCasteAction, issueId: string) {
+  return (line: string) => {
+    process.stderr.write(`[${action} ${issueId}] ${line}\n`);
+  };
 }
 
 export async function runDirectCasteCommand(
@@ -46,7 +55,9 @@ export async function runDirectCasteCommand(
   issueId: string,
   options: RunDirectCasteCommandOptions = {},
 ) {
-  const runLocal = options.runLocal ?? runLocalCasteCommand;
+  const runLocal = options.runLocal
+    ?? ((localRoot: string, localAction: RuntimeCasteAction, localIssueId: string) =>
+      runLocalCasteCommand(localRoot, localAction, localIssueId, writeActivityToStderr(localAction, localIssueId)));
   const routeToDaemon = options.routeToDaemon ?? requestCasteCommandFromDaemon;
   return routeToDaemonOrRunLocal(
     root,

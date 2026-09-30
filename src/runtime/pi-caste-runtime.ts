@@ -50,6 +50,7 @@ import type {
   CasteSessionResult,
 } from "./caste-runtime.js";
 import type { ResolvedConfiguredCasteModel } from "./pi-model-config.js";
+import { ActivityLog, compactActivityText } from "./activity-log.js";
 import {
   buildAgentShellEnvironment,
   isForbiddenLongRunningCommand,
@@ -1062,6 +1063,7 @@ export class PiCasteRuntime implements CasteRuntime {
     installPayloadContractHook(toolContract, session, () => enforceContractPayload);
     const messages: string[] = [];
     const toolsUsed: string[] = [];
+    const activity = new ActivityLog(input.onActivity);
     let structuredOutput: string | null = null;
 
     try {
@@ -1113,12 +1115,16 @@ export class PiCasteRuntime implements CasteRuntime {
 
           if (event.type === "tool_execution_start") {
             toolsUsed.push(event.toolName);
+            activity.push(`[tool] ${event.toolName}`);
             return;
           }
 
           const text = extractAssistantText(event);
           const role = extractMessageRole(event);
           if (text.length > 0) {
+            if (role === "assistant") {
+              activity.push(`[assistant] ${compactActivityText(text)}`);
+            }
             messages.push(text);
             if (role) {
               messageLog.push({
@@ -1201,6 +1207,7 @@ export class PiCasteRuntime implements CasteRuntime {
         outputText: structuredOutput ?? messages.at(-1) ?? "",
         toolsUsed,
         messageLog,
+        terminalLog: activity.lines,
         startedAt,
         finishedAt: new Date().toISOString(),
       };
@@ -1216,6 +1223,7 @@ export class PiCasteRuntime implements CasteRuntime {
         outputText: structuredOutput ?? messages.at(-1) ?? "",
         toolsUsed,
         messageLog,
+        terminalLog: activity.lines,
         startedAt,
         finishedAt: new Date().toISOString(),
         error: error instanceof Error ? error.message : String(error),

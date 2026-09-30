@@ -5,41 +5,44 @@ import { createStructuredToolContract } from "../tool-contract.js";
 
 export const JANUS_EMIT_RESOLUTION_TOOL_NAME = "emit_janus_resolution_artifact";
 
+/** Artifact schema shared by the Pi emit tool and CLI adapters with native structured output. */
+export const JANUS_ARTIFACT_SCHEMA = Type.Object(
+  {
+    originatingIssueId: Type.String(),
+    queueItemId: Type.String(),
+    preservedLaborPath: Type.String(),
+    conflictSummary: Type.String(),
+    resolutionStrategy: Type.String(),
+    filesTouched: Type.Array(Type.String()),
+    validationsRun: Type.Array(Type.String()),
+    residualRisks: Type.Array(Type.String()),
+    mutation_proposal: Type.Object(
+      {
+        proposal_type: Type.Union([
+          Type.Literal("requeue_parent"),
+          Type.Literal("create_integration_blocker"),
+        ]),
+        summary: Type.String(),
+        suggested_title: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+        suggested_description: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+        scope_evidence: Type.Array(Type.String()),
+      },
+      {
+        additionalProperties: false,
+      },
+    ),
+  },
+  {
+    additionalProperties: false,
+  },
+);
+
 const janusStructuredContract = createStructuredToolContract<JanusResolutionArtifact>({
   toolName: JANUS_EMIT_RESOLUTION_TOOL_NAME,
   label: "Emit Janus Resolution Artifact",
   description:
     "Finalize conflict handling by returning contract JSON with integration fields and mutation_proposal.",
-  parameters: Type.Object(
-    {
-      originatingIssueId: Type.String(),
-      queueItemId: Type.String(),
-      preservedLaborPath: Type.String(),
-      conflictSummary: Type.String(),
-      resolutionStrategy: Type.String(),
-      filesTouched: Type.Array(Type.String()),
-      validationsRun: Type.Array(Type.String()),
-      residualRisks: Type.Array(Type.String()),
-      mutation_proposal: Type.Object(
-        {
-          proposal_type: Type.Union([
-            Type.Literal("requeue_parent"),
-            Type.Literal("create_integration_blocker"),
-          ]),
-          summary: Type.String(),
-          suggested_title: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-          suggested_description: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-          scope_evidence: Type.Array(Type.String()),
-        },
-        {
-          additionalProperties: false,
-        },
-      ),
-    },
-    {
-      additionalProperties: false,
-    },
-  ),
+  parameters: JANUS_ARTIFACT_SCHEMA,
   detailsKey: "artifact",
   successText: "Janus resolution artifact captured.",
   invalidPayloadError: "Janus resolution artifact tool received invalid payload.",

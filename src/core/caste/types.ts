@@ -30,6 +30,8 @@ export interface RunCasteCommandInput {
   /** Defaults to tool-call emission (Pi); CLI adapters pass "json". */
   artifactEmissionMode?: ArtifactEmissionMode;
   janusContext?: JanusConflictContext;
+  /** Receives live adapter activity lines for the session this command runs. */
+  onActivity?: (line: string) => void;
   resolveBaseBranch?: () => string;
   resolveLaborBasePath?: () => string;
   ensureLabor?: (plan: LaborCreationPlan) => void;

@@ -55,6 +55,7 @@ export async function runJanus(
         emissionMode: input.artifactEmissionMode,
       }),
     ),
+    onActivity: input.onActivity,
   } satisfies CasteRunInput;
   const gitProofPair = captureGitProofPair(runInput.workingDirectory);
   const session = await input.runtime.run(runInput);

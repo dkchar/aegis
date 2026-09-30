@@ -42,6 +42,7 @@ export async function runScout(
         emissionMode: input.artifactEmissionMode,
       }),
     ),
+    onActivity: input.onActivity,
   } satisfies CasteRunInput;
   const session = await input.runtime.run(runInput);
   const transcriptRef = persistSessionArtifact(input.root, input.action, runInput, session);

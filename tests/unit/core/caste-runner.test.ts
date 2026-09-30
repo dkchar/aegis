@@ -1465,13 +1465,16 @@ describe("runCasteCommand", () => {
     expect(prompt).toContain("You are a dispatched Aegis caste subagent");
     expect(prompt).toContain("skip those skills and follow this Aegis prompt directly");
     expect(prompt).toContain("Preserve existing Aegis operational files and ignore rules.");
-    expect(prompt).toContain("run package-manager commands as npm.cmd");
-    expect(prompt).toContain("Do not use GUI/open/start/invoke-item/Start-Process");
-    expect(prompt).toContain("Do not run long-running dev, preview, watcher, or server commands.");
+    expect(prompt).toContain("Terminal guard: every command must finish and return to the shell.");
+    expect(prompt).toContain("Do not run dev, preview, watch, or server commands");
     expect(prompt).toContain("Oracle suggested checks are advisory; skip checks that require files or package manifests outside the allowed file scope.");
     expect(prompt).toContain("If a terminal command is rejected by the Aegis guard, do not retry variants of the same rejected command.");
-    expect(prompt).toContain("Guard optional file reads and probes so missing paths do not exit nonzero");
-    expect(prompt).toContain("PowerShell `rg` no-match exits 1 and fails the adapter");
+    if (process.platform === "win32") {
+      expect(prompt).toContain("run package-manager commands as npm.cmd");
+      expect(prompt).toContain("PowerShell `rg` no-match exits 1 and fails the adapter");
+    } else {
+      expect(prompt).not.toContain("PowerShell");
+    }
     expect(prompt).toContain("Inspect the current worktree before trusting prior feedback");
     expect(prompt).toContain("owned smoke tests exist, npm run smoke must execute those owned tests");
     expect(prompt).toContain("A static HTML/asset smoke check is insufficient");

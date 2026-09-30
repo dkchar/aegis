@@ -16,7 +16,7 @@ import {
 } from "./runtime-registry.js";
 import { loadConfig } from "../config/load-config.js";
 import { loadDispatchState } from "../core/dispatch-state.js";
-import { readSessionReport, writeSessionReport } from "./session-report.js";
+import { appendSessionStream, readSessionReport, writeSessionReport } from "./session-report.js";
 import { runCasteCommand } from "../core/caste-runner.js";
 import { createCasteRuntime } from "./create-caste-runtime.js";
 import { createTrackerClient } from "../tracker/create-tracker.js";
@@ -94,7 +94,8 @@ function resolveSessionWorkspace(root: string, sessionId: string) {
 /**
  * Daemon-facing runtime: `launch` returns immediately with a session id and
  * runs the caste command in the background; `readSession` reports the
- * durable session report written when the command settles.
+ * durable session report written when the command settles. Adapter activity
+ * streams to `.aegis/logs/session-streams/<id>.log` while the session runs.
  */
 export class CasteDispatchRuntime implements AgentRuntime {
   constructor(private readonly mode: RuntimeAdapterName) {}
@@ -112,6 +113,11 @@ export class CasteDispatchRuntime implements AgentRuntime {
       sessionId,
       status: "running",
     });
+    appendSessionStream(
+      input.root,
+      sessionId,
+      `[session] start issue=${input.issueId} caste=${input.caste} stage=${input.stage} runtime=${this.mode}`,
+    );
 
     setImmediate(() => {
       void this.executeLaunch(input, sessionId);
@@ -128,8 +134,9 @@ export class CasteDispatchRuntime implements AgentRuntime {
       return;
     }
 
+    const isLive = () => !TERMINATED_SESSIONS.has(sessionId);
     try {
-      await runCasteCommand({
+      const result = await runCasteCommand({
         root: input.root,
         action: resolveDispatchAction(input),
         issueId: input.issueId,
@@ -139,9 +146,15 @@ export class CasteDispatchRuntime implements AgentRuntime {
           issueId: input.issueId,
         }),
         artifactEmissionMode: resolveArtifactEmissionMode(this.mode),
+        onActivity: (line) => {
+          if (isLive()) {
+            appendSessionStream(input.root, sessionId, line);
+          }
+        },
       });
 
-      if (!TERMINATED_SESSIONS.has(sessionId)) {
+      if (isLive()) {
+        appendSessionStream(input.root, sessionId, `[session] succeeded stage=${result.stage}`);
         writeSessionReport(input.root, {
           sessionId,
           status: "succeeded",
@@ -149,8 +162,9 @@ export class CasteDispatchRuntime implements AgentRuntime {
         });
       }
     } catch (error) {
-      if (!TERMINATED_SESSIONS.has(sessionId)) {
+      if (isLive()) {
         const detail = error instanceof Error ? error.message : String(error);
+        appendSessionStream(input.root, sessionId, `[session] failed ${detail}`);
         writeSessionReport(input.root, toFailureSnapshot(sessionId, detail));
       }
     } finally {
@@ -172,6 +186,7 @@ export class CasteDispatchRuntime implements AgentRuntime {
     }
 
     const snapshot = toFailureSnapshot(sessionId, reason);
+    appendSessionStream(root, sessionId, `[session] terminated ${reason}`);
     writeSessionReport(root, snapshot);
     return snapshot;
   }

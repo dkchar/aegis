@@ -8,7 +8,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   captureGitProofPair,
   completeGitProofPair,
-  hasOnlyAegisMergeCommits,
   hasOnlyAegisRootControlCommits,
   listOperationalDirtyFiles,
 } from "../../../src/core/git-proof.js";
@@ -58,13 +57,13 @@ describe("git proof operational dirty files", () => {
     execFileSync("git", ["merge", "--no-ff", "--no-edit", "aegis/ISSUE-1"], { cwd: root, stdio: "ignore", windowsHide: true });
     const completed = completeGitProofPair(root, proof);
 
-    expect(hasOnlyAegisMergeCommits(root, completed)).toBe(true);
+    expect(hasOnlyAegisRootControlCommits(root, completed)).toBe(true);
 
     writeFileSync(path.join(root, "root.txt"), "root\n", "utf8");
     execFileSync("git", ["add", "root.txt"], { cwd: root, stdio: "ignore", windowsHide: true });
     execFileSync("git", ["commit", "-m", "root mutation"], { cwd: root, stdio: "ignore", windowsHide: true });
 
-    expect(hasOnlyAegisMergeCommits(root, completeGitProofPair(root, proof))).toBe(false);
+    expect(hasOnlyAegisRootControlCommits(root, completeGitProofPair(root, proof))).toBe(false);
   });
 
   it("identifies root drift made by another accepted Aegis issue commit", () => {

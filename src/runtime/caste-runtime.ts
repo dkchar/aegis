@@ -14,6 +14,11 @@ export interface CasteRunInput {
   root: string;
   workingDirectory: string;
   prompt: string;
+  /**
+   * Live, human-readable adapter activity (`[tool] Bash npm test`) reported
+   * while the session runs. Observability only: nothing routes on it.
+   */
+  onActivity?: (line: string) => void;
 }
 
 export type CasteSessionResult = Omit<AdapterFinalResult, "artifactRefs"> & {

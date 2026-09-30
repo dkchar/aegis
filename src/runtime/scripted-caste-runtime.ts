@@ -55,6 +55,7 @@ export class ScriptedCasteRuntime implements CasteRuntime {
 
   async run(input: CasteRunInput): Promise<CasteSessionResult> {
     const startedAt = new Date().toISOString();
+    input.onActivity?.(`[scripted] ${input.caste} deterministic session`);
     const response = this.handlers[input.caste]?.(input) ?? {
       output: "{}",
       toolsUsed: [],

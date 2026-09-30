@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import path from "node:path";
 
 import { buildLaborBranchName } from "../labor/create-labor.js";
@@ -10,18 +9,14 @@ import {
   resolveCommittedChangedFiles,
   summarizeOperationalStatusDrift,
 } from "./git-proof.js";
+import { isPolicyCreatedBlockerDescription } from "../castes/scope-markers.js";
 import { normalizeScopeFile } from "../shared/file-scope.js";
+import { formatGitOutput, isAegisControlPlanePath, runGit } from "../shared/git.js";
 
 type GitProofPair = {
   before: ReturnType<typeof captureGitProofPair>["before"];
   after: ReturnType<typeof captureGitProofPair>["after"];
 };
-
-function isPolicyCreatedBlockerDescription(description: string) {
-  return description.includes("Policy proposal:")
-    && description.includes("Fingerprint:")
-    && description.includes("Scope evidence:");
-}
 
 function hasChangedHead(proofPair: GitProofPair) {
   return Boolean(
@@ -263,18 +258,6 @@ export function resolveRootCommitAdoption(input: {
   };
 }
 
-function runGit(root: string, args: string[]) {
-  return spawnSync("git", args, {
-    cwd: root,
-    encoding: "utf8",
-    windowsHide: true,
-  });
-}
-
-function formatGitResult(result: ReturnType<typeof runGit>) {
-  return `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
-}
-
 function buildAdoptedRootBranchName(issueId: string) {
   return buildLaborBranchName(`adopted/${issueId}`).replace("aegis/adopted-", "aegis/adopted/");
 }
@@ -293,32 +276,25 @@ export function materializeAdoptedRootCandidate(input: {
   ]);
   if (createBranch.status !== 0) {
     throw new Error(
-      `Failed to create adopted root candidate branch ${candidateBranch} for ${input.issueId}. ${formatGitResult(createBranch)}`,
+      `Failed to create adopted root candidate branch ${candidateBranch} for ${input.issueId}. ${formatGitOutput(createBranch)}`,
     );
   }
 
   const verifyBranch = runGit(input.root, ["rev-parse", "--verify", candidateBranch]);
   if (verifyBranch.status !== 0 || verifyBranch.stdout.trim() !== input.adoptedHeadCommit) {
     throw new Error(
-      `Failed to verify adopted root candidate branch ${candidateBranch} for ${input.issueId}. ${formatGitResult(verifyBranch)}`,
+      `Failed to verify adopted root candidate branch ${candidateBranch} for ${input.issueId}. ${formatGitOutput(verifyBranch)}`,
     );
   }
 
   return candidateBranch;
 }
 
-function isOperationalRootPath(candidate: string) {
-  return candidate !== ".aegis"
-    && !candidate.startsWith(".aegis/")
-    && candidate !== ".agora"
-    && !candidate.startsWith(".agora/");
-}
-
 function listNewOperationalRootDirtyFiles(proofPair: GitProofPair) {
   const before = new Set((proofPair.before?.changedFiles ?? []).map((entry) => normalizeScopeFile(entry)));
   return (proofPair.after?.changedFiles ?? [])
     .map((entry) => normalizeScopeFile(entry))
-    .filter((entry) => isOperationalRootPath(entry) && !before.has(entry));
+    .filter((entry) => !isAegisControlPlanePath(entry) && !before.has(entry));
 }
 
 export function cleanupRejectedTitanRootDrift(root: string, proofPair: GitProofPair) {
@@ -327,14 +303,6 @@ export function cleanupRejectedTitanRootDrift(root: string, proofPair: GitProofP
     return;
   }
 
-  spawnSync("git", ["restore", "--staged", "--worktree", "--", ...dirtyFiles], {
-    cwd: root,
-    encoding: "utf8",
-    windowsHide: true,
-  });
-  spawnSync("git", ["clean", "-f", "--", ...dirtyFiles], {
-    cwd: root,
-    encoding: "utf8",
-    windowsHide: true,
-  });
+  runGit(root, ["restore", "--staged", "--worktree", "--", ...dirtyFiles]);
+  runGit(root, ["clean", "-f", "--", ...dirtyFiles]);
 }
