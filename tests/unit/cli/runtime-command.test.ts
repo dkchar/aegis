@@ -98,3 +98,40 @@ describe("runtime command files", () => {
     expect(readRuntimeCommandRequests(root)).toEqual([]);
   });
 });
+
+describe("takeNextRuntimeCommandRequest", () => {
+  it("returns the oldest request for this daemon and drops requests for dead daemons", async () => {
+    const { takeNextRuntimeCommandRequest } = await import("../../../src/cli/runtime-command.js");
+    const root = createTempRoot();
+
+    writeRuntimeCommandRequest(root, {
+      request_id: "stale",
+      command_kind: "phase",
+      phase: "poll",
+      target_pid: 111,
+      requested_at: "2026-04-14T12:00:00.000Z",
+    });
+    writeRuntimeCommandRequest(root, {
+      request_id: "other-live-daemon",
+      command_kind: "phase",
+      phase: "poll",
+      target_pid: 222,
+      requested_at: "2026-04-14T12:00:01.000Z",
+    });
+    writeRuntimeCommandRequest(root, {
+      request_id: "mine",
+      command_kind: "merge",
+      action: "next",
+      target_pid: 333,
+      requested_at: "2026-04-14T12:00:02.000Z",
+    });
+
+    const request = takeNextRuntimeCommandRequest(root, 333, (pid) => pid === 222);
+
+    expect(request?.request_id).toBe("mine");
+    expect(readRuntimeCommandRequests(root).map((entry) => entry.request_id)).toEqual([
+      "other-live-daemon",
+      "mine",
+    ]);
+  });
+});

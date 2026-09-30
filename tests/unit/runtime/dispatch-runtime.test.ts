@@ -303,3 +303,45 @@ describe("createAgentRuntime(pi)", () => {
     );
   });
 });
+
+describe("createAgentRuntime(claude)", () => {
+  it("terminates Claude Code sessions rooted in the issue labor workspace", async () => {
+    const root = createTempRoot();
+    initProject(root);
+    const terminateClaudeSessionProcesses = vi.fn();
+
+    vi.doMock("../../../src/runtime/claude-caste-runtime.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../../../src/runtime/claude-caste-runtime.js")>();
+      return {
+        ...actual,
+        terminateClaudeSessionProcesses,
+      };
+    });
+
+    const { createAgentRuntime } = await import("../../../src/runtime/dispatch-runtime.js");
+    const runtime = createAgentRuntime("claude");
+    const launched = await runtime.launch({
+      root,
+      issueId: "ISSUE-7",
+      title: "Example",
+      caste: "titan",
+      stage: "implementing",
+    });
+
+    await runtime.terminate(root, launched.sessionId, "test kill");
+
+    expect(terminateClaudeSessionProcesses).toHaveBeenCalledWith(
+      path.join(root, ".aegis", "labors", "ISSUE-7"),
+    );
+    expect(await runtime.readSession(root, launched.sessionId)).toMatchObject({
+      status: "failed",
+      error: "test kill",
+    });
+  });
+
+  it("rejects unknown runtime adapters", async () => {
+    const { createAgentRuntime } = await import("../../../src/runtime/dispatch-runtime.js");
+    expect(() => createAgentRuntime("gemini")).toThrow(/Unsupported runtime adapter: gemini/);
+  });
+});
+
