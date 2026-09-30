@@ -49,14 +49,14 @@ export default function WorkspacePanel({ state, mutate }) {
   }
 
   return (
-    <Paper component="section" withBorder radius="sm" p="sm">
+    <Paper component="section" withBorder p="sm">
       <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="sm" verticalSpacing="sm">
         <Stack gap="xs">
           <TextInput label="Workspace" value={workspaceRoot} onChange={(event) => setWorkspaceRoot(event.target.value)} placeholder="Absolute path to an initialized Aegis project" />
           <Group gap="xs" wrap="wrap">
             <Button variant="default" leftSection={<Boxes size={16} />} onClick={browseWorkspace} loading={browsing}>Browse Folder</Button>
             <Button variant="default" leftSection={<FolderOpen size={16} />} onClick={openWorkspaceFolder}>Open Folder</Button>
-            <Button color="cyan" leftSection={<Boxes size={16} />} onClick={() => selectWorkspace(workspaceRoot)}>Select Workspace</Button>
+            <Button color="aegis" leftSection={<Boxes size={16} />} onClick={() => selectWorkspace(workspaceRoot)}>Select Workspace</Button>
             <Button variant="subtle" leftSection={<LayoutDashboard size={16} />} onClick={() => selectWorkspace("")}>Use Current Project</Button>
           </Group>
         </Stack>

@@ -35,7 +35,8 @@ export function deriveFlowSummary(tickets, mergeQueue = []) {
     failures: tickets.filter((ticket) => ticket.column === "halted").length,
     blocked: tickets.filter((ticket) => ticket.column === "blocked").length,
     complete: tickets.filter((ticket) => ticket.column === "done").length,
-    queueDepth: mergeQueue.length,
+    queueDepth: mergeQueue.filter((item) => item.state === "queued" || item.state === "merging").length,
+    merged: mergeQueue.filter((item) => item.state === "merged").length,
   };
 }
 

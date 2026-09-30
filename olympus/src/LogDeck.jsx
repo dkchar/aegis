@@ -5,7 +5,7 @@ import { EmptyState, SectionHead } from "./ui.jsx";
 
 export function LogDeck({ logs, compact = false }) {
   return (
-    <Paper component="section" withBorder radius="sm" p="md">
+    <Paper component="section" withBorder p="md">
       <Stack gap="sm">
         <SectionHead icon={TerminalSquare} title={compact ? "Live Terminal Logs" : "Logs"} detail="Operational output streams through server-sent events; no manual refresh required." />
         {logs.length === 0 ? (

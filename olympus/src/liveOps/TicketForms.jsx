@@ -48,7 +48,7 @@ export function TicketDraftForm({ draft, setDraft, addDraft, columnOptions }) {
       <Field label="Created By">
         <Select name="createdBy" value={draft.actor} data={actors} onChange={(actor) => setDraft({ ...draft, actor: actor ?? "" })} />
       </Field>
-      <Button className="self-end" color="cyan" type="submit">Add Ticket</Button>
+      <Button className="self-end" color="aegis" type="submit">Add Ticket</Button>
     </div>
   );
 }
@@ -106,7 +106,7 @@ export function TicketEditor({ ticket, state, mutate, columnOptions }) {
         <Select name="createdBy" value={local.createdBy} data={actors} onChange={(actor) => update("createdBy", actor ?? "")} />
       </Field>
       <div className="flex flex-wrap gap-2">
-        <Button color="cyan" leftSection={<Save size={15} />}>Save</Button>
+        <Button color="aegis" leftSection={<Save size={15} />}>Save</Button>
         <Button variant="default" type="button" onClick={() => mutate({ ...state, editingTicketId: null })}>Cancel</Button>
       </div>
     </form>

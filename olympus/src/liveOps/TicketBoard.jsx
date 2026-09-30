@@ -26,10 +26,10 @@ export function TicketBoard({ state, tickets, counts, draft, setDraft, addDraft,
   }
 
   return (
-    <Paper component="section" withBorder radius="sm" p="md">
+    <Paper component="section" withBorder p="md">
       <Group mb="md" justify="space-between" align="flex-start" wrap="wrap">
         <SectionHead icon={ListChecks} title="Agora Graph" detail="Tracker columns stay wide and scroll horizontally for dense boards." />
-        <Button color="cyan" leftSection={<Plus size={16} />} onClick={() => setShowDialog(true)}>Add Ticket</Button>
+        <Button color="aegis" leftSection={<Plus size={16} />} onClick={() => setShowDialog(true)}>Add Ticket</Button>
       </Group>
       <AddTicketDialog open={showDialog} draft={draft} setDraft={setDraft} addDraft={addDraft} onClose={() => setShowDialog(false)} />
       <DndContext
@@ -69,10 +69,9 @@ function KanbanColumn({ column, count, tickets, state, mutate }) {
       <Paper
         ref={setNodeRef}
         withBorder
-        radius="sm"
         p="sm"
         className="grid h-[62vh] w-80 shrink-0 grid-rows-[auto_minmax(0,1fr)] gap-2 transition"
-        style={{ borderColor: isOver ? "var(--mantine-color-cyan-5)" : undefined, background: isOver ? "var(--mantine-color-cyan-light)" : undefined }}
+        style={{ borderColor: isOver ? "var(--mantine-color-aegis-5)" : undefined, background: isOver ? "var(--mantine-color-aegis-light)" : undefined }}
         data-column={column}
       >
         <Group justify="space-between" gap="xs" wrap="nowrap">
@@ -80,7 +79,7 @@ function KanbanColumn({ column, count, tickets, state, mutate }) {
           <Badge color="gray" variant="light" size="xs">{count}</Badge>
         </Group>
         <div className="grid min-h-0 content-start gap-1.5 overflow-y-auto pr-1">
-          {tickets.length === 0 && <Paper withBorder radius="sm" p="sm" style={{ borderStyle: "dashed" }}><Text size="xs" fw={700} c="dimmed">No tickets</Text></Paper>}
+          {tickets.length === 0 && <Paper withBorder p="sm" style={{ borderStyle: "dashed" }}><Text size="xs" fw={700} c="dimmed">No tickets</Text></Paper>}
           <AnimatePresence initial={false}>
             {tickets.map((ticket) => (
               <TicketCard

@@ -25,7 +25,7 @@ export const columnLabels = {
 export const kinds = ["feature", "bug", "task", "blocker", "gate", "review_fix"];
 export const actors = ["human", "agent", "system", "aegis"];
 export const phases = ["poll", "triage", "dispatch", "monitor", "reap"];
-export const adapterOptions = ["pi", "codex"];
+export const adapterOptions = ["claude", "codex", "pi"];
 export const thinkingOptions = ["off", "low", "medium", "high"];
 
 export const emptyTicketDraft = {
@@ -42,72 +42,79 @@ export const emptyTicketDraft = {
   actor: "agent",
 };
 
+// Mirrors src/config/schema.ts validation so the UI rejects values the daemon would.
+// Adapter environment keys only apply to their runtime and are passed to the daemon at start.
 export const configMeta = {
-  runtime: { section: "Runtime", control: "select", options: adapterOptions, required: true },
-  "models.oracle": { section: "Runtime", control: "model", required: true },
-  "models.titan": { section: "Runtime", control: "model", required: true },
-  "models.sentinel": { section: "Runtime", control: "model", required: true },
-  "models.janus": { section: "Runtime", control: "model", required: true },
+  runtime: { section: "Runtime", control: "select", options: adapterOptions, required: true, description: "Adapter that runs caste sessions." },
+  "models.oracle": { section: "Runtime", control: "model", required: true, description: "Oracle scouts scope and risks." },
+  "models.titan": { section: "Runtime", control: "model", required: true, description: "Titan implements inside its labor." },
+  "models.sentinel": { section: "Runtime", control: "model", required: true, description: "Sentinel gates candidates before merge." },
+  "models.janus": { section: "Runtime", control: "model", required: true, description: "Janus resolves merge-boundary failures." },
   "thinking.oracle": { section: "Runtime", control: "select", options: thinkingOptions, required: true },
   "thinking.titan": { section: "Runtime", control: "select", options: thinkingOptions, required: true },
   "thinking.sentinel": { section: "Runtime", control: "select", options: thinkingOptions, required: true },
   "thinking.janus": { section: "Runtime", control: "select", options: thinkingOptions, required: true },
-  "concurrency.max_agents": { section: "Concurrency", control: "number", min: 1, max: 64, required: true },
-  "concurrency.max_oracles": { section: "Concurrency", control: "number", min: 0, max: 32, required: true },
-  "concurrency.max_titans": { section: "Concurrency", control: "number", min: 0, max: 32, required: true },
-  "concurrency.max_sentinels": { section: "Concurrency", control: "number", min: 0, max: 32, required: true },
+  "concurrency.max_agents": { section: "Concurrency", control: "number", min: 1, max: 64, required: true, description: "Total concurrent sessions." },
+  "concurrency.max_oracles": { section: "Concurrency", control: "number", min: 1, max: 32, required: true },
+  "concurrency.max_titans": { section: "Concurrency", control: "number", min: 1, max: 32, required: true },
+  "concurrency.max_sentinels": { section: "Concurrency", control: "number", min: 1, max: 32, required: true },
   "concurrency.max_janus": { section: "Concurrency", control: "number", min: 1, max: 8, required: true },
-  "thresholds.poll_interval_seconds": { section: "Thresholds", control: "number", min: 1, max: 3600, required: true },
-  "thresholds.stuck_warning_seconds": { section: "Thresholds", control: "number", min: 30, max: 86400, required: true },
-  "thresholds.stuck_kill_seconds": { section: "Thresholds", control: "number", min: 60, max: 172800, required: true },
-  "thresholds.allow_complex_auto_dispatch": { section: "Thresholds", control: "boolean", required: true },
-  "thresholds.scope_overlap_threshold": { section: "Thresholds", control: "number", min: 0, max: 32, required: true },
-  "thresholds.janus_retry_threshold": { section: "Thresholds", control: "number", min: 0, max: 10, required: true },
+  "thresholds.poll_interval_seconds": { section: "Thresholds", control: "number", min: 1, max: 3600, required: true, description: "Daemon loop interval." },
+  "thresholds.stuck_warning_seconds": { section: "Thresholds", control: "number", min: 1, max: 86400, required: true },
+  "thresholds.stuck_kill_seconds": { section: "Thresholds", control: "number", min: 1, max: 172800, required: true, description: "Sessions older than this are terminated." },
+  "thresholds.allow_complex_auto_dispatch": { section: "Thresholds", control: "boolean", required: true, description: "Let Sentinel create_blocker findings spawn child tickets." },
+  "thresholds.scope_overlap_threshold": { section: "Thresholds", control: "number", min: 0, max: 32, required: true, description: "Shared files tolerated between parallel Titans." },
+  "thresholds.janus_retry_threshold": { section: "Thresholds", control: "number", min: 1, max: 10, required: true, description: "Merge retries before Janus is invoked." },
   "janus.enabled": { section: "Janus", control: "boolean", required: true },
-  "janus.max_invocations_per_issue": { section: "Janus", control: "number", min: 0, max: 10, required: true },
-  "labor.base_path": { section: "Paths", control: "text", required: true },
+  "janus.max_invocations_per_issue": { section: "Janus", control: "number", min: 1, max: 10, required: true },
+  "labor.base_path": { section: "Paths", control: "text", required: true, description: "Where labor worktrees are created." },
   "git.base_branch": { section: "Paths", control: "text", required: true },
-  AEGIS_PI_SESSION_TIMEOUT_MS: { section: "Adapter", control: "number", min: 1000, max: 86400000, required: false },
-  AEGIS_PI_ORACLE_TIMEOUT_MS: { section: "Adapter", control: "number", min: 1000, max: 86400000, required: false },
-  AEGIS_PI_TITAN_TIMEOUT_MS: { section: "Adapter", control: "number", min: 1000, max: 86400000, required: false },
-  AEGIS_PI_SENTINEL_TIMEOUT_MS: { section: "Adapter", control: "number", min: 1000, max: 86400000, required: false },
-  AEGIS_PI_JANUS_TIMEOUT_MS: { section: "Adapter", control: "number", min: 1000, max: 86400000, required: false },
-  AEGIS_PI_TIMEOUT_RETRY_COUNT: { section: "Adapter", control: "number", min: 0, max: 10, required: false },
-  AEGIS_PI_TIMEOUT_RETRY_DELAY_MS: { section: "Adapter", control: "number", min: 0, max: 3600000, required: false },
+  AEGIS_PI_SESSION_TIMEOUT_MS: { section: "Adapter", adapter: "pi", control: "number", min: 1000, max: 86400000, required: false },
+  AEGIS_PI_ORACLE_TIMEOUT_MS: { section: "Adapter", adapter: "pi", control: "number", min: 1000, max: 86400000, required: false },
+  AEGIS_PI_TITAN_TIMEOUT_MS: { section: "Adapter", adapter: "pi", control: "number", min: 1000, max: 86400000, required: false },
+  AEGIS_PI_SENTINEL_TIMEOUT_MS: { section: "Adapter", adapter: "pi", control: "number", min: 1000, max: 86400000, required: false },
+  AEGIS_PI_JANUS_TIMEOUT_MS: { section: "Adapter", adapter: "pi", control: "number", min: 1000, max: 86400000, required: false },
+  AEGIS_PI_TIMEOUT_RETRY_COUNT: { section: "Adapter", adapter: "pi", control: "number", min: 0, max: 10, required: false },
+  AEGIS_PI_TIMEOUT_RETRY_DELAY_MS: { section: "Adapter", adapter: "pi", control: "number", min: 0, max: 3600000, required: false },
+  AEGIS_CLAUDE_SESSION_TIMEOUT_MS: { section: "Adapter", adapter: "claude", control: "number", min: 1000, max: 86400000, required: false, description: "Inactivity timeout for one Claude Code session." },
+  AEGIS_CLAUDE_MAX_TURNS: { section: "Adapter", adapter: "claude", control: "number", min: 1, max: 1000, required: false, description: "Optional --max-turns cap per session." },
 };
 
+// Defaults mirror src/config/defaults.ts; the workspace config replaces them on load.
 export const settings = Object.entries({
-  runtime: "pi",
+  runtime: "claude",
   "models.oracle": "",
   "models.titan": "",
   "models.sentinel": "",
   "models.janus": "",
   "thinking.oracle": "medium",
-  "thinking.titan": "high",
+  "thinking.titan": "medium",
   "thinking.sentinel": "medium",
-  "thinking.janus": "high",
-  "concurrency.max_agents": "24",
-  "concurrency.max_oracles": "6",
-  "concurrency.max_titans": "12",
-  "concurrency.max_sentinels": "4",
-  "concurrency.max_janus": "2",
-  "thresholds.poll_interval_seconds": "8",
-  "thresholds.stuck_warning_seconds": "420",
-  "thresholds.stuck_kill_seconds": "900",
+  "thinking.janus": "medium",
+  "concurrency.max_agents": "3",
+  "concurrency.max_oracles": "1",
+  "concurrency.max_titans": "1",
+  "concurrency.max_sentinels": "1",
+  "concurrency.max_janus": "1",
+  "thresholds.poll_interval_seconds": "5",
+  "thresholds.stuck_warning_seconds": "90",
+  "thresholds.stuck_kill_seconds": "150",
   "thresholds.allow_complex_auto_dispatch": "false",
-  "thresholds.scope_overlap_threshold": "1",
+  "thresholds.scope_overlap_threshold": "0",
   "thresholds.janus_retry_threshold": "2",
   "janus.enabled": "true",
-  "janus.max_invocations_per_issue": "2",
-  "labor.base_path": ".aegis/labor",
+  "janus.max_invocations_per_issue": "1",
+  "labor.base_path": ".aegis/labors",
   "git.base_branch": "main",
-  AEGIS_PI_SESSION_TIMEOUT_MS: "900000",
-  AEGIS_PI_ORACLE_TIMEOUT_MS: "300000",
-  AEGIS_PI_TITAN_TIMEOUT_MS: "900000",
-  AEGIS_PI_SENTINEL_TIMEOUT_MS: "420000",
-  AEGIS_PI_JANUS_TIMEOUT_MS: "900000",
-  AEGIS_PI_TIMEOUT_RETRY_COUNT: "1",
-  AEGIS_PI_TIMEOUT_RETRY_DELAY_MS: "30000",
+  AEGIS_PI_SESSION_TIMEOUT_MS: "",
+  AEGIS_PI_ORACLE_TIMEOUT_MS: "",
+  AEGIS_PI_TITAN_TIMEOUT_MS: "",
+  AEGIS_PI_SENTINEL_TIMEOUT_MS: "",
+  AEGIS_PI_JANUS_TIMEOUT_MS: "",
+  AEGIS_PI_TIMEOUT_RETRY_COUNT: "",
+  AEGIS_PI_TIMEOUT_RETRY_DELAY_MS: "",
+  AEGIS_CLAUDE_SESSION_TIMEOUT_MS: "",
+  AEGIS_CLAUDE_MAX_TURNS: "",
 });
 
 export function createOlympusState() {
@@ -150,6 +157,7 @@ export function createOlympusState() {
     dispatchRecords: [],
     config,
     configIssues,
+    configErrors: {},
     configDirty: false,
   };
 }
@@ -177,11 +185,18 @@ export function hydrateOlympusState(state, payload) {
     ...(payload.modelOptions ? { modelOptions: { ...state.modelOptions, ...payload.modelOptions } } : {}),
     config,
     configIssues: getConfigIssues(config),
+    configErrors: state.configDirty ? state.configErrors ?? {} : getConfigErrors(config),
     showConfigDialog: state.showConfigDialog && getConfigIssues(config).length > 0,
     apiStatus: "connected",
     apiMessage: payload.configFilePresent === false ? "Configuration file not found" : "Live event stream connected",
     lastRefreshAt: payload.generatedAt ?? new Date().toISOString(),
   };
+}
+
+export function markApiConnected(state) {
+  return state.apiStatus === "connected"
+    ? state
+    : { ...state, apiStatus: "connected", apiMessage: "Live event stream connected" };
 }
 
 export function markApiError(state, message) {
@@ -267,18 +282,13 @@ export function toggleArtifact(state, artifactId) {
 }
 
 export function updateConfig(state, key, value) {
-  const error = validateConfigValue(key, value);
-  if (error) {
-    return { ...state, toast: error, toastKind: "error" };
-  }
   const config = { ...state.config, [key]: value };
   return {
     ...state,
     config,
     configIssues: getConfigIssues(config),
+    configErrors: getConfigErrors(config),
     configDirty: true,
-    toast: `${key} changed`,
-    toastKind: "success",
   };
 }
 
@@ -287,6 +297,7 @@ export function saveConfigSucceeded(state, config) {
     ...state,
     config: { ...state.config, ...config },
     configIssues: getConfigIssues({ ...state.config, ...config }),
+    configErrors: getConfigErrors({ ...state.config, ...config }),
     configDirty: false,
     showConfigDialog: getConfigIssues({ ...state.config, ...config }).length > 0,
     toast: "Config saved",
@@ -295,7 +306,7 @@ export function saveConfigSucceeded(state, config) {
 }
 
 export function selectAgent(state, agentId) {
-  return { ...state, selectedAgentId: agentId, toast: `${agentId} selected`, toastKind: "success" };
+  return { ...state, selectedAgentId: agentId };
 }
 
 export function setConfigSection(state, section) {
@@ -337,7 +348,7 @@ export function validateTicketDraft(draft) {
   return null;
 }
 
-export function validateConfigValue(key, value) {
+export function validateConfigValue(key, value, state = null) {
   const meta = configMeta[key];
   if (!meta) return null;
   const stringValue = String(value ?? "").trim();
@@ -345,6 +356,9 @@ export function validateConfigValue(key, value) {
     return `${key} is required.`;
   }
   if (meta.control === "number" && stringValue) {
+    if (key === "thresholds.stuck_kill_seconds" && Number(stringValue) < Number(state?.config?.["thresholds.stuck_warning_seconds"] ?? 0)) {
+      return `${key} must be at least thresholds.stuck_warning_seconds.`;
+    }
     const parsed = Number(stringValue);
     if (!Number.isFinite(parsed)) return `${key} must be numeric.`;
     if (meta.min !== undefined && parsed < meta.min) return `${key} must be at least ${meta.min}.`;
@@ -363,6 +377,15 @@ export function validateConfigValue(key, value) {
     return `${key} must be true or false.`;
   }
   return null;
+}
+
+/** Field -> message for present-but-invalid values; blocks save without blocking typing. */
+export function getConfigErrors(config) {
+  return Object.fromEntries(
+    Object.keys(configMeta)
+      .map((key) => [key, String(config[key] ?? "").trim() ? validateConfigValue(key, config[key], { config }) : null])
+      .filter(([, error]) => error),
+  );
 }
 
 export function getConfigIssues(config) {

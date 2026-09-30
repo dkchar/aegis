@@ -2,16 +2,15 @@ import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { readJson, tailLines } from "./io.js";
 
-function readRecentPhaseEntries(root, maxEntries = 240) {
-  const phaseDir = path.join(root, ".aegis", "logs", "phases");
-  if (!existsSync(phaseDir)) return [];
-  return readdirSync(phaseDir)
-    .filter((entry) => entry.endsWith(".json"))
-    .sort()
-    .slice(-maxEntries)
-    .map((fileName) => ({ fileName, entry: readJson(path.join(phaseDir, fileName), null) }))
-    .filter(({ entry }) => entry?.phase && entry?.action)
-    .sort((left, right) => Date.parse(left.entry.timestamp ?? "") - Date.parse(right.entry.timestamp ?? ""));
+const DAEMON_TAIL_LINES = 240;
+
+// Shared per-snapshot inputs so each session does not re-read the same logs.
+function createActivityContext(root, phaseEntries) {
+  return {
+    root,
+    phaseEntries,
+    daemonLines: tailLines(path.join(root, ".aegis", "logs", "daemon.log"), DAEMON_TAIL_LINES),
+  };
 }
 
 function phaseEntryMatchesSession(entry, session) {
@@ -37,7 +36,8 @@ function formatSessionPhaseLine(entry) {
   ].filter(Boolean).join(" ");
 }
 
-function readSessionActivityLines(root, session, maxLines = 80) {
+function readSessionActivityLines(context, session, maxLines = 80) {
+  const { root } = context;
   const lines = [];
   lines.push(...tailLines(path.join(root, ".aegis", "logs", "session-streams", `${session.id}.log`), maxLines));
   const report = readJson(path.join(root, ".aegis", "logs", "sessions", `${session.id}.json`), null);
@@ -45,13 +45,13 @@ function readSessionActivityLines(root, session, maxLines = 80) {
   if (report?.finishedAt) lines.push(`[session] finished=${report.finishedAt}`);
   if (report?.error) lines.push(`[error] ${summarizeBlock(report.error)}`);
 
-  for (const { entry } of readRecentPhaseEntries(root)) {
+  for (const entry of context.phaseEntries) {
     if (phaseEntryMatchesSession(entry, session)) lines.push(formatSessionPhaseLine(entry));
   }
 
   const daemonNeedles = [session.id, session.issue].filter(Boolean).map((value) => String(value).toLowerCase());
   if (daemonNeedles.length > 0) {
-    for (const line of tailLines(path.join(root, ".aegis", "logs", "daemon.log"), 240)) {
+    for (const line of context.daemonLines) {
       const lower = line.toLowerCase();
       if (daemonNeedles.some((needle) => lower.includes(needle))) lines.push(`[daemon] ${line}`);
     }
@@ -223,12 +223,15 @@ function sessionFromTranscript(transcript, existing = null) {
     adapter: transcript.provider ?? existing?.adapter ?? "adapter",
     cwd: transcript.workingDirectory ?? existing?.cwd ?? "workspace",
     activity: transcript.transcriptPath ?? existing?.activity ?? "transcript",
+    model: transcript.modelId ?? existing?.model ?? "",
+    usage: transcript.usage ?? existing?.usage ?? null,
     error,
     lines: linesFromTranscript(transcript, { error }),
   };
 }
 
-export function readSessions(root, records) {
+export function readSessions(root, records, phaseEntries = []) {
+  const context = createActivityContext(root, phaseEntries);
   const sessionsById = new Map();
   const transcriptsBySessionId = readSessionTranscripts(root);
   const failureByTranscript = new Map();
@@ -251,7 +254,7 @@ export function readSessions(root, records) {
       activity: record.updatedAt ? `state updated ${record.updatedAt}` : "state active",
       lines: [],
     };
-    const liveLines = readSessionActivityLines(root, session);
+    const liveLines = readSessionActivityLines(context, session);
     session.lines = [
       `$ aegis session inspect ${sessionId}`,
       `[adapter] ${record.runningAgent.caste ?? "agent"}`,
@@ -263,7 +266,7 @@ export function readSessions(root, records) {
     sessionsById.set(sessionId, transcript ? sessionFromTranscript(transcript, session) : session);
   }
 
-  addSessionReports(root, sessionsById, transcriptsBySessionId);
+  addSessionReports(context, sessionsById, transcriptsBySessionId);
   addTranscriptOnlySessions(sessionsById, transcriptsBySessionId, failureByTranscript);
   return [...sessionsById.values()].sort((left, right) =>
     String(left.issue).localeCompare(String(right.issue))
@@ -271,8 +274,8 @@ export function readSessions(root, records) {
     || String(left.id).localeCompare(String(right.id)));
 }
 
-function addSessionReports(root, sessionsById, transcriptsBySessionId) {
-  const sessionDir = path.join(root, ".aegis", "logs", "sessions");
+function addSessionReports(context, sessionsById, transcriptsBySessionId) {
+  const sessionDir = path.join(context.root, ".aegis", "logs", "sessions");
   if (!existsSync(sessionDir)) return;
   for (const fileName of readdirSync(sessionDir).filter((entry) => entry.endsWith(".json"))) {
     const report = readJson(path.join(sessionDir, fileName), null);
@@ -297,7 +300,7 @@ function addSessionReports(root, sessionsById, transcriptsBySessionId) {
       error: reportError,
       activity: reportError || report.finishedAt || existing?.activity || "session report available",
     };
-    const liveLines = readSessionActivityLines(root, reported);
+    const liveLines = readSessionActivityLines(context, reported);
     reported.lines = dedupeLines([
       ...(existing?.lines ?? [`$ aegis session inspect ${report.sessionId}`]),
       ...liveLines,

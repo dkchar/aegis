@@ -16,7 +16,6 @@ export function TicketCard({ ticket, state, mutate, columnOptions, moveTicket })
       ref={setNodeRef}
       style={style}
       withBorder
-      radius="sm"
       px="xs"
       py={6}
       layout
@@ -61,11 +60,11 @@ export function TicketPreview({ ticket, overlay = false, children = null }) {
         <Badge color="gray" variant="light" size="xs">{ticket.kind}</Badge>
         {runtimeProjection && <Badge color="yellow" variant="light" size="xs">{runtimeProjection}</Badge>}
         {ticket.blockedBy.length > 0 && <Badge color="red" variant="light" size="xs">blocked {ticket.blockedBy.length}</Badge>}
-        {ticket.scope.length > 0 && <Badge color="cyan" variant="light" size="xs">scope {ticket.scope.length}</Badge>}
+        {ticket.scope.length > 0 && <Badge color="aegis" variant="light" size="xs">scope {ticket.scope.length}</Badge>}
       </Group>
       <details className="group">
         <Text component="summary" size="xs" fw={700} tt="uppercase" c="dimmed" style={{ cursor: "pointer" }}>Details</Text>
-        <Paper withBorder radius="sm" p="xs" mt="xs">
+        <Paper withBorder p="xs" mt="xs">
           <Stack gap="xs">
             {ticket.body && <Text size="xs" c="dimmed" lineClamp={4}>{ticket.body}</Text>}
             <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
