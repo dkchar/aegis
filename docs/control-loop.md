@@ -81,6 +81,26 @@ Merge decisions are mechanical:
 - merge queue item is valid
 - integration succeeds or routes to Janus
 
+A merge executor error or a failed Janus session marks the queue item failed and the issue `failed_operational` with retry accounting; nothing is left stranded in `merging`. Candidates that pass Sentinel again are re-queued automatically.
+
 ## Operational Exhaustion
 
 Provider, runtime, or tool failures are first-class outcomes. Aegis reports exhausted work visibly rather than spending adapter quota indefinitely.
+
+Every failure path goes through `src/core/failure-policy.ts`:
+
+- each failure increments `failureCount` and `consecutiveFailures` and sets a 30 second cooldown
+- three consecutive failures exhaust the issue (`operational_failure_limit`)
+- provider usage-limit errors exhaust immediately and pause the daemon
+- a Titan `failure` outcome counts as an operational failure, and the reaper keeps that accounting even though the session itself finished
+- Sentinel failures retry once at the review layer before escalating to Titan
+
+## Recovery
+
+After each poll, `src/core/dispatch-recovery.ts` repairs records from durable evidence:
+
+- rework, blocked, or failed records whose tracker ticket is closed become `complete`
+- parents whose policy blocker child is done restart from scouting
+- failed Titan records with a valid durable handoff return to `implemented`
+- failed Titan labors holding only in-scope uncommitted edits retry Titan without wiping the labor
+- stranded `reviewing` records with a readable Sentinel verdict are routed from the verdict; otherwise Sentinel runs again

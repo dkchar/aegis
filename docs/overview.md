@@ -41,6 +41,10 @@ The seeded proof must show:
 - Oracle, Titan, Sentinel, Janus, merge, logs, and transcripts explain the path
 - all root and labor mutations are validated
 
+## Runtime Adapters
+
+Live sessions run through replaceable adapters: Claude Code, Codex, and Pi. Each implements the same contract and receives the same validation; see [runtime adapters](runtime-adapters.md).
+
 ## Olympus
 
 Olympus is the local operator console. It provides supervision, observability, and deterministic controls over existing Aegis truth planes.

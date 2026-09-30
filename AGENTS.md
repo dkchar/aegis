@@ -39,6 +39,7 @@ Current goal:
 - prove one real adapter drains seeded animated React todo graph into working app
 - Pi first
 - Codex adapter fallback if Pi remains flaky under adapter contract
+- Claude Code adapter (`runtime: "claude"`) approved under same contract. See `docs/runtime-adapters.md`.
 
 ## Current Boundary
 

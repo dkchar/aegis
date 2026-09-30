@@ -24,14 +24,15 @@ node_modules/
 
 # Coding agents (agent scratch dirs and working copies in subdirs/worktrees)
 # The repo-root .claude/CLAUDE.md and AGENTS.md are intentional repo files.
-# Ignore the directory contents (not the directory) so the negation below works.
+# Ignore .claude/ contents (not the directory) so the negation can apply, and
+# keep the negations after the broader CLAUDE.md rule: later rules win.
 .claude/*
-!.claude/CLAUDE.md
 .ant-colony/
 .codex/
 .agent/
 .worktrees/
 CLAUDE.md
+!/.claude/CLAUDE.md
 !AGENTS.md
 .agents/
 skills-lock.json

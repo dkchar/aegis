@@ -69,6 +69,7 @@ Built or mostly built:
 - `.aegis` dispatch, runtime, log, transcript, and caste artifact surfaces.
 - Deterministic scripted runtime for seam tests.
 - Pi-backed live runtime path.
+- Codex (`codex exec`) and Claude Code (`claude -p`) CLI runtime adapters implementing the same contract.
 - Merge queue and Janus escalation shell.
 - Convergence control plane direction: Oracle advisory, Titan execution, Sentinel gate, Janus integration escalation.
 - Recent hardening around file scope, root mutation detection, committed diff proof, scope-overlap scheduling, and Pi tool jailing.
@@ -107,6 +108,7 @@ Allowed adapters:
 
 - Pi first, because code exists.
 - Codex next, pre-approved fallback if Pi violates contract or remains flaky.
+- Claude Code, approved under the same contract (see Claude Code Adapter).
 
 Exit gate:
 
@@ -208,6 +210,21 @@ Switch trigger:
 - one run demonstrates a non-wrappable safety violation such as root mutation escape, unkillable session, or missing required artifact/control surface.
 
 Codex adapter must implement the same contract. It must not receive privileged shortcuts, alternate graph semantics, or relaxed proof gates.
+
+### Claude Code Adapter
+
+Claude Code (`runtime: "claude"`) is an approved adapter alongside Pi and Codex. It runs each caste assignment as a headless `claude -p --output-format stream-json` session in the caste's working directory and returns the artifact as final JSON text.
+
+It must implement the same contract with no privileged shortcuts:
+
+- per-caste tool policy: Oracle read-only; Sentinel and Janus without edit tools; Janus shell limited to read-only git commands.
+- user MCP servers are not loaded (`--strict-mcp-config`).
+- forbidden long-running dev/watch processes are killed and fail the session.
+- abort kills the whole adapter process tree.
+- transcripts record the stream (messages, tool calls, usage) for audit.
+- Aegis post-session validation (git proof, file scope, root cleanliness, artifact parsing) applies unchanged.
+
+Model refs use `anthropic:<model-id>`; the default is `anthropic:claude-opus-5-5`.
 
 ## Caste Authority
 
