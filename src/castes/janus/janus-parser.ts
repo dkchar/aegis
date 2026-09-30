@@ -1,3 +1,5 @@
+import { parseJsonObjectText } from "../../shared/json.js";
+
 export type JanusMutationProposalType = "requeue_parent" | "create_integration_blocker";
 
 export interface JanusMutationProposal {
@@ -118,7 +120,7 @@ function legacyRecommendedActionToMutationProposal(obj: Record<string, unknown>)
 }
 
 export function parseJanusResolutionArtifact(raw: string): JanusResolutionArtifact {
-  const parsed = JSON.parse(raw) as unknown;
+  const parsed = parseJsonObjectText(raw);
   const obj = assertPlainObject(parsed);
 
   for (const key of Object.keys(obj)) {

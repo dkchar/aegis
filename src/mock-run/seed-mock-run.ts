@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -9,6 +9,9 @@ import { DEFAULT_AEGIS_CONFIG } from "../config/defaults.js";
 import { initProject } from "../config/init-project.js";
 import { resolveProjectRelativePath } from "../config/load-config.js";
 import { AgoraTrackerClient } from "../tracker/agora-tracker.js";
+import { writeJsonAtomic } from "../shared/atomic-write.js";
+import { CLAUDE_DEFAULT_MODEL, CLAUDE_PROVIDER } from "../runtime/claude-caste-runtime.js";
+import { isRuntimeAdapterName, type RuntimeAdapterName } from "../runtime/runtime-registry.js";
 import { resolveDefaultMockWorkspaceRoot } from "./mock-paths.js";
 import { TODO_MOCK_RUN_MANIFEST } from "./todo-manifest.js";
 import type { MockRunIssueDefinition } from "./types.js";
@@ -16,7 +19,7 @@ import type { MockRunIssueDefinition } from "./types.js";
 export interface SeedMockRunOptions {
   workspaceRoot?: string;
   repoName?: string;
-  runtime?: "pi" | "scripted" | "codex";
+  runtime?: RuntimeAdapterName;
   modelReference?: string;
 }
 
@@ -30,6 +33,7 @@ export interface SeedMockRunResult {
 export const MOCK_RUN_LABOR_BASE_PATH = ".aegis/labors";
 const MOCK_RUN_CODEX_MODEL_REFERENCE = "openai-codex:gpt-5.4-mini";
 const MOCK_RUN_PI_MODEL_REFERENCE = "github-copilot:gpt-5.4-mini";
+const MOCK_RUN_CLAUDE_MODEL_REFERENCE = `${CLAUDE_PROVIDER}:${CLAUDE_DEFAULT_MODEL}`;
 const MOCK_RUN_DEFAULT_THINKING_LEVEL = "medium";
 const MOCK_RUN_CODEX_THINKING_LEVEL = "low";
 const MOCK_RUN_STUCK_WARNING_SECONDS = 420;
@@ -92,13 +96,12 @@ export function formatMockRunIssueDescription(issue: MockRunIssueDefinition) {
 
 export function buildMockRunConfig(options?: {
   uncapped?: boolean;
-  runtime?: "pi" | "scripted" | "codex";
+  runtime?: RuntimeAdapterName;
   modelReference?: string;
 }) {
   const uncapped = options?.uncapped ?? true;
   const runtime = options?.runtime ?? "scripted";
-  const modelReference = options?.modelReference
-    ?? (runtime === "pi" ? MOCK_RUN_PI_MODEL_REFERENCE : MOCK_RUN_CODEX_MODEL_REFERENCE);
+  const modelReference = options?.modelReference ?? resolveDefaultMockModelReference(runtime);
   const thinkingLevel = runtime === "codex"
     ? MOCK_RUN_CODEX_THINKING_LEVEL
     : MOCK_RUN_DEFAULT_THINKING_LEVEL;
@@ -132,6 +135,16 @@ export function buildMockRunConfig(options?: {
       max_janus: 2,
     },
   };
+}
+
+function resolveDefaultMockModelReference(runtime: RuntimeAdapterName) {
+  if (runtime === "pi") {
+    return MOCK_RUN_PI_MODEL_REFERENCE;
+  }
+  if (runtime === "claude") {
+    return MOCK_RUN_CLAUDE_MODEL_REFERENCE;
+  }
+  return MOCK_RUN_CODEX_MODEL_REFERENCE;
 }
 
 function assertExpectedReadyQueue(actualKeys: string[], expectedKeys: readonly string[]) {
@@ -219,11 +232,7 @@ export async function seedMockRun(options: SeedMockRunOptions = {}): Promise<See
     modelReference: options.modelReference,
   });
 
-  writeFileSync(
-    resolveProjectRelativePath(repoRoot, ".aegis/config.json"),
-    `${JSON.stringify(mockRunConfig, null, 2)}\n`,
-    "utf8",
-  );
+  writeJsonAtomic(resolveProjectRelativePath(repoRoot, ".aegis/config.json"), mockRunConfig);
 
   const issueIdByKey: Record<string, string> = {};
   const store = new AgoraStore({ root: repoRoot });
@@ -264,9 +273,7 @@ if (isDirectExecution()) {
   const runtime = process.env.AEGIS_MOCK_RUN_RUNTIME;
   const modelReference = process.env.AEGIS_MOCK_RUN_MODEL_REFERENCE;
   seedMockRun({
-    runtime: runtime === "pi" || runtime === "scripted" || runtime === "codex"
-      ? runtime
-      : undefined,
+    runtime: isRuntimeAdapterName(runtime) ? runtime : undefined,
     modelReference,
   }).then(
     (result) => {

@@ -1,21 +1,10 @@
 import { runLoopPhase, type LoopPhase } from "../core/loop-runner.js";
-import { isProcessRunning, readRuntimeState, type RuntimeStateRecord } from "./runtime-state.js";
+import { routeToDaemonOrRunLocal, formatCommandResult, type DaemonRoutingOptions } from "./daemon-routing.js";
 import { requestPhaseCommandFromDaemon } from "./runtime-command.js";
 
-export interface RunDirectPhaseCommandOptions {
-  readRuntimeState?: (root?: string) => RuntimeStateRecord | null;
-  isProcessRunning?: (pid: number) => boolean;
+export interface RunDirectPhaseCommandOptions extends DaemonRoutingOptions {
   runLocal?: (root: string, phase: LoopPhase) => Promise<unknown>;
   routeToDaemon?: (root: string, phase: LoopPhase, targetPid: number) => Promise<unknown>;
-}
-
-function isDaemonOwned(
-  runtimeState: RuntimeStateRecord | null,
-  processRunning: (pid: number) => boolean,
-) {
-  return runtimeState !== null
-    && runtimeState.server_state === "running"
-    && processRunning(runtimeState.pid);
 }
 
 export async function runDirectPhaseCommand(
@@ -23,20 +12,14 @@ export async function runDirectPhaseCommand(
   phase: LoopPhase,
   options: RunDirectPhaseCommandOptions = {},
 ) {
-  const readRuntime = options.readRuntimeState ?? readRuntimeState;
-  const processRunning = options.isProcessRunning ?? isProcessRunning;
-  const runLocal = options.runLocal ?? ((candidateRoot: string, candidatePhase: LoopPhase) =>
-    runLoopPhase(candidateRoot, candidatePhase));
+  const runLocal = options.runLocal ?? runLoopPhase;
   const routeToDaemon = options.routeToDaemon ?? requestPhaseCommandFromDaemon;
-  const runtimeState = readRuntime(root);
-
-  if (runtimeState && isDaemonOwned(runtimeState, processRunning)) {
-    return routeToDaemon(root, phase, runtimeState.pid);
-  }
-
-  return runLocal(root, phase);
+  return routeToDaemonOrRunLocal(
+    root,
+    options,
+    () => runLocal(root, phase),
+    (targetPid) => routeToDaemon(root, phase, targetPid),
+  );
 }
 
-export function formatPhaseCommandResult(result: unknown) {
-  return JSON.stringify(result);
-}
+export const formatPhaseCommandResult = formatCommandResult;

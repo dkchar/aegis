@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { renameWithRetries } from "../shared/atomic-write.js";
+
+import { writeJsonAtomic } from "../shared/atomic-write.js";
 
 export type MergeQueueItemStatus = "queued" | "merging" | "merged" | "failed";
 export type MergeTier = "T1" | "T2" | "T3";
@@ -47,10 +48,6 @@ function resolveProjectPath(root: string, relativePath: string) {
 
 function mergeQueuePath(root: string) {
   return resolveProjectPath(root, MERGE_QUEUE_FILE);
-}
-
-function mergeQueueTmpPath(root: string) {
-  return `${mergeQueuePath(root)}.tmp`;
 }
 
 function assertMergeQueueItem(value: unknown): MergeQueueItem {
@@ -151,11 +148,7 @@ export function loadMergeQueueState(root: string): MergeQueueState {
 }
 
 export function saveMergeQueueState(root: string, state: MergeQueueState) {
-  const filePath = mergeQueuePath(root);
-  const tmpPath = mergeQueueTmpPath(root);
-  mkdirSync(path.dirname(filePath), { recursive: true });
-  writeFileSync(tmpPath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
-  renameWithRetries(tmpPath, filePath);
+  writeJsonAtomic(mergeQueuePath(root), state);
 }
 
 export function updateMergeQueueItem(

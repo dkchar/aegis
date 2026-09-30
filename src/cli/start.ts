@@ -1,37 +1,28 @@
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { spawnSync } from "node:child_process";
-import { accessSync, constants } from "node:fs";
-import { homedir } from "node:os";
+import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
 import { loadConfig } from "../config/load-config.js";
-import { runCasteCommand as defaultRunCasteCommand } from "../core/caste-runner.js";
 import { runDaemonCycle as defaultRunDaemonCycle, runLoopPhase } from "../core/loop-runner.js";
 import {
+  listRunningRecords,
   loadDispatchState,
   releaseStoppedRunningRecords,
   reconcileDispatchState,
   saveDispatchState,
 } from "../core/dispatch-state.js";
-import {
-  AEGIS_DIRECTORY,
-  RUNTIME_STATE_FILES,
-  type AegisConfig,
-} from "../config/schema.js";
-import { createTrackerClient } from "../tracker/create-tracker.js";
+import type { AegisConfig } from "../config/schema.js";
 import {
   clearRuntimeCommandArtifacts,
   clearRuntimeCommandRequest,
-  readRuntimeCommandRequests,
+  describeRuntimeCommandRequest,
+  takeNextRuntimeCommandRequest,
   writeRuntimeCommandResponse,
   type RuntimeCasteAction,
-  type RuntimeMergeAction,
   type RuntimeCommandRequest,
-  type RuntimeCommandResponse,
+  type RuntimeMergeAction,
 } from "./runtime-command.js";
-import { createCasteRuntime } from "../runtime/create-caste-runtime.js";
-import { createAgentRuntime } from "../runtime/scripted-agent-runtime.js";
-import { verifyConfiguredPiModels } from "../runtime/pi-model-config.js";
+import { runLocalCasteCommand } from "./caste-command.js";
+import { createAgentRuntime } from "../runtime/dispatch-runtime.js";
 import { runMergeNext as defaultRunMergeNext } from "../merge/merge-next.js";
 import {
   formatStartupPreflight,
@@ -39,6 +30,14 @@ import {
   StartupPreflightBlockedError,
   type StartupPreflightProbeResult,
 } from "./startup-preflight.js";
+import {
+  probeAgoraTrackerBackend,
+  verifyConfiguredModelRefs,
+  verifyGitRepository,
+  verifyRuntimeAdapter,
+  verifyRuntimeLocalConfig,
+  verifyRuntimeStatePaths,
+} from "./startup-probes.js";
 import { STOP_COMMAND_REASONS } from "./stop.js";
 import {
   clearStopRequest,
@@ -49,29 +48,10 @@ import {
 } from "./runtime-state.js";
 import { recoverStaleRuntimeState } from "./runtime-recovery.js";
 
-export const START_COMMAND_NAME = "start";
-
-export const START_OVERRIDE_FLAGS = [] as const;
-
-export const CANONICAL_LAUNCH_SEQUENCE = [
-  "load_config",
-  "verify_tracker",
-  "verify_git_repo",
-  "recover_dispatch_state",
-  "start_terminal_daemon",
-  "enter_auto_mode",
-  "print_runtime_summary",
-] as const;
-
-export const CANONICAL_SHUTDOWN_SEQUENCE = [
-  "stop_dispatch_loop",
-  "stop_active_agents",
-  "persist_runtime_state",
-  "print_shutdown_summary",
-] as const;
-
 const STOP_REQUEST_POLL_MS = 150;
 const HEARTBEAT_LOG_INTERVAL_MS = 5_000;
+
+export type DaemonStopReason = "manual" | "signal" | "shutdown" | "provider_usage_limit";
 
 let registeredSignalHandlers:
   | {
@@ -80,21 +60,10 @@ let registeredSignalHandlers:
     }
   | undefined;
 
-export type StartOverrideFlag = (typeof START_OVERRIDE_FLAGS)[number];
-export type LaunchSequenceStep = (typeof CANONICAL_LAUNCH_SEQUENCE)[number];
-export type ShutdownSequenceStep = (typeof CANONICAL_SHUTDOWN_SEQUENCE)[number];
-
 export interface StartCommandOverrides {}
 
-export interface StartCommandContract {
-  command: typeof START_COMMAND_NAME;
-  overrides: readonly StartOverrideFlag[];
-  launchSequence: readonly LaunchSequenceStep[];
-  shutdownSequence: readonly ShutdownSequenceStep[];
-}
-
 export interface StartRuntimeController {
-  stop(reason?: "manual" | "signal" | "shutdown" | "provider_usage_limit"): Promise<void>;
+  stop(reason?: DaemonStopReason): Promise<void>;
 }
 
 export interface StartResult {
@@ -107,6 +76,7 @@ export interface StartCommandOptions {
   verifyTracker?: (root: string) => void;
   verifyGitRepo?: () => void;
   probeTrackerBackend?: (root: string) => StartupPreflightProbeResult;
+  verifyRuntimeLocalConfig?: (config: AegisConfig) => StartupPreflightProbeResult;
   verifyModelRefs?: (config: AegisConfig) => StartupPreflightProbeResult;
   registerSignalHandlers?: boolean;
   runDaemonCycle?: (root: string) => Promise<void>;
@@ -114,7 +84,7 @@ export interface StartCommandOptions {
   runMergeCommand?: (root: string, action: RuntimeMergeAction) => Promise<unknown>;
 }
 
-function parseStartOverrides(argv: readonly string[]): StartCommandOverrides {
+export function parseStartOverrides(argv: readonly string[]): StartCommandOverrides {
   if (argv.length > 0) {
     throw new Error(`Unknown start override flag: ${argv[0]}`);
   }
@@ -122,21 +92,12 @@ function parseStartOverrides(argv: readonly string[]): StartCommandOverrides {
   return {};
 }
 
-export { parseStartOverrides };
-
 function toErrorMessage(error: unknown) {
   if (error instanceof Error && error.message.trim().length > 0) {
     return error.message;
   }
 
   return String(error);
-}
-
-function probeAgoraTrackerBackend(_root: string): StartupPreflightProbeResult {
-  return {
-    ok: true,
-    detail: "Agora tracker backend is available.",
-  };
 }
 
 export function verifyTrackerRepository(
@@ -149,123 +110,7 @@ export function verifyTrackerRepository(
   }
 }
 
-function verifyGitRepository(root: string) {
-  const gitProbe = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], {
-    cwd: root,
-    encoding: "utf8",
-    windowsHide: true,
-  });
-
-  if (gitProbe.status !== 0 || gitProbe.stdout.trim() !== "true") {
-    throw new Error("Aegis start requires a git repository root.");
-  }
-}
-
-function verifyRuntimeAdapter(config: AegisConfig): StartupPreflightProbeResult {
-  if (config.runtime !== "pi" && config.runtime !== "scripted" && config.runtime !== "codex") {
-    return {
-      ok: false,
-      detail: `Unsupported runtime adapter: ${config.runtime}`,
-      fix: "set `.aegis/config.json` `runtime` to a supported adapter before starting Aegis",
-    };
-  }
-
-  return {
-    ok: true,
-    detail: `Runtime adapter "${config.runtime}" is supported.`,
-  };
-}
-
-function resolvePiSettingsPaths(repoRoot: string) {
-  const projectSettingsPath = path.join(repoRoot, ".pi", "settings.json");
-  const globalSettingsPath = process.env.PI_CODING_AGENT_DIR
-    ? path.join(process.env.PI_CODING_AGENT_DIR, "settings.json")
-    : path.join(homedir(), ".pi", "agent", "settings.json");
-
-  return {
-    projectSettingsPath,
-    globalSettingsPath,
-  };
-}
-
-function verifyRuntimeLocalConfig(
-  repoRoot: string,
-  config: AegisConfig,
-): StartupPreflightProbeResult {
-  if (config.runtime !== "pi") {
-    return {
-      ok: true,
-      detail: `Runtime "${config.runtime}" does not require Pi local settings.`,
-    };
-  }
-
-  const { projectSettingsPath, globalSettingsPath } = resolvePiSettingsPaths(repoRoot);
-
-  if (existsSync(projectSettingsPath)) {
-    return {
-      ok: true,
-      detail: `Pi runtime settings found at ${projectSettingsPath}.`,
-    };
-  }
-
-  if (existsSync(globalSettingsPath)) {
-    return {
-      ok: true,
-      detail: `Pi runtime settings found at ${globalSettingsPath}.`,
-    };
-  }
-
-  return {
-    ok: false,
-    detail:
-      `Pi runtime settings were not found. Checked ${projectSettingsPath} and ${globalSettingsPath}.`,
-    fix:
-      `create ${projectSettingsPath} for this repository or ${globalSettingsPath} for the current user before starting Aegis`,
-  };
-}
-
-function verifyRuntimeStatePaths(repoRoot: string): StartupPreflightProbeResult {
-  const aegisDir = path.join(repoRoot, AEGIS_DIRECTORY);
-
-  if (!existsSync(aegisDir)) {
-    return {
-      ok: false,
-      detail: `Missing Aegis runtime directory at ${aegisDir}.`,
-      fix: "run `aegis init` in this repository before starting Aegis",
-    };
-  }
-
-  const missingBootstrapFiles = RUNTIME_STATE_FILES
-    .map((relativePath) => path.join(repoRoot, ...relativePath.split("/")))
-    .filter((candidate) => !existsSync(candidate));
-
-  if (missingBootstrapFiles.length > 0) {
-    return {
-      ok: false,
-      detail: `Missing Aegis bootstrap state files: ${missingBootstrapFiles.join(", ")}.`,
-      fix: "run `aegis init` to seed the required `.aegis` state files before starting Aegis",
-    };
-  }
-
-  try {
-    accessSync(aegisDir, constants.R_OK | constants.W_OK);
-  } catch {
-    return {
-      ok: false,
-      detail: `Aegis cannot write runtime state under ${aegisDir}.`,
-      fix: "fix repository permissions so Aegis can read and write files under `.aegis/`",
-    };
-  }
-
-  return {
-    ok: true,
-    detail: "Runtime state paths are available.",
-  };
-}
-
-function toRunningRuntimeState(
-  pid: number,
-): RuntimeStateRecord {
+function toRunningRuntimeState(pid: number): RuntimeStateRecord {
   return {
     schema_version: 1,
     pid,
@@ -277,7 +122,7 @@ function toRunningRuntimeState(
 
 function toStoppedRuntimeState(
   runningState: RuntimeStateRecord,
-  stopReason: "manual" | "signal" | "shutdown" | "provider_usage_limit",
+  stopReason: DaemonStopReason,
 ): RuntimeStateRecord {
   return {
     ...runningState,
@@ -294,81 +139,46 @@ function hasProviderUsageLimitFailure(root: string) {
       && record.operationalFailureKind === "provider_usage_limit");
 }
 
+function exitAfterStop(stop: () => Promise<void>) {
+  void stop().then(
+    () => {
+      process.exit(0);
+    },
+    (error) => {
+      console.error(`Failed to stop Aegis gracefully: ${toErrorMessage(error)}`);
+      process.exit(1);
+    },
+  );
+}
+
 function registerLifecycleSignalHandlers(stop: () => Promise<void>) {
   if (registeredSignalHandlers) {
     process.off("SIGINT", registeredSignalHandlers.sigint);
     process.off("SIGTERM", registeredSignalHandlers.sigterm);
   }
 
-  const handleSignal = () => {
-    void stop().then(
-      () => {
-        process.exit(0);
-      },
-      (error) => {
-        const details = error instanceof Error ? error.message : String(error);
-        console.error(`Failed to stop Aegis gracefully: ${details}`);
-        process.exit(1);
-      },
-    );
-  };
-  const sigint = () => {
-    handleSignal();
-  };
-  const sigterm = () => {
-    handleSignal();
-  };
-
+  const sigint = () => exitAfterStop(stop);
+  const sigterm = () => exitAfterStop(stop);
   process.on("SIGINT", sigint);
   process.on("SIGTERM", sigterm);
   registeredSignalHandlers = { sigint, sigterm };
 }
 
-function ensureLogsDirectory(repoRoot: string) {
+function appendDaemonLog(repoRoot: string, message: string) {
   const logsDirectory = path.join(repoRoot, ".aegis", "logs");
   mkdirSync(logsDirectory, { recursive: true });
-  return logsDirectory;
+  appendFileSync(path.join(logsDirectory, "daemon.log"), `${new Date().toISOString()} ${message}\n`, "utf8");
 }
 
-function appendDaemonLog(repoRoot: string, message: string) {
-  const logsDirectory = ensureLogsDirectory(repoRoot);
-  const logPath = path.join(logsDirectory, "daemon.log");
-  appendFileSync(logPath, `${new Date().toISOString()} ${message}\n`, "utf8");
-}
-
-export function createStartCommandContract(): StartCommandContract {
-  return {
-    command: START_COMMAND_NAME,
-    overrides: START_OVERRIDE_FLAGS,
-    launchSequence: CANONICAL_LAUNCH_SEQUENCE,
-    shutdownSequence: CANONICAL_SHUTDOWN_SEQUENCE,
-  };
-}
-
-export async function startAegis(
-  root = process.cwd(),
-  overrides: StartCommandOverrides = {},
-  options: StartCommandOptions = {},
-): Promise<StartResult> {
-  const repoRoot = path.resolve(root);
+function runPreflight(repoRoot: string, options: StartCommandOptions) {
   const verifyTracker = options.verifyTracker ?? ((candidateRoot: string) => {
-    const probe = probeAgoraTrackerBackend(candidateRoot);
-
-    if (!probe.ok) {
-      throw new Error(probe.detail ?? "Tracker repository check failed.");
-    }
-  });
-  const verifyGitRepo = options.verifyGitRepo ?? (() => {
-    verifyGitRepository(repoRoot);
+    verifyTrackerRepository(candidateRoot);
   });
   const trackerBackendProbe = options.probeTrackerBackend ?? probeAgoraTrackerBackend;
-  const verifyModelRefs = options.verifyModelRefs ?? verifyConfiguredPiModels;
-
-  void overrides;
   let config: AegisConfig | undefined;
 
   const preflight = runStartupPreflight(repoRoot, {
-    verifyGitRepo,
+    verifyGitRepo: options.verifyGitRepo ?? (() => verifyGitRepository(repoRoot)),
     probeTrackerBackend: () => {
       const backendProbe = trackerBackendProbe(repoRoot);
       if (!backendProbe.ok) {
@@ -393,8 +203,9 @@ export async function startAegis(
       return config;
     },
     verifyRuntimeAdapter,
-    verifyRuntimeLocalConfig: (loadedConfig) => verifyRuntimeLocalConfig(repoRoot, loadedConfig),
-    verifyModelRefs,
+    verifyRuntimeLocalConfig: options.verifyRuntimeLocalConfig
+      ?? ((loadedConfig) => verifyRuntimeLocalConfig(repoRoot, loadedConfig)),
+    verifyModelRefs: options.verifyModelRefs ?? verifyConfiguredModelRefs,
     verifyRuntimeStatePaths,
   });
 
@@ -403,51 +214,54 @@ export async function startAegis(
     throw new StartupPreflightBlockedError(preflight);
   }
 
+  return config ?? loadConfig(repoRoot);
+}
+
+/**
+ * Starts the terminal daemon: preflight, recover state from any dead daemon,
+ * then run `runDaemonCycle` every poll interval while serving direct-command
+ * requests and stop requests between cycles.
+ */
+export async function startAegis(
+  root = process.cwd(),
+  overrides: StartCommandOverrides = {},
+  options: StartCommandOptions = {},
+): Promise<StartResult> {
+  void overrides;
+  const repoRoot = path.resolve(root);
+  const resolvedConfig = runPreflight(repoRoot, options);
+
   const recoveredRuntime = recoverStaleRuntimeState(repoRoot, {
     recoveryProvenanceId: String(process.pid),
   }).runtimeState;
-  const isAlreadyRunning = recoveredRuntime
+  if (
+    recoveredRuntime
     && recoveredRuntime.server_state !== "stopped"
-    && isProcessRunning(recoveredRuntime.pid);
-
-  if (isAlreadyRunning) {
+    && isProcessRunning(recoveredRuntime.pid)
+  ) {
     throw new Error(
       `Aegis is already running on pid ${recoveredRuntime.pid}.`,
     );
   }
 
-  const resolvedConfig = config ?? loadConfig(repoRoot);
   let runningState = toRunningRuntimeState(process.pid);
   let hasStopped = false;
-  let stopRequestPoller: NodeJS.Timeout | null = null;
-  let heartbeatTimer: NodeJS.Timeout | null = null;
-  let daemonLoopTimer: NodeJS.Timeout | null = null;
   let cycleInFlight = false;
+  const timers: NodeJS.Timeout[] = [];
   const runDaemonCycle = options.runDaemonCycle ?? ((candidateRoot: string) =>
     defaultRunDaemonCycle(candidateRoot, {
       sessionProvenanceId: String(process.pid),
     }));
-  const runCasteCommand = options.runCasteCommand ?? ((candidateRoot: string, action: RuntimeCasteAction, issueId: string) =>
-    defaultRunCasteCommand({
-      root: candidateRoot,
-      action,
-      issueId,
-      tracker: createTrackerClient(),
-      runtime: createCasteRuntime(loadConfig(candidateRoot).runtime, {}, {
-        root: candidateRoot,
-        issueId,
-      }),
-    }));
+  const runCasteCommand = options.runCasteCommand ?? runLocalCasteCommand;
   const runMergeCommand = options.runMergeCommand ?? ((candidateRoot: string, action: RuntimeMergeAction) =>
     action === "next" ? defaultRunMergeNext(candidateRoot) : Promise.resolve(null));
 
   clearStopRequest(repoRoot);
   clearRuntimeCommandArtifacts(repoRoot);
-  const reconciledDispatchState = reconcileDispatchState(
-    loadDispatchState(repoRoot),
-    String(process.pid),
+  saveDispatchState(
+    repoRoot,
+    reconcileDispatchState(loadDispatchState(repoRoot), String(process.pid)),
   );
-  saveDispatchState(repoRoot, reconciledDispatchState);
   writeRuntimeState(runningState, repoRoot);
   appendDaemonLog(
     repoRoot,
@@ -461,24 +275,13 @@ export async function startAegis(
       }
 
       hasStopped = true;
-      if (stopRequestPoller) {
-        clearInterval(stopRequestPoller);
-        stopRequestPoller = null;
-      }
-      if (heartbeatTimer) {
-        clearInterval(heartbeatTimer);
-        heartbeatTimer = null;
-      }
-      if (daemonLoopTimer) {
-        clearInterval(daemonLoopTimer);
-        daemonLoopTimer = null;
+      for (const timer of timers.splice(0)) {
+        clearInterval(timer);
       }
       clearStopRequest(repoRoot);
       clearRuntimeCommandArtifacts(repoRoot);
       const stopRuntime = createAgentRuntime(resolvedConfig.runtime);
-      const activeRecords = Object.values(loadDispatchState(repoRoot).records)
-        .filter((record) => record.runningAgent !== null);
-      for (const record of activeRecords) {
+      for (const record of listRunningRecords(loadDispatchState(repoRoot))) {
         await stopRuntime.terminate(
           repoRoot,
           record.runningAgent!.sessionId,
@@ -509,74 +312,55 @@ export async function startAegis(
     )
       ? (request.reason as (typeof STOP_COMMAND_REASONS)[number])
       : "manual";
+    exitAfterStop(() => runtime.stop(reason));
+  };
 
-    void runtime.stop(reason).then(
-      () => {
-        process.exit(0);
-      },
-      (error) => {
-        const details = error instanceof Error ? error.message : String(error);
-        console.error(`Failed to stop Aegis gracefully: ${details}`);
-        process.exit(1);
-      },
-      );
+  const executeRuntimeCommand = (request: RuntimeCommandRequest) => {
+    if (request.command_kind === "caste") {
+      return runCasteCommand(repoRoot, request.action, request.issue_id);
+    }
+    if (request.command_kind === "merge") {
+      return runMergeCommand(repoRoot, request.action);
+    }
+    return runLoopPhase(repoRoot, request.phase, {
+      sessionProvenanceId: String(process.pid),
+    });
   };
 
   const handleRuntimeCommandRequest = async () => {
-    const request = readRuntimeCommandRequests(repoRoot)[0] as RuntimeCommandRequest | undefined;
-    if (!request || request.target_pid !== process.pid || cycleInFlight || hasStopped) {
+    if (cycleInFlight || hasStopped) {
+      return;
+    }
+    const request = takeNextRuntimeCommandRequest(repoRoot, process.pid);
+    if (!request) {
       return;
     }
 
     cycleInFlight = true;
+    const baseResponse = {
+      request_id: request.request_id,
+      command_kind: request.command_kind,
+      ...describeRuntimeCommandRequest(request),
+    };
     try {
-      const result = request.command_kind === "caste"
-        ? await runCasteCommand(repoRoot, request.action, request.issue_id)
-        : request.command_kind === "merge"
-          ? await runMergeCommand(repoRoot, request.action)
-          : await runLoopPhase(repoRoot, request.phase, {
-            sessionProvenanceId: String(process.pid),
-          });
-      const response: RuntimeCommandResponse = {
-        request_id: request.request_id,
-        command_kind: request.command_kind,
-        ...(request.command_kind === "caste"
-          ? { action: request.action, issue_id: request.issue_id }
-          : request.command_kind === "merge"
-            ? { action: request.action }
-          : { phase: request.phase }),
+      const result = await executeRuntimeCommand(request);
+      writeRuntimeCommandResponse(repoRoot, {
+        ...baseResponse,
         completed_at: new Date().toISOString(),
         result,
-      };
-      writeRuntimeCommandResponse(repoRoot, response);
-      clearRuntimeCommandRequest(repoRoot, request.request_id);
+      });
     } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      const response: RuntimeCommandResponse = {
-        request_id: request.request_id,
-        command_kind: request.command_kind,
-        ...(request.command_kind === "caste"
-          ? { action: request.action, issue_id: request.issue_id }
-          : request.command_kind === "merge"
-            ? { action: request.action }
-          : { phase: request.phase }),
+      writeRuntimeCommandResponse(repoRoot, {
+        ...baseResponse,
         completed_at: new Date().toISOString(),
-        error: detail,
-      };
-      writeRuntimeCommandResponse(repoRoot, response);
-      clearRuntimeCommandRequest(repoRoot, request.request_id);
+        error: toErrorMessage(error),
+      });
     } finally {
+      clearRuntimeCommandRequest(repoRoot, request.request_id);
       cycleInFlight = false;
     }
   };
 
-  stopRequestPoller = setInterval(() => {
-    handleExternalStopRequest();
-    void handleRuntimeCommandRequest();
-  }, STOP_REQUEST_POLL_MS);
-  heartbeatTimer = setInterval(() => {
-    appendDaemonLog(repoRoot, "[daemon][heartbeat] mode=auto");
-  }, HEARTBEAT_LOG_INTERVAL_MS);
   const runCycleSafely = async () => {
     if (cycleInFlight || hasStopped) {
       return;
@@ -591,17 +375,26 @@ export async function startAegis(
       }
       await runMergeCommand(repoRoot, "next");
     } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      appendDaemonLog(repoRoot, `[daemon][cycle_error] ${detail}`);
+      appendDaemonLog(repoRoot, `[daemon][cycle_error] ${toErrorMessage(error)}`);
     } finally {
       cycleInFlight = false;
     }
   };
 
+  timers.push(setInterval(() => {
+    handleExternalStopRequest();
+    void handleRuntimeCommandRequest();
+  }, STOP_REQUEST_POLL_MS));
+  timers.push(setInterval(() => {
+    appendDaemonLog(repoRoot, "[daemon][heartbeat] mode=auto");
+  }, HEARTBEAT_LOG_INTERVAL_MS));
+
   await runCycleSafely();
-  daemonLoopTimer = setInterval(() => {
-    void runCycleSafely();
-  }, resolvedConfig.thresholds.poll_interval_seconds * 1_000);
+  if (!hasStopped) {
+    timers.push(setInterval(() => {
+      void runCycleSafely();
+    }, resolvedConfig.thresholds.poll_interval_seconds * 1_000));
+  }
 
   if (options.registerSignalHandlers !== false) {
     registerLifecycleSignalHandlers(() => runtime.stop("signal"));
@@ -613,4 +406,3 @@ export async function startAegis(
     runtime,
   };
 }
-

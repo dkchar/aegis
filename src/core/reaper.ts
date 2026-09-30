@@ -1,17 +1,19 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 
-import { loadDispatchState, type DispatchRecord, type DispatchStage, type DispatchState } from "./dispatch-state.js";
-import type { AgentRuntime } from "../runtime/agent-runtime.js";
-import { writePhaseLog } from "./phase-log.js";
 import {
-  calculateFailureCooldown,
-  classifyOperationalFailure,
-  resolveNextOperationalFailureCount,
-  resolveFailureWindowStartMs,
-  shouldEscalateSentinelOperationalFailure,
-} from "./failure-policy.js";
+  loadDispatchState,
+  type DispatchRecord,
+  type DispatchStage,
+  type DispatchState,
+} from "./dispatch-state.js";
+import type { AgentRuntime } from "../runtime/agent-runtime.js";
+import { buildArtifactRef, type ArtifactFamily } from "./artifact-store.js";
+import { writePhaseLog } from "./phase-log.js";
+import { applyOperationalFailure, applySentinelOperationalFailure } from "./failure-policy.js";
 import { validateDispatchRecordStage } from "./stage-invariants.js";
+import { normalizeFileScope } from "../shared/file-scope.js";
+import { readArtifactRecord, readStringArray } from "../shared/json.js";
 
 export interface ReapInput {
   dispatchState: DispatchState;
@@ -57,7 +59,7 @@ function resolveFailureTranscriptRef(root: string, record: DispatchRecord) {
     return record.failureTranscriptRef ?? null;
   }
 
-  const ref = path.join(".aegis", "transcripts", `${record.issueId}--${caste}.json`);
+  const ref = buildArtifactRef("transcripts", record.issueId, caste);
   return existsSync(path.join(root, ref)) ? ref : (record.failureTranscriptRef ?? null);
 }
 
@@ -67,62 +69,21 @@ function toFailedRecord(
   timestamp: string,
   errorMessage?: string | null,
 ): DispatchRecord {
-  if (record.stage === "reviewing" && record.runningAgent?.caste === "sentinel") {
-    const nextConsecutiveFailures = resolveNextOperationalFailureCount(
-      record.consecutiveFailures,
-      errorMessage,
-    );
-    const failureTranscriptRef = resolveFailureTranscriptRef(root, record);
-    const operationalFailureKind = classifyOperationalFailure(errorMessage);
-    if (shouldEscalateSentinelOperationalFailure(nextConsecutiveFailures)) {
-      return {
-        ...record,
-        stage: "failed_operational",
-        runningAgent: null,
-        failureCount: record.failureCount + 1,
-        consecutiveFailures: nextConsecutiveFailures,
-        failureTranscriptRef,
-        operationalFailureKind,
-        failureWindowStartMs: record.failureWindowStartMs
-          ?? resolveFailureWindowStartMs(timestamp),
-        cooldownUntil: calculateFailureCooldown(timestamp),
-        updatedAt: timestamp,
-      };
-    }
-
-    return {
-      ...record,
-      stage: "implemented",
-      runningAgent: null,
-      failureCount: record.failureCount + 1,
-      consecutiveFailures: nextConsecutiveFailures,
-      failureTranscriptRef,
-      operationalFailureKind,
-      failureWindowStartMs: record.failureWindowStartMs
-        ?? resolveFailureWindowStartMs(timestamp),
-      cooldownUntil: calculateFailureCooldown(timestamp),
-      updatedAt: timestamp,
-    };
-  }
-
-  return {
-    ...record,
-    stage: "failed_operational",
-    runningAgent: null,
-    failureCount: record.failureCount + 1,
-    consecutiveFailures: resolveNextOperationalFailureCount(
-      record.consecutiveFailures,
-      errorMessage,
-    ),
+  const options = {
+    timestamp,
+    errorMessage,
     failureTranscriptRef: resolveFailureTranscriptRef(root, record),
-    operationalFailureKind: classifyOperationalFailure(errorMessage),
-    failureWindowStartMs: record.failureWindowStartMs
-      ?? resolveFailureWindowStartMs(timestamp),
-    cooldownUntil: calculateFailureCooldown(timestamp),
-    updatedAt: timestamp,
   };
+  return record.stage === "reviewing" && record.runningAgent?.caste === "sentinel"
+    ? applySentinelOperationalFailure(record, options)
+    : applyOperationalFailure(record, options);
 }
 
+/**
+ * Caste commands save their own record transitions while the session runs.
+ * Re-read after the session settles and prefer that newer record unless it
+ * already belongs to a different session.
+ */
 function resolveLatestRecord(root: string, record: DispatchRecord): DispatchRecord {
   const latestRecord = loadDispatchState(root).records[record.issueId];
   if (!latestRecord) {
@@ -138,48 +99,14 @@ function resolveLatestRecord(root: string, record: DispatchRecord): DispatchReco
   return latestRecord;
 }
 
-function resolveDurableArtifactRef(
-  root: string,
-  family: "oracle" | "titan" | "sentinel" | "janus",
-  issueId: string,
-) {
-  const relativePath = path.join(".aegis", family, `${issueId}.json`);
-  return existsSync(path.join(root, relativePath)) ? relativePath : null;
-}
-
-function normalizeArtifactFileScope(filesAffected: unknown) {
-  if (!Array.isArray(filesAffected)) {
-    return null;
-  }
-
-  const files = [...new Set(
-    filesAffected
-      .filter((entry): entry is string => typeof entry === "string")
-      .map((entry) => entry.replace(/\\/g, "/").replace(/^\.\//, "").trim())
-      .filter((entry) => entry.length > 0),
-  )].sort();
-
-  return files.length > 0 ? { files } : null;
+function resolveDurableArtifactRef(root: string, family: ArtifactFamily, issueId: string) {
+  const ref = buildArtifactRef(family, issueId);
+  return existsSync(path.join(root, ref)) ? ref : null;
 }
 
 function readOracleFileScope(root: string, artifactRef: string | null) {
-  if (!artifactRef) {
-    return null;
-  }
-
-  const artifactPath = path.join(root, artifactRef);
-  if (!existsSync(artifactPath)) {
-    return null;
-  }
-
-  try {
-    const artifact = JSON.parse(readFileSync(artifactPath, "utf8")) as {
-      files_affected?: unknown;
-    };
-    return normalizeArtifactFileScope(artifact.files_affected);
-  } catch {
-    return null;
-  }
+  const artifact = readArtifactRecord(root, artifactRef);
+  return artifact ? normalizeFileScope(readStringArray(artifact["files_affected"])) : null;
 }
 
 function hydrateDurableArtifactRefs(root: string, record: DispatchRecord): DispatchRecord {
@@ -200,6 +127,7 @@ function hydrateDurableArtifactRefs(root: string, record: DispatchRecord): Dispa
   };
 }
 
+/** Finalizes settled sessions: success advances the stage, failure applies retry policy. */
 export async function reapFinishedWork(input: ReapInput): Promise<ReapResult> {
   const timestamp = input.now ?? new Date().toISOString();
   const latestState = loadDispatchState(input.root);
@@ -209,6 +137,20 @@ export async function reapFinishedWork(input: ReapInput): Promise<ReapResult> {
   };
   const completed: string[] = [];
   const failed: string[] = [];
+
+  const recordFailure = (issueId: string, record: DispatchRecord, sessionId: string, detail?: string) => {
+    records[issueId] = toFailedRecord(input.root, record, timestamp, detail);
+    failed.push(issueId);
+    writePhaseLog(input.root, {
+      timestamp,
+      phase: "reap",
+      issueId,
+      action: "finalize_session",
+      outcome: "failed",
+      sessionId,
+      detail,
+    });
+  };
 
   for (const issueId of input.issueIds) {
     const record = records[issueId];
@@ -224,50 +166,30 @@ export async function reapFinishedWork(input: ReapInput): Promise<ReapResult> {
       continue;
     }
 
-    if (snapshot.status === "succeeded") {
-      const completedRecord = hydrateDurableArtifactRefs(
-        input.root,
-        toCompletedRecord(resolveLatestRecord(input.root, record), timestamp),
-      );
-      const invariantError = validateDispatchRecordStage(completedRecord);
-      if (invariantError) {
-        records[issueId] = toFailedRecord(input.root, completedRecord, timestamp, invariantError);
-        failed.push(issueId);
-        writePhaseLog(input.root, {
-          timestamp,
-          phase: "reap",
-          issueId,
-          action: "finalize_session",
-          outcome: "failed",
-          sessionId: snapshot.sessionId,
-          detail: invariantError,
-        });
-        continue;
-      }
-
-      records[issueId] = completedRecord;
-      completed.push(issueId);
-      writePhaseLog(input.root, {
-        timestamp,
-        phase: "reap",
-        issueId,
-        action: "finalize_session",
-        outcome: completedRecord.stage,
-        sessionId: snapshot.sessionId,
-      });
+    if (snapshot.status !== "succeeded") {
+      recordFailure(issueId, resolveLatestRecord(input.root, record), snapshot.sessionId, snapshot.error);
       continue;
     }
 
-    records[issueId] = toFailedRecord(input.root, resolveLatestRecord(input.root, record), timestamp, snapshot.error);
-    failed.push(issueId);
+    const completedRecord = hydrateDurableArtifactRefs(
+      input.root,
+      toCompletedRecord(resolveLatestRecord(input.root, record), timestamp),
+    );
+    const invariantError = validateDispatchRecordStage(completedRecord);
+    if (invariantError) {
+      recordFailure(issueId, completedRecord, snapshot.sessionId, invariantError);
+      continue;
+    }
+
+    records[issueId] = completedRecord;
+    completed.push(issueId);
     writePhaseLog(input.root, {
       timestamp,
       phase: "reap",
       issueId,
       action: "finalize_session",
-      outcome: "failed",
+      outcome: completedRecord.stage,
       sessionId: snapshot.sessionId,
-      detail: snapshot.error,
     });
   }
 

@@ -6,16 +6,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildCodexExecArgs,
-  buildCodexRunEnvironment,
   buildCodexSpawnInvocation,
   buildTerminateCodexSessionProcessesScript,
-  buildTerminateWorkspaceProcessesScript,
   CodexCasteRuntime,
-  commandLineReferencesWorkspace,
   createCodexModelConfigs,
-  isAllowedPlaywrightManagedWorkspaceServer,
-  isForbiddenLongRunningWorkspaceCommand,
 } from "../../../src/runtime/codex-caste-runtime.js";
+import {
+  buildAgentShellEnvironment as buildCodexRunEnvironment,
+  buildTerminateWorkspaceProcessesScript,
+  commandLineReferencesWorkspace,
+  isAllowedPlaywrightManagedWorkspaceServer,
+  isForbiddenLongRunningCommand as isForbiddenLongRunningWorkspaceCommand,
+} from "../../../src/runtime/workspace-processes.js";
 
 const tempRoots: string[] = [];
 

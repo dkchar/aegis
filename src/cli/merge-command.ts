@@ -1,24 +1,17 @@
 import { runMergeNext } from "../merge/merge-next.js";
-import { isProcessRunning, readRuntimeState, type RuntimeStateRecord } from "./runtime-state.js";
+import { routeToDaemonOrRunLocal, formatCommandResult, type DaemonRoutingOptions } from "./daemon-routing.js";
 import {
   requestMergeCommandFromDaemon,
   type RuntimeMergeAction,
 } from "./runtime-command.js";
 
-export interface RunDirectMergeCommandOptions {
-  readRuntimeState?: (root?: string) => RuntimeStateRecord | null;
-  isProcessRunning?: (pid: number) => boolean;
+export interface RunDirectMergeCommandOptions extends DaemonRoutingOptions {
   runLocal?: (root: string, action: RuntimeMergeAction) => Promise<unknown>;
   routeToDaemon?: (root: string, action: RuntimeMergeAction, targetPid: number) => Promise<unknown>;
 }
 
-function isDaemonOwned(
-  runtimeState: RuntimeStateRecord | null,
-  processRunning: (pid: number) => boolean,
-) {
-  return runtimeState !== null
-    && runtimeState.server_state === "running"
-    && processRunning(runtimeState.pid);
+async function runLocalMergeCommand(root: string, action: RuntimeMergeAction) {
+  return action === "next" ? runMergeNext(root) : null;
 }
 
 export async function runDirectMergeCommand(
@@ -26,20 +19,14 @@ export async function runDirectMergeCommand(
   action: RuntimeMergeAction,
   options: RunDirectMergeCommandOptions = {},
 ) {
-  const readRuntime = options.readRuntimeState ?? readRuntimeState;
-  const processRunning = options.isProcessRunning ?? isProcessRunning;
-  const runLocal = options.runLocal ?? ((candidateRoot: string, candidateAction: RuntimeMergeAction) =>
-    candidateAction === "next" ? runMergeNext(candidateRoot) : Promise.resolve(null));
+  const runLocal = options.runLocal ?? runLocalMergeCommand;
   const routeToDaemon = options.routeToDaemon ?? requestMergeCommandFromDaemon;
-  const runtimeState = readRuntime(root);
-
-  if (runtimeState && isDaemonOwned(runtimeState, processRunning)) {
-    return routeToDaemon(root, action, runtimeState.pid);
-  }
-
-  return runLocal(root, action);
+  return routeToDaemonOrRunLocal(
+    root,
+    options,
+    () => runLocal(root, action),
+    (targetPid) => routeToDaemon(root, action, targetPid),
+  );
 }
 
-export function formatMergeCommandResult(result: unknown) {
-  return JSON.stringify(result);
-}
+export const formatMergeCommandResult = formatCommandResult;

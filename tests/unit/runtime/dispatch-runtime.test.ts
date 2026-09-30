@@ -14,7 +14,7 @@ import { initProject } from "../../../src/config/init-project.js";
 const tempRoots: string[] = [];
 
 function createTempRoot() {
-  const root = mkdtempSync(path.join(tmpdir(), "aegis-scripted-agent-runtime-"));
+  const root = mkdtempSync(path.join(tmpdir(), "aegis-dispatch-runtime-"));
   tempRoots.push(root);
   return root;
 }
@@ -114,7 +114,7 @@ describe("createAgentRuntime(scripted)", () => {
       }(),
     }));
 
-    const { createAgentRuntime } = await import("../../../src/runtime/scripted-agent-runtime.js");
+    const { createAgentRuntime } = await import("../../../src/runtime/dispatch-runtime.js");
     const { saveDispatchState } = await import("../../../src/core/dispatch-state.js");
     const runtime = createAgentRuntime("scripted");
 
@@ -177,7 +177,7 @@ describe("createAgentRuntime(codex)", () => {
       };
     });
 
-    const { createAgentRuntime } = await import("../../../src/runtime/scripted-agent-runtime.js");
+    const { createAgentRuntime } = await import("../../../src/runtime/dispatch-runtime.js");
     const runtime = createAgentRuntime("codex");
     const launched = await runtime.launch({
       root,
@@ -211,7 +211,7 @@ describe("createAgentRuntime(codex)", () => {
       };
     });
 
-    const { createAgentRuntime } = await import("../../../src/runtime/scripted-agent-runtime.js");
+    const { createAgentRuntime } = await import("../../../src/runtime/dispatch-runtime.js");
     const runtime = createAgentRuntime("codex");
     const launched = await runtime.launch({
       root,
@@ -239,7 +239,7 @@ describe("createAgentRuntime(codex)", () => {
       };
     });
 
-    const { createAgentRuntime } = await import("../../../src/runtime/scripted-agent-runtime.js");
+    const { createAgentRuntime } = await import("../../../src/runtime/dispatch-runtime.js");
     const { saveDispatchState } = await import("../../../src/core/dispatch-state.js");
     saveDispatchState(root, {
       schemaVersion: 1,
@@ -276,17 +276,17 @@ describe("createAgentRuntime(pi)", () => {
   it("terminates Pi sessions rooted in the issue labor workspace", async () => {
     const root = createTempRoot();
     initProject(root);
-    const terminateWorkspaceProcesses = vi.fn();
+    const terminatePiSessionProcesses = vi.fn();
 
     vi.doMock("../../../src/runtime/pi-caste-runtime.js", async (importOriginal) => {
       const actual = await importOriginal<typeof import("../../../src/runtime/pi-caste-runtime.js")>();
       return {
         ...actual,
-        terminateWorkspaceProcesses,
+        terminatePiSessionProcesses,
       };
     });
 
-    const { createAgentRuntime } = await import("../../../src/runtime/scripted-agent-runtime.js");
+    const { createAgentRuntime } = await import("../../../src/runtime/dispatch-runtime.js");
     const runtime = createAgentRuntime("pi");
     const launched = await runtime.launch({
       root,
@@ -298,7 +298,7 @@ describe("createAgentRuntime(pi)", () => {
 
     await runtime.terminate(root, launched.sessionId, "test kill");
 
-    expect(terminateWorkspaceProcesses).toHaveBeenCalledWith(
+    expect(terminatePiSessionProcesses).toHaveBeenCalledWith(
       path.join(root, ".aegis", "labors", "ISSUE-1"),
     );
   });

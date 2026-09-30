@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -10,6 +9,9 @@ import type {
   CasteSessionResult,
 } from "./caste-runtime.js";
 import type { AegisThinkingLevel } from "../config/schema.js";
+import { extractAllowedFileScope } from "../castes/scope-markers.js";
+import { formatGitOutput, isGitWorkingTree, runGit } from "../shared/git.js";
+import { parseModelReference, type ParsedModelConfig } from "./model-reference.js";
 
 type ScriptedResponse = {
   output: string;
@@ -18,31 +20,10 @@ type ScriptedResponse = {
 };
 
 type ScriptedHandlers = Partial<Record<CasteName, (input: CasteRunInput) => ScriptedResponse>>;
-type ScriptedModelConfig = {
-  reference: string;
-  provider: string;
-  modelId: string;
-  thinkingLevel: AegisThinkingLevel;
-};
+type ScriptedModelConfig = ParsedModelConfig;
 type ScriptedModelConfigs = Partial<Record<CasteName, ScriptedModelConfig>>;
 
 const SCRIPTED_TITAN_PROOF_FILE = "aegis-scripted-proof.txt";
-
-function normalizeScriptedScopeFile(candidate: string) {
-  return candidate.replace(/\\/g, "/").replace(/^\.\//, "").trim();
-}
-
-function extractAllowedFileScope(prompt: string): string[] {
-  const match = prompt.match(/^Allowed file scope:\s*(.+)$/im);
-  if (!match) {
-    return [];
-  }
-
-  return match[1]!
-    .split(",")
-    .map((entry) => normalizeScriptedScopeFile(entry))
-    .filter((entry) => entry.length > 0);
-}
 
 function selectScriptedTitanProofFile(input: CasteRunInput) {
   return extractAllowedFileScope(input.prompt)[0] ?? SCRIPTED_TITAN_PROOF_FILE;
@@ -113,28 +94,6 @@ export class ScriptedCasteRuntime implements CasteRuntime {
   }
 }
 
-function parseConfiguredModel(
-  reference: string,
-  thinkingLevel: AegisThinkingLevel,
-): ScriptedModelConfig {
-  const separatorIndex = reference.indexOf(":");
-  if (separatorIndex <= 0 || separatorIndex === reference.length - 1) {
-    return {
-      reference,
-      provider: "unknown",
-      modelId: "unknown",
-      thinkingLevel,
-    };
-  }
-
-  return {
-    reference,
-    provider: reference.slice(0, separatorIndex),
-    modelId: reference.slice(separatorIndex + 1),
-    thinkingLevel,
-  };
-}
-
 function parseForcedIssueSet(value: string | undefined) {
   if (!value || value.trim().length === 0) {
     return new Set<string>();
@@ -160,23 +119,6 @@ function parseForcedJanusAction(
   }
 
   return "requeue_parent";
-}
-
-function runGit(workingDirectory: string, args: string[]) {
-  return spawnSync("git", args, {
-    cwd: workingDirectory,
-    encoding: "utf8",
-    windowsHide: true,
-  });
-}
-
-function isGitWorkingTree(workingDirectory: string) {
-  const probe = runGit(workingDirectory, ["rev-parse", "--is-inside-work-tree"]);
-  return probe.status === 0 && probe.stdout.trim() === "true";
-}
-
-function formatGitFailure(result: ReturnType<typeof runGit>) {
-  return `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
 }
 
 function buildDeterministicTitanResponse(input: CasteRunInput): ScriptedResponse {
@@ -211,7 +153,7 @@ function buildDeterministicTitanResponse(input: CasteRunInput): ScriptedResponse
   if (add.status !== 0) {
     return {
       output: "{}",
-      error: `Failed to stage scripted Titan proof. ${formatGitFailure(add)}`,
+      error: `Failed to stage scripted Titan proof. ${formatGitOutput(add)}`,
       toolsUsed: ["write_file"],
     };
   }
@@ -223,7 +165,7 @@ function buildDeterministicTitanResponse(input: CasteRunInput): ScriptedResponse
   if (commit.status !== 0) {
     return {
       output: "{}",
-      error: `Failed to commit scripted Titan proof. ${formatGitFailure(commit)}`,
+      error: `Failed to commit scripted Titan proof. ${formatGitOutput(commit)}`,
       toolsUsed: ["write_file"],
     };
   }
@@ -246,10 +188,10 @@ export function createScriptedModelConfigs(
   thinkingLevels: Record<CasteName, AegisThinkingLevel>,
 ): ScriptedModelConfigs {
   return {
-    oracle: parseConfiguredModel(configuredModels.oracle, thinkingLevels.oracle),
-    titan: parseConfiguredModel(configuredModels.titan, thinkingLevels.titan),
-    sentinel: parseConfiguredModel(configuredModels.sentinel, thinkingLevels.sentinel),
-    janus: parseConfiguredModel(configuredModels.janus, thinkingLevels.janus),
+    oracle: parseModelReference(configuredModels.oracle, thinkingLevels.oracle),
+    titan: parseModelReference(configuredModels.titan, thinkingLevels.titan),
+    sentinel: parseModelReference(configuredModels.sentinel, thinkingLevels.sentinel),
+    janus: parseModelReference(configuredModels.janus, thinkingLevels.janus),
   };
 }
 

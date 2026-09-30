@@ -11,10 +11,12 @@ import { TITAN_EMIT_ARTIFACT_TOOL_NAME } from "../../../src/castes/titan/titan-t
 import type { CasteName } from "../../../src/runtime/caste-runtime.js";
 import {
   buildHiddenShellSpawnOptions,
-  commandLineReferencesWorkspace,
-  isForbiddenLongRunningShellCommand,
   PiCasteRuntime,
 } from "../../../src/runtime/pi-caste-runtime.js";
+import {
+  commandLineReferencesWorkspace,
+  isForbiddenLongRunningCommand as isForbiddenLongRunningShellCommand,
+} from "../../../src/runtime/workspace-processes.js";
 
 type MockListener = (event: any) => void;
 type MockToolResult = {

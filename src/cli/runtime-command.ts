@@ -1,36 +1,52 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, rmSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import type { LoopPhase, LoopPhaseResult } from "../core/loop-runner.js";
+import { writeJsonAtomic } from "../shared/atomic-write.js";
+import { readJsonFileOrNull } from "../shared/json.js";
+import { isProcessRunning } from "./runtime-state.js";
+
+/**
+ * File-based request/response channel between direct CLI commands and a
+ * running daemon. Each request and response is its own atomically written
+ * file under `.aegis/runtime-commands/`, so concurrent callers never share a
+ * file.
+ */
 
 const COMMAND_DIRECTORY = ".aegis/runtime-commands";
+const RESPONSE_POLL_MS = 50;
+const DAEMON_LIVENESS_CHECK_MS = 1_000;
+
+// Phases only launch or observe work. Caste and merge commands can run a live
+// model session (and Janus) inline in the daemon, so they get long waits.
+export const DEFAULT_PHASE_COMMAND_TIMEOUT_MS = 120_000;
+export const DEFAULT_CASTE_COMMAND_TIMEOUT_MS = 7_200_000;
+export const DEFAULT_MERGE_COMMAND_TIMEOUT_MS = 7_200_000;
+
 export type RuntimeCasteAction = "scout" | "implement" | "review" | "process";
 export type RuntimeMergeAction = "next";
 
-export interface PhaseRuntimeCommandRequest {
+interface RuntimeCommandRequestBase {
   request_id: string;
-  command_kind: "phase";
-  phase: LoopPhase;
   target_pid: number;
   requested_at: string;
 }
 
-export interface CasteRuntimeCommandRequest {
-  request_id: string;
+export interface PhaseRuntimeCommandRequest extends RuntimeCommandRequestBase {
+  command_kind: "phase";
+  phase: LoopPhase;
+}
+
+export interface CasteRuntimeCommandRequest extends RuntimeCommandRequestBase {
   command_kind: "caste";
   action: RuntimeCasteAction;
   issue_id: string;
-  target_pid: number;
-  requested_at: string;
 }
 
-export interface MergeRuntimeCommandRequest {
-  request_id: string;
+export interface MergeRuntimeCommandRequest extends RuntimeCommandRequestBase {
   command_kind: "merge";
   action: RuntimeMergeAction;
-  target_pid: number;
-  requested_at: string;
 }
 
 export type RuntimeCommandRequest =
@@ -49,12 +65,13 @@ export interface RuntimeCommandResponse {
   error?: string;
 }
 
-function resolveProjectFile(root: string, relativePath: string) {
-  return path.join(path.resolve(root), ...relativePath.split("/"));
-}
+type RuntimeCommandPayload =
+  | Omit<PhaseRuntimeCommandRequest, keyof RuntimeCommandRequestBase>
+  | Omit<CasteRuntimeCommandRequest, keyof RuntimeCommandRequestBase>
+  | Omit<MergeRuntimeCommandRequest, keyof RuntimeCommandRequestBase>;
 
 function resolveCommandDirectory(root: string) {
-  return resolveProjectFile(root, COMMAND_DIRECTORY);
+  return path.join(path.resolve(root), ...COMMAND_DIRECTORY.split("/"));
 }
 
 function resolveRequestPath(root: string, requestId: string) {
@@ -65,17 +82,17 @@ function resolveResponsePath(root: string, requestId: string) {
   return path.join(resolveCommandDirectory(root), `${requestId}.response.json`);
 }
 
-function writeJsonFileToPath(targetPath: string, value: unknown) {
-  const temporaryPath = `${targetPath}.tmp`;
-  mkdirSync(path.dirname(targetPath), { recursive: true });
-  writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-  renameSync(temporaryPath, targetPath);
+function removeIfPresent(filePath: string) {
+  if (existsSync(filePath)) {
+    unlinkSync(filePath);
+  }
 }
 
 export function writeRuntimeCommandRequest(root: string, request: RuntimeCommandRequest) {
-  writeJsonFileToPath(resolveRequestPath(root, request.request_id), request);
+  writeJsonAtomic(resolveRequestPath(root, request.request_id), request);
 }
 
+/** Pending requests, oldest first. Unreadable files are skipped. */
 export function readRuntimeCommandRequests(root: string): RuntimeCommandRequest[] {
   const commandDirectory = resolveCommandDirectory(root);
   if (!existsSync(commandDirectory)) {
@@ -84,87 +101,124 @@ export function readRuntimeCommandRequests(root: string): RuntimeCommandRequest[
 
   return readdirSync(commandDirectory)
     .filter((fileName) => fileName.endsWith(".request.json"))
-    .map((fileName) => path.join(commandDirectory, fileName))
-    .map((filePath) => JSON.parse(readFileSync(filePath, "utf8")) as RuntimeCommandRequest)
+    .map((fileName) => readJsonFileOrNull(path.join(commandDirectory, fileName)) as RuntimeCommandRequest | null)
+    .filter((request): request is RuntimeCommandRequest =>
+      request !== null && typeof request.request_id === "string" && typeof request.requested_at === "string")
     .sort((left, right) => left.requested_at.localeCompare(right.requested_at));
 }
 
+/**
+ * Next request addressed to `pid`. Requests addressed to a process that is no
+ * longer running are dropped so they cannot block the queue.
+ */
+export function takeNextRuntimeCommandRequest(
+  root: string,
+  pid: number,
+  processRunning: (pid: number) => boolean = isProcessRunning,
+): RuntimeCommandRequest | null {
+  for (const request of readRuntimeCommandRequests(root)) {
+    if (request.target_pid === pid) {
+      return request;
+    }
+    if (!processRunning(request.target_pid)) {
+      clearRuntimeCommandRequest(root, request.request_id);
+    }
+  }
+  return null;
+}
+
 export function writeRuntimeCommandResponse(root: string, response: RuntimeCommandResponse) {
-  writeJsonFileToPath(resolveResponsePath(root, response.request_id), response);
+  writeJsonAtomic(resolveResponsePath(root, response.request_id), response);
 }
 
 export function clearRuntimeCommandRequest(root: string, requestId: string) {
-  const requestPath = resolveRequestPath(root, requestId);
-  if (existsSync(requestPath)) {
-    unlinkSync(requestPath);
-  }
+  removeIfPresent(resolveRequestPath(root, requestId));
 }
 
 export function clearRuntimeCommandResponse(root: string, requestId: string) {
-  const responsePath = resolveResponsePath(root, requestId);
-  if (existsSync(responsePath)) {
-    unlinkSync(responsePath);
-  }
+  removeIfPresent(resolveResponsePath(root, requestId));
 }
 
 export function clearRuntimeCommandArtifacts(root: string) {
-  const commandDirectory = resolveCommandDirectory(root);
-  if (existsSync(commandDirectory)) {
-    rmSync(commandDirectory, { recursive: true, force: true });
-  }
+  rmSync(resolveCommandDirectory(root), { recursive: true, force: true });
 }
 
-function readRuntimeCommandResponse(
+function readRuntimeCommandResponse(root: string, requestId: string): RuntimeCommandResponse | null {
+  const response = readJsonFileOrNull(resolveResponsePath(root, requestId)) as RuntimeCommandResponse | null;
+  return response?.request_id === requestId ? response : null;
+}
+
+/** Echo of the request identity carried on every response. */
+export function describeRuntimeCommandRequest(request: RuntimeCommandRequest) {
+  if (request.command_kind === "caste") {
+    return { action: request.action, issue_id: request.issue_id };
+  }
+  if (request.command_kind === "merge") {
+    return { action: request.action };
+  }
+  return { phase: request.phase };
+}
+
+async function requestFromDaemon(
   root: string,
-  requestId: string,
-): RuntimeCommandResponse | null {
-  const responsePath = resolveResponsePath(root, requestId);
-  if (!existsSync(responsePath)) {
-    return null;
+  payload: RuntimeCommandPayload,
+  targetPid: number,
+  timeoutMs: number,
+  label: string,
+): Promise<RuntimeCommandResponse> {
+  const request = {
+    ...payload,
+    request_id: randomUUID(),
+    target_pid: targetPid,
+    requested_at: new Date().toISOString(),
+  } as RuntimeCommandRequest;
+  const cleanup = () => {
+    clearRuntimeCommandResponse(root, request.request_id);
+    clearRuntimeCommandRequest(root, request.request_id);
+  };
+
+  writeRuntimeCommandRequest(root, request);
+  const deadline = Date.now() + timeoutMs;
+  let lastLivenessCheck = Date.now();
+
+  while (Date.now() < deadline) {
+    const response = readRuntimeCommandResponse(root, request.request_id);
+    if (response) {
+      cleanup();
+      if (response.error) {
+        throw new Error(response.error);
+      }
+      return response;
+    }
+
+    if (Date.now() - lastLivenessCheck >= DAEMON_LIVENESS_CHECK_MS) {
+      lastLivenessCheck = Date.now();
+      if (!isProcessRunning(targetPid)) {
+        cleanup();
+        throw new Error(`Daemon pid ${targetPid} exited before responding to ${label}`);
+      }
+    }
+
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, RESPONSE_POLL_MS);
+    });
   }
 
-  return JSON.parse(readFileSync(responsePath, "utf8")) as RuntimeCommandResponse;
+  cleanup();
+  throw new Error(`Timed out waiting for daemon response to ${label}`);
 }
 
 export async function requestPhaseCommandFromDaemon(
   root: string,
   phase: LoopPhase,
   targetPid: number,
-  timeoutMs = 10_000,
+  timeoutMs = DEFAULT_PHASE_COMMAND_TIMEOUT_MS,
 ): Promise<LoopPhaseResult> {
-  const request: RuntimeCommandRequest = {
-    request_id: randomUUID(),
-    command_kind: "phase",
-    phase,
-    target_pid: targetPid,
-    requested_at: new Date().toISOString(),
-  };
-
-  writeRuntimeCommandRequest(root, request);
-  const deadline = Date.now() + timeoutMs;
-
-  while (Date.now() < deadline) {
-    const response = readRuntimeCommandResponse(root, request.request_id);
-    if (response?.request_id === request.request_id) {
-      clearRuntimeCommandResponse(root, request.request_id);
-      clearRuntimeCommandRequest(root, request.request_id);
-      if (response.error) {
-        throw new Error(response.error);
-      }
-      if (!response.result) {
-        throw new Error(`Daemon returned no result for ${phase}`);
-      }
-      return response.result as LoopPhaseResult;
-    }
-
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 50);
-    });
+  const response = await requestFromDaemon(root, { command_kind: "phase", phase }, targetPid, timeoutMs, phase);
+  if (!response.result) {
+    throw new Error(`Daemon returned no result for ${phase}`);
   }
-
-  clearRuntimeCommandResponse(root, request.request_id);
-  clearRuntimeCommandRequest(root, request.request_id);
-  throw new Error(`Timed out waiting for daemon response to ${phase}`);
+  return response.result as LoopPhaseResult;
 }
 
 export async function requestCasteCommandFromDaemon(
@@ -172,75 +226,30 @@ export async function requestCasteCommandFromDaemon(
   action: RuntimeCasteAction,
   issueId: string,
   targetPid: number,
-  timeoutMs = 10_000,
+  timeoutMs = DEFAULT_CASTE_COMMAND_TIMEOUT_MS,
 ): Promise<unknown> {
-  const request: RuntimeCommandRequest = {
-    request_id: randomUUID(),
-    command_kind: "caste",
+  const response = await requestFromDaemon(
+    root,
+    { command_kind: "caste", action, issue_id: issueId },
+    targetPid,
+    timeoutMs,
     action,
-    issue_id: issueId,
-    target_pid: targetPid,
-    requested_at: new Date().toISOString(),
-  };
-
-  writeRuntimeCommandRequest(root, request);
-  const deadline = Date.now() + timeoutMs;
-
-  while (Date.now() < deadline) {
-    const response = readRuntimeCommandResponse(root, request.request_id);
-    if (response?.request_id === request.request_id) {
-      clearRuntimeCommandResponse(root, request.request_id);
-      clearRuntimeCommandRequest(root, request.request_id);
-      if (response.error) {
-        throw new Error(response.error);
-      }
-      return response.result;
-    }
-
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 50);
-    });
-  }
-
-  clearRuntimeCommandResponse(root, request.request_id);
-  clearRuntimeCommandRequest(root, request.request_id);
-  throw new Error(`Timed out waiting for daemon response to ${action}`);
+  );
+  return response.result;
 }
 
 export async function requestMergeCommandFromDaemon(
   root: string,
   action: RuntimeMergeAction,
   targetPid: number,
-  timeoutMs = 10_000,
+  timeoutMs = DEFAULT_MERGE_COMMAND_TIMEOUT_MS,
 ): Promise<unknown> {
-  const request: RuntimeCommandRequest = {
-    request_id: randomUUID(),
-    command_kind: "merge",
-    action,
-    target_pid: targetPid,
-    requested_at: new Date().toISOString(),
-  };
-
-  writeRuntimeCommandRequest(root, request);
-  const deadline = Date.now() + timeoutMs;
-
-  while (Date.now() < deadline) {
-    const response = readRuntimeCommandResponse(root, request.request_id);
-    if (response?.request_id === request.request_id) {
-      clearRuntimeCommandResponse(root, request.request_id);
-      clearRuntimeCommandRequest(root, request.request_id);
-      if (response.error) {
-        throw new Error(response.error);
-      }
-      return response.result;
-    }
-
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 50);
-    });
-  }
-
-  clearRuntimeCommandResponse(root, request.request_id);
-  clearRuntimeCommandRequest(root, request.request_id);
-  throw new Error(`Timed out waiting for daemon response to merge ${action}`);
+  const response = await requestFromDaemon(
+    root,
+    { command_kind: "merge", action },
+    targetPid,
+    timeoutMs,
+    `merge ${action}`,
+  );
+  return response.result;
 }

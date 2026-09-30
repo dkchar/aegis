@@ -1,13 +1,8 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  writeFileSync,
-} from "node:fs";
 import path from "node:path";
 
 import type { RuntimeSessionSnapshot } from "./agent-runtime.js";
+import { writeJsonAtomic } from "../shared/atomic-write.js";
+import { isJsonRecord, readJsonFileOrNull } from "../shared/json.js";
 
 function resolveSessionsDirectory(root: string) {
   return path.join(path.resolve(root), ".aegis", "logs", "sessions");
@@ -21,22 +16,16 @@ export function writeSessionReport(
   root: string,
   report: RuntimeSessionSnapshot,
 ) {
-  const reportPath = resolveSessionReportPath(root, report.sessionId);
-  const temporaryPath = `${reportPath}.tmp`;
-  mkdirSync(path.dirname(reportPath), { recursive: true });
-  writeFileSync(temporaryPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
-  renameSync(temporaryPath, reportPath);
+  writeJsonAtomic(resolveSessionReportPath(root, report.sessionId), report);
 }
 
+/** Returns the durable session report, or `null` when missing or unreadable. */
 export function readSessionReport(
   root: string,
   sessionId: string,
 ): RuntimeSessionSnapshot | null {
-  const reportPath = resolveSessionReportPath(root, sessionId);
-
-  if (!existsSync(reportPath)) {
-    return null;
-  }
-
-  return JSON.parse(readFileSync(reportPath, "utf8")) as RuntimeSessionSnapshot;
+  const parsed = readJsonFileOrNull(resolveSessionReportPath(root, sessionId));
+  return isJsonRecord(parsed) && typeof parsed["status"] === "string"
+    ? parsed as unknown as RuntimeSessionSnapshot
+    : null;
 }

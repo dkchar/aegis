@@ -1,31 +1,24 @@
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import { writeJsonAtomic } from "../shared/atomic-write.js";
+
+export type ArtifactFamily = "oracle" | "titan" | "sentinel" | "janus" | "transcripts";
+
 export interface PersistArtifactInput {
-  family: "oracle" | "titan" | "sentinel" | "janus" | "transcripts";
+  family: ArtifactFamily;
   issueId: string;
   artifactId?: string;
   artifact: unknown;
 }
 
-function resolveArtifactPath(
-  root: string,
-  family: PersistArtifactInput["family"],
-  issueId: string,
-  artifactId?: string,
-) {
+export function buildArtifactRef(family: ArtifactFamily, issueId: string, artifactId?: string) {
   const fileName = artifactId ? `${issueId}--${artifactId}.json` : `${issueId}.json`;
-  return path.join(path.resolve(root), ".aegis", family, fileName);
+  return path.join(".aegis", family, fileName);
 }
 
+/** Writes an artifact under `.aegis/<family>/` and returns its project-relative ref. */
 export function persistArtifact(root: string, input: PersistArtifactInput) {
-  const artifactPath = resolveArtifactPath(root, input.family, input.issueId, input.artifactId);
-  const temporaryPath = `${artifactPath}.tmp`;
-  const artifactFileName = path.basename(artifactPath);
-
-  mkdirSync(path.dirname(artifactPath), { recursive: true });
-  writeFileSync(temporaryPath, `${JSON.stringify(input.artifact, null, 2)}\n`, "utf8");
-  renameSync(temporaryPath, artifactPath);
-
-  return path.join(".aegis", input.family, artifactFileName);
+  const ref = buildArtifactRef(input.family, input.issueId, input.artifactId);
+  writeJsonAtomic(path.join(path.resolve(root), ref), input.artifact);
+  return ref;
 }

@@ -1,3 +1,5 @@
+import { parseJsonObjectText } from "../../shared/json.js";
+
 export type SentinelVerdictValue = "pass" | "fail_blocking";
 export type SentinelFindingKind =
   | "contract_gap"
@@ -162,7 +164,7 @@ function assertVerdict(value: unknown): SentinelVerdictValue {
 }
 
 export function parseSentinelVerdict(raw: string): SentinelVerdict {
-  const parsed = JSON.parse(raw) as unknown;
+  const parsed = parseJsonObjectText(raw);
   const obj = assertPlainObject(parsed);
 
   for (const key of Object.keys(obj)) {

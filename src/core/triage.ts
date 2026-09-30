@@ -1,5 +1,5 @@
 import type { AegisConfig } from "../config/schema.js";
-import type { DispatchRecord, DispatchState } from "./dispatch-state.js";
+import { countRunningAgents, type DispatchRecord, type DispatchState } from "./dispatch-state.js";
 import type { TrackerReadyIssue } from "../tracker/tracker.js";
 import { hasExhaustedOperationalRetries } from "./failure-policy.js";
 import { calculateScopeOverlapCount } from "../shared/file-scope.js";
@@ -77,18 +77,6 @@ function needsFuturePhase(record: DispatchRecord) {
     && record.stage !== "failed_operational";
 }
 
-function countActiveOracles(state: DispatchState) {
-  return Object.values(state.records).filter(
-    (record) => record.runningAgent?.caste === "oracle",
-  ).length;
-}
-
-function countActiveTitans(state: DispatchState) {
-  return Object.values(state.records).filter(
-    (record) => record.runningAgent?.caste === "titan",
-  ).length;
-}
-
 function resolveDecision(
   issue: TrackerReadyIssue,
   record: DispatchRecord | undefined,
@@ -128,11 +116,9 @@ export function triageReadyWork(input: TriageInput): TriageResult {
   const nowMs = Date.parse(input.now ?? new Date().toISOString());
   const dispatchable: DispatchDecision[] = [];
   const skipped: SkipDecision[] = [];
-  const activeAgentCount = Object.values(input.dispatchState.records).filter(
-    (record) => record.runningAgent !== null,
-  ).length;
-  const activeOracleCount = countActiveOracles(input.dispatchState);
-  const activeTitanCount = countActiveTitans(input.dispatchState);
+  const activeAgentCount = countRunningAgents(input.dispatchState);
+  const activeOracleCount = countRunningAgents(input.dispatchState, "oracle");
+  const activeTitanCount = countRunningAgents(input.dispatchState, "titan");
   let reservedAgents = 0;
   let reservedOracles = 0;
   let reservedTitans = 0;
@@ -179,15 +165,10 @@ export function triageReadyWork(input: TriageInput): TriageResult {
     }
 
     const decision = resolveDecision(issue, record);
-    if (decision.caste === "titan" && record?.fileScope !== null) {
-      const overlappingReservedScope = reservedScopes.some(
-        (files) => calculateScopeOverlapCount(record.fileScope!.files, files) > scopeOverlapThreshold,
-      );
-      const overlappingPendingScope = reservedTitanScopes.some(
-        (files) => calculateScopeOverlapCount(record.fileScope!.files, files) > scopeOverlapThreshold,
-      );
-
-      if (overlappingReservedScope || overlappingPendingScope) {
+    const titanScope = decision.caste === "titan" ? record?.fileScope?.files ?? null : null;
+    if (titanScope) {
+      const overlaps = (files: string[]) => calculateScopeOverlapCount(titanScope, files) > scopeOverlapThreshold;
+      if (reservedScopes.some(overlaps) || reservedTitanScopes.some(overlaps)) {
         skipped.push({
           issueId: issue.id,
           reason: "scope_overlap",
@@ -216,8 +197,8 @@ export function triageReadyWork(input: TriageInput): TriageResult {
       reservedOracles += 1;
     } else {
       reservedTitans += 1;
-      if (record?.fileScope !== null) {
-        reservedTitanScopes.push([...record.fileScope.files]);
+      if (titanScope) {
+        reservedTitanScopes.push([...titanScope]);
       }
     }
   }

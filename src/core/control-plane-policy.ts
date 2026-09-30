@@ -1,9 +1,16 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 import type { AgentCaste, DispatchRecord } from "./dispatch-state.js";
 import type { TrackerClient, TrackerCreateIssueInput } from "../tracker/tracker.js";
+import {
+  POLICY_FINGERPRINT_MARKER,
+  POLICY_PROPOSAL_MARKER,
+  POLICY_SCOPE_EVIDENCE_MARKER,
+} from "../castes/scope-markers.js";
+import { writeJsonAtomic } from "../shared/atomic-write.js";
 import { normalizeScopeFile } from "../shared/file-scope.js";
+import { readArtifactRecord } from "../shared/json.js";
 
 export type MutationProposalType =
   | "create_clarification_blocker"
@@ -164,31 +171,8 @@ function persistPolicyArtifact(
   ref: string,
   artifact: unknown,
 ): string {
-  const artifactPath = path.join(path.resolve(root), ref);
-  const temporaryPath = `${artifactPath}.tmp`;
-
-  mkdirSync(path.dirname(artifactPath), { recursive: true });
-  writeFileSync(temporaryPath, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
-  renameSync(temporaryPath, artifactPath);
-
+  writeJsonAtomic(path.join(path.resolve(root), ref), artifact);
   return ref;
-}
-
-function readPolicyArtifact(root: string, ref: string | null | undefined): unknown {
-  if (!ref) {
-    return null;
-  }
-
-  const artifactPath = path.join(path.resolve(root), ref);
-  if (!existsSync(artifactPath)) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(readFileSync(artifactPath, "utf8"));
-  } catch {
-    return null;
-  }
 }
 
 function hasAcceptedChildPolicyForOrigin(root: string, originIssueId: string): boolean {
@@ -209,13 +193,9 @@ function hasAcceptedChildPolicyForOrigin(root: string, originIssueId: string): b
       return false;
     }
 
-    const artifact = readPolicyArtifact(root, path.join(".aegis", "policy", entry));
-    if (!artifact || typeof artifact !== "object") {
-      return false;
-    }
-
-    const payload = artifact as Record<string, unknown>;
-    return payload["originIssueId"] === originIssueId
+    const payload = readArtifactRecord(root, path.join(".aegis", "policy", entry));
+    return payload !== null
+      && payload["originIssueId"] === originIssueId
       && payload["outcome"] !== "rejected"
       && typeof payload["childIssueId"] === "string";
   });
@@ -229,14 +209,10 @@ function findReusableIssueId(input: ApplyMutationProposalInput): string | null {
     return explicit.issueId;
   }
 
-  const artifact = readPolicyArtifact(input.root, input.record.policyArtifactRef);
-  if (!artifact || typeof artifact !== "object") {
-    return null;
-  }
-
-  const payload = artifact as Record<string, unknown>;
+  const payload = readArtifactRecord(input.root, input.record.policyArtifactRef);
   if (
-    payload["fingerprint"] === input.proposal.fingerprint
+    payload
+    && payload["fingerprint"] === input.proposal.fingerprint
     && typeof payload["childIssueId"] === "string"
     && payload["outcome"] !== "rejected"
   ) {
@@ -327,10 +303,10 @@ function buildCreateIssueInput(proposal: MutationProposal): TrackerCreateIssueIn
     description: [
       proposal.suggestedDescription ?? "",
       "",
-      `Policy proposal: ${proposal.proposalType}`,
+      `${POLICY_PROPOSAL_MARKER} ${proposal.proposalType}`,
       `Summary: ${proposal.summary}`,
-      `Fingerprint: ${proposal.fingerprint}`,
-      "Scope evidence:",
+      `${POLICY_FINGERPRINT_MARKER} ${proposal.fingerprint}`,
+      POLICY_SCOPE_EVIDENCE_MARKER,
       ...proposal.scopeEvidence.map((entry) => `- ${entry}`),
     ].join("\n"),
     fileScope: proposal.fileScope,
