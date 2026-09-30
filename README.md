@@ -49,7 +49,7 @@ Titan output is checked against git: the candidate branch must advance, changed 
 | Task truth | `.agora/tickets.json`, `.agora/events.jsonl` |
 | Orchestration truth | `.aegis/dispatch-state.json` |
 | Merge truth | `.aegis/merge-queue.json` |
-| Observability | `.aegis/logs/`, `.aegis/transcripts/`, caste artifact directories |
+| Observability | `.aegis/logs/` (daemon, phases, live session streams), `.aegis/transcripts/`, caste artifact directories |
 | Runtime execution | adapter sessions |
 
 All durable state is written atomically (temp file + rename).
@@ -60,10 +60,12 @@ Set `runtime` in `.aegis/config.json`.
 
 | Runtime | Engine | Artifact hand-off | Requirements |
 | --- | --- | --- | --- |
-| `claude` | Claude Code headless (`claude -p --output-format stream-json`) | final JSON text | `claude` CLI signed in; models `anthropic:<model-id>` |
-| `codex` | `codex exec` | final JSON text | `codex` CLI signed in |
+| `claude` | Claude Code headless (`claude -p --output-format stream-json`) | schema-validated structured output (`--json-schema`) | `claude` CLI signed in; models `anthropic:<model-id>` |
+| `codex` | `codex exec --json` | final JSON text | `codex` CLI signed in |
 | `pi` | in-process Pi coding agent | typed `emit_*` tool calls | Pi provider settings (`.pi/settings.json`) |
-| `scripted` | deterministic seam runtime | JSON | none (tests and mock proof only) |
+| `scripted` | deterministic seam runtime; fakes agent work | JSON | none (tests and mock proof only) |
+
+Every adapter streams live activity (tool calls, errors, messages) to `.aegis/logs/session-streams/`; the monitor kills sessions that go idle, not sessions that run long.
 
 See [Runtime adapters](docs/runtime-adapters.md) for tool policies, environment overrides, and the adapter contract.
 
@@ -79,9 +81,10 @@ npm run build
 In the repository you want Aegis to work on:
 
 ```bash
-node /path/to/aegis/dist/index.js init      # creates .aegis/ and ignore rules
+node /path/to/aegis/dist/index.js init --runtime claude   # creates .aegis/ and ignore rules
 node /path/to/aegis/packages/agora/dist/cli.js create --title "Add dark mode" --kind task --column ready --actor human --json
-node /path/to/aegis/dist/index.js start     # runs the daemon
+node /path/to/aegis/dist/index.js start                   # runs the daemon
+node /path/to/aegis/dist/index.js stream                  # in another terminal: watch agents work
 ```
 
 ### Using Claude Code
@@ -91,7 +94,7 @@ npm install -g @anthropic-ai/claude-code
 claude          # sign in once
 ```
 
-Then set the runtime and models in `.aegis/config.json`:
+`aegis init --runtime claude` writes this config; to switch an existing project, set the runtime and models in `.aegis/config.json`:
 
 ```json
 {
@@ -105,16 +108,16 @@ Then set the runtime and models in `.aegis/config.json`:
 }
 ```
 
-`aegis start` preflight checks that the CLI runs and the model refs are well formed.
+`aegis start` preflight checks that the CLI runs and the model refs are well formed. Each caste's `thinking` level maps to Claude Code effort, and final artifacts are validated against the caste schema before Aegis parses them.
 
 ## CLI
 
 ```text
-aegis init                  Create .aegis/ state files and ignore rules
+aegis init [--runtime <name>]  Create .aegis/ state files and ignore rules
 aegis start                 Run the daemon
 aegis stop                  Stop the daemon and release active sessions
-aegis status                Daemon, queue, and operational-failure status (JSON)
-aegis stream [daemon]       Follow daemon and phase logs
+aegis status                Daemon, live sessions, stages, merge queue, failures (JSON)
+aegis stream [daemon]       Follow daemon, phase, and live session activity
 aegis poll|dispatch|monitor|reap
 aegis scout|implement|review|process <issue>
 aegis merge next
@@ -159,8 +162,8 @@ src/
   config/       config schema, defaults, validation, init
   core/         poller, triage, dispatcher, monitor, reaper, loop runner, policies
   core/caste/   caste runners, prompts, artifact readers, recovery
-  castes/       typed artifact parsers and Pi tool contracts
-  runtime/      adapter contract, registry, Claude/Codex/Pi/scripted adapters
+  castes/       typed artifact parsers, shared artifact schemas, Pi tool contracts
+  runtime/      adapter contract, registry, Claude/Codex/Pi/scripted adapters, session streams
   merge/        merge queue state, tier policy, merge executor
   tracker/      generic tracker boundary + Agora client
   labor/        git worktree labors

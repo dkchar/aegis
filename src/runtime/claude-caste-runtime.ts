@@ -313,6 +313,10 @@ export class ClaudeStreamParser {
         if (event["subtype"] === "init") {
           this.summary.resolvedModel = typeof event["model"] === "string" ? event["model"] : null;
           this.log(`[session] init model=${this.summary.resolvedModel ?? "unknown"}`);
+        } else if (event["subtype"] === "api_retry") {
+          // Backoff is visible activity, not a stuck session.
+          const error = typeof event["error"] === "string" ? event["error"] : "unknown";
+          this.log(`[api_retry] ${error} attempt ${String(event["attempt"] ?? "?")}/${String(event["max_retries"] ?? "?")}`);
         }
         break;
       case "assistant":

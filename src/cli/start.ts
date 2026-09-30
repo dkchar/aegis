@@ -49,7 +49,7 @@ import {
 import { recoverStaleRuntimeState } from "./runtime-recovery.js";
 
 const STOP_REQUEST_POLL_MS = 150;
-const HEARTBEAT_LOG_INTERVAL_MS = 5_000;
+const HEARTBEAT_LOG_INTERVAL_MS = 60_000;
 
 export type DaemonStopReason = "manual" | "signal" | "shutdown" | "provider_usage_limit";
 

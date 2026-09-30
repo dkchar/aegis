@@ -114,10 +114,28 @@ export function clearStopRequest(root = process.cwd()) {
   }
 }
 
+/**
+ * A zombie has already exited and only waits for its parent to reap it, but
+ * signal 0 still reaches it. Linux exposes the state cheaply in /proc.
+ */
+function isZombieProcess(pid: number) {
+  if (process.platform !== "linux") {
+    return false;
+  }
+
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    // Format: `<pid> (<comm>) <state> ...`; comm may itself contain ")".
+    return stat.charAt(stat.lastIndexOf(")") + 2) === "Z";
+  } catch {
+    return false;
+  }
+}
+
 export function isProcessRunning(pid: number) {
   try {
     process.kill(pid, 0);
-    return true;
+    return !isZombieProcess(pid);
   } catch (error) {
     if (error instanceof Error && "code" in error) {
       const code = String(error.code);

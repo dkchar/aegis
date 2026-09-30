@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, statSync } from "node:fs";
+import { appendFileSync, closeSync, mkdirSync, openSync, readSync, statSync } from "node:fs";
 import path from "node:path";
 
 import type { RuntimeSessionSnapshot } from "./agent-runtime.js";
@@ -55,6 +55,30 @@ function readLastActivityAt(root: string, sessionId: string) {
     return statSync(resolveSessionStreamPath(root, sessionId)).mtime.toISOString();
   } catch {
     return undefined;
+  }
+}
+
+const STREAM_TAIL_BYTES = 4_096;
+
+/** Latest activity line (without its timestamp), or `null` when the stream is missing or empty. */
+export function readLastSessionActivity(root: string, sessionId: string): string | null {
+  const streamPath = resolveSessionStreamPath(root, sessionId);
+  let fd: number;
+  try {
+    fd = openSync(streamPath, "r");
+  } catch {
+    return null;
+  }
+
+  try {
+    const size = statSync(streamPath).size;
+    const length = Math.min(size, STREAM_TAIL_BYTES);
+    const buffer = Buffer.alloc(length);
+    readSync(fd, buffer, 0, length, size - length);
+    const lastLine = buffer.toString("utf8").split(/\r?\n/).filter((line) => line.trim().length > 0).at(-1);
+    return lastLine ? lastLine.replace(/^\S+\s/, "") : null;
+  } finally {
+    closeSync(fd);
   }
 }
 

@@ -34,7 +34,7 @@ State records are never mutated in place: every transition returns a new record,
 | `src/core/caste/` | per-caste runners (`scout`, `implement`, `review`, `janus`), prompts, artifact readers, policy proposals, recovery |
 | `src/core/git-proof.ts`, `titan-session-validation.ts` | git snapshots, candidate advancement, scope and root-cleanliness checks, root-commit adoption |
 | `src/castes/` | strict artifact parsers, Pi tool contracts, prompt/description markers |
-| `src/runtime/` | adapter contract, registry, dispatch runtime, Claude/Codex/Pi/scripted adapters, process supervision |
+| `src/runtime/` | adapter contract, registry, dispatch runtime, Claude/Codex/Pi/scripted adapters, session reports and live activity streams, process supervision |
 | `src/merge/` | merge queue state, auto-enqueue, tier policy, merge executor |
 | `src/tracker/` | generic tracker boundary and the Agora client |
 | `src/labor/` | git worktree labors per issue |
@@ -63,7 +63,7 @@ Launches scoped runtime sessions and records their ownership. A launch error fai
 
 ### Monitor
 
-Reads session reports. Sessions older than `stuck_kill_seconds` are terminated.
+Reads session reports and last activity. Sessions idle (no adapter activity) past `stuck_warning_seconds` are logged, and past `stuck_kill_seconds` are terminated; a long session that keeps reporting activity keeps running.
 
 ### Reaper
 

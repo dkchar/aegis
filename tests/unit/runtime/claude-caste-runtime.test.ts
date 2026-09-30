@@ -215,6 +215,9 @@ describe("parseClaudeStreamOutput results", () => {
     ]), "prompt");
 
     expect(summary.structuredOutput).toEqual({ verdict: "pass" });
+    expect(parseClaudeStreamOutput(streamLines([
+      { type: "system", subtype: "api_retry", attempt: 2, max_retries: 10, error: "rate_limit", session_id: "s-5" },
+    ]), "prompt").terminalLog).toEqual(["[api_retry] rate_limit attempt 2/10"]);
     expect(summary.permissionDenials).toEqual(["Write ../escape.txt"]);
     expect(summary.terminalLog).toEqual(["[denied] Write ../escape.txt", "[result] success"]);
   });

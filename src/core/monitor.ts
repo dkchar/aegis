@@ -23,7 +23,7 @@ export interface MonitorResult {
  * A session is stuck when it stops producing activity, not when it runs long:
  * idle time counts from the latest of session start and last adapter activity.
  */
-function resolveIdleSeconds(startedAt: string, lastActivityAt: string | undefined, nowMs: number) {
+export function resolveIdleSeconds(startedAt: string, lastActivityAt: string | null | undefined, nowMs: number) {
   const lastSignalMs = Math.max(
     Date.parse(startedAt),
     lastActivityAt ? Date.parse(lastActivityAt) : Number.NEGATIVE_INFINITY,

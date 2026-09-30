@@ -26,7 +26,7 @@ Workspace selection, the next recommended operator action, the Agora board (drag
 
 ## Sessions
 
-Durable agent session output rendered in a terminal, grouped by caste, with the selected session's issue, stage, adapter, model, usage (cost, tokens, turns), working directory, and transcript path. Sessions are linkable via `#agents/<session-id>`.
+Agent session output rendered in a terminal, grouped by caste, with the selected session's issue, stage, adapter, model, usage (cost, tokens, turns), working directory, and transcript path. Running sessions show live adapter activity from `.aegis/logs/session-streams/` (tool calls, tool errors, assistant messages); finished sessions show the durable transcript. Sessions are linkable via `#agents/<session-id>`.
 
 ![Olympus Sessions](screenshots/olympus-sessions.png)
 
