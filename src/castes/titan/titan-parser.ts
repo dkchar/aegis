@@ -1,3 +1,5 @@
+import { parseJsonObjectText } from "../../shared/json.js";
+
 export type TitanRunOutcome = "success" | "already_satisfied" | "clarification" | "failure";
 
 export type TitanMutationProposalType =
@@ -109,7 +111,7 @@ function assertTitanMutationProposal(value: unknown): TitanMutationProposal {
 }
 
 export function parseTitanArtifact(raw: string): TitanArtifact {
-  const parsed = JSON.parse(raw) as unknown;
+  const parsed = parseJsonObjectText(raw);
 
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new Error("Titan output must be a JSON object");

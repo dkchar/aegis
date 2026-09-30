@@ -1,84 +1,47 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { readJson, tailLines } from "./io.js";
+import { LIVE_ADAPTERS, listModelOptions } from "./adapters.js";
+import { CASTES, flattenConfig } from "./config-schema.js";
+import { readJson, readText, tailLines } from "./io.js";
 import { readSessions } from "./session-reader.js";
 
-const CASTES = ["oracle", "titan", "sentinel", "janus"];
-const PHASES = ["poll", "triage", "dispatch", "monitor", "reap"];
-const REAL_ADAPTERS = ["codex", "pi"];
+export { listModelOptions };
 
-function flattenConfig(config) {
-  if (!config || typeof config !== "object") return null;
-  return {
-    runtime: config.runtime ?? "",
-    "models.oracle": config.models?.oracle ?? "",
-    "models.titan": config.models?.titan ?? "",
-    "models.sentinel": config.models?.sentinel ?? "",
-    "models.janus": config.models?.janus ?? "",
-    "thinking.oracle": config.thinking?.oracle ?? "",
-    "thinking.titan": config.thinking?.titan ?? "",
-    "thinking.sentinel": config.thinking?.sentinel ?? "",
-    "thinking.janus": config.thinking?.janus ?? "",
-    "concurrency.max_agents": String(config.concurrency?.max_agents ?? ""),
-    "concurrency.max_oracles": String(config.concurrency?.max_oracles ?? ""),
-    "concurrency.max_titans": String(config.concurrency?.max_titans ?? ""),
-    "concurrency.max_sentinels": String(config.concurrency?.max_sentinels ?? ""),
-    "concurrency.max_janus": String(config.concurrency?.max_janus ?? ""),
-    "thresholds.poll_interval_seconds": String(config.thresholds?.poll_interval_seconds ?? ""),
-    "thresholds.stuck_warning_seconds": String(config.thresholds?.stuck_warning_seconds ?? ""),
-    "thresholds.stuck_kill_seconds": String(config.thresholds?.stuck_kill_seconds ?? ""),
-    "thresholds.allow_complex_auto_dispatch": String(config.thresholds?.allow_complex_auto_dispatch ?? ""),
-    "thresholds.scope_overlap_threshold": String(config.thresholds?.scope_overlap_threshold ?? ""),
-    "thresholds.janus_retry_threshold": String(config.thresholds?.janus_retry_threshold ?? ""),
-    "janus.enabled": String(config.janus?.enabled ?? ""),
-    "janus.max_invocations_per_issue": String(config.janus?.max_invocations_per_issue ?? ""),
-    "labor.base_path": config.labor?.base_path ?? "",
-    "git.base_branch": config.git?.base_branch ?? "",
-  };
+const PHASES = ["poll", "triage", "dispatch", "monitor", "reap"];
+const ARTIFACT_FAMILIES = ["artifacts", "oracle", "titan", "sentinel", "janus", "policy", "transcripts"];
+const ARTIFACTS_PER_FAMILY = 20;
+const ARTIFACT_BODY_CHARS = 4_000;
+const LOOP_EVENT_FILES = 120;
+const SESSION_PHASE_FILES = 240;
+const GIT_BRANCH_TTL_MS = 5_000;
+
+const directoryCache = new Map();
+const branchCache = new Map();
+
+/** Sorted `.json` entries of a directory, re-listed only when the directory changes. */
+export function listJsonFiles(directory) {
+  let stats;
+  try {
+    stats = statSync(directory);
+  } catch {
+    return [];
+  }
+  const cached = directoryCache.get(directory);
+  if (cached && cached.mtimeMs === stats.mtimeMs) return cached.files;
+  const files = readdirSync(directory).filter((entry) => entry.endsWith(".json")).sort();
+  directoryCache.set(directory, { mtimeMs: stats.mtimeMs, files });
+  return files;
 }
 
 function normalizeConfigForOlympus(config) {
   if (!config || typeof config !== "object") return config;
-  if (REAL_ADAPTERS.includes(config.runtime)) return config;
+  if (LIVE_ADAPTERS.includes(config.runtime)) return config;
   return {
     ...config,
     runtime: "",
     models: Object.fromEntries(CASTES.map((caste) => [caste, ""])),
   };
-}
-
-function detectAdapterOptions(root) {
-  const runtimeDir = existsSync(path.join(root, "src", "runtime"))
-    ? path.join(root, "src", "runtime")
-    : path.join(process.cwd(), "src", "runtime");
-  if (!existsSync(runtimeDir)) return [];
-  return readdirSync(runtimeDir)
-    .map((fileName) => fileName.match(/^(.+)-caste-runtime\.ts$/)?.[1])
-    .filter(Boolean)
-    .filter((name) => name !== "create" && name !== "scripted")
-    .sort();
-}
-
-function readCodexModelOptions() {
-  const cachePath = path.join(homedir(), ".codex", "models_cache.json");
-  const cache = readJson(cachePath, null);
-  const models = Array.isArray(cache?.models) ? cache.models : [];
-  return models
-    .filter((model) => typeof model?.slug === "string" && model.visibility !== "hidden")
-    .map((model) => ({
-      provider: "openai-codex",
-      id: model.slug,
-      value: `openai-codex:${model.slug}`,
-      label: `Codex / ${model.display_name ?? model.slug}`,
-      reasoning: model.default_reasoning_level ?? "medium",
-    }))
-    .sort((left, right) => {
-      const leftMini = /mini|small|spark/i.test(left.id) ? 0 : 1;
-      const rightMini = /mini|small|spark/i.test(right.id) ? 0 : 1;
-      return leftMini - rightMini || left.label.localeCompare(right.label);
-    });
 }
 
 function readAgoraTickets(root) {
@@ -124,34 +87,42 @@ function readMergeQueue(root) {
         issue: item.issueId ?? item.issue ?? "",
         state: item.status ?? item.state ?? "queued",
         priority: item.lastTier ?? "queue",
+        attempts: item.attempts ?? 0,
         note: item.lastError ?? `${item.candidateBranch ?? "candidate"} -> ${item.targetBranch ?? "target"}`,
       }))
     : [];
 }
 
+function newestFiles(directory) {
+  return listJsonFiles(directory)
+    .map((fileName) => {
+      try {
+        return { fileName, mtime: statSync(path.join(directory, fileName)).mtimeMs };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean)
+    .sort((left, right) => right.mtime - left.mtime)
+    .slice(0, ARTIFACTS_PER_FAMILY);
+}
+
 function readArtifacts(root) {
-  const roots = ["artifacts", "oracle", "titan", "sentinel", "janus", "policy", "transcripts"]
-    .map((entry) => path.join(root, ".aegis", entry))
-    .filter((candidate) => existsSync(candidate));
-  if (!roots.length) return [];
   const artifacts = [];
-  for (const directory of roots) {
-    const kind = path.basename(directory);
-    const files = readdirSync(directory)
-      .filter((entry) => entry.endsWith(".json"))
-      .map((fileName) => ({ fileName, mtime: statSync(path.join(directory, fileName)).mtimeMs }))
-      .sort((left, right) => right.mtime - left.mtime)
-      .slice(0, 20);
-    for (const { fileName } of files) {
+  for (const family of ARTIFACT_FAMILIES) {
+    const directory = path.join(root, ".aegis", family);
+    if (!existsSync(directory)) continue;
+    for (const { fileName } of newestFiles(directory)) {
       const filePath = path.join(directory, fileName);
       const relativePath = path.relative(root, filePath).replace(/\\/g, "/");
-      const rawBody = readFileSync(filePath, "utf8");
-      const body = rawBody.slice(0, 4000);
+      const parsed = readJson(filePath, null);
+      const body = parsed
+        ? JSON.stringify(parsed, null, 2).slice(0, ARTIFACT_BODY_CHARS)
+        : readText(filePath, ARTIFACT_BODY_CHARS);
       if (body.toLowerCase().includes("scripted")) continue;
-      const parsed = parseJsonBody(rawBody);
       artifacts.push({
         id: relativePath,
-        kind: `${kind} artifact`,
+        kind: `${family} artifact`,
         path: relativePath,
         owner: parsed?.caste ?? fileName.split("-")[0] ?? "",
         issue: parsed?.issueId ?? issueFromPath(relativePath),
@@ -187,6 +158,10 @@ function artifactStatus(parsed) {
   return "ready";
 }
 
+function compactText(value) {
+  return String(value).replace(/\s+/g, " ").slice(0, 360);
+}
+
 function artifactSummary(parsed, body) {
   if (!parsed || typeof parsed !== "object") {
     return extractEventMessage(body) ?? String(body ?? "").split(/\r?\n/).find(Boolean)?.slice(0, 240) ?? "Artifact record";
@@ -198,17 +173,17 @@ function artifactSummary(parsed, body) {
     ?? parsed.error
     ?? parsed.verdictSummary
     ?? parsed.message;
-  if (direct) return String(direct).replace(/\s+/g, " ").slice(0, 360);
+  if (direct) return compactText(direct);
   const terminalError = Array.isArray(parsed.terminalLog)
     ? parsed.terminalLog.find((line) => String(line).startsWith("[error]"))
     : null;
-  if (terminalError) return String(terminalError).replace(/^\[error\]\s*/, "").replace(/\s+/g, " ").slice(0, 360);
+  if (terminalError) return compactText(String(terminalError).replace(/^\[error\]\s*/, ""));
   const finding = Array.isArray(parsed.blockingFindings) ? parsed.blockingFindings.find(Boolean)?.summary : null;
-  if (finding) return String(finding).replace(/\s+/g, " ").slice(0, 360);
+  if (finding) return compactText(finding);
   const risk = Array.isArray(parsed.known_risks) ? parsed.known_risks.find(Boolean) : null;
-  if (risk) return String(risk).replace(/\s+/g, " ").slice(0, 360);
+  if (risk) return compactText(risk);
   const check = Array.isArray(parsed.checks) ? parsed.checks.find(Boolean) : null;
-  if (check) return String(check).replace(/\s+/g, " ").slice(0, 360);
+  if (check) return compactText(check);
   return "Structured artifact available";
 }
 
@@ -223,13 +198,20 @@ function extractEventMessage(value) {
   return null;
 }
 
-function readLoopEvents(root) {
+/** Newest phase log entries, oldest first; shared by loop events and session activity. */
+function readRecentPhaseEntries(root, maxEntries) {
   const phaseDir = path.join(root, ".aegis", "logs", "phases");
-  if (!existsSync(phaseDir)) return null;
+  return listJsonFiles(phaseDir)
+    .slice(-maxEntries)
+    .map((fileName) => readJson(path.join(phaseDir, fileName), null))
+    .filter((entry) => entry?.phase && entry?.action)
+    .sort((left, right) => Date.parse(left.timestamp ?? "") - Date.parse(right.timestamp ?? ""));
+}
+
+function buildLoopEvents(phaseEntries) {
   const events = Object.fromEntries(PHASES.map((phase) => [phase, []]));
-  for (const fileName of readdirSync(phaseDir).filter((entry) => entry.endsWith(".json")).sort().slice(-120)) {
-    const entry = readJson(path.join(phaseDir, fileName), null);
-    if (!entry || !PHASES.includes(entry.phase)) continue;
+  for (const entry of phaseEntries.slice(-LOOP_EVENT_FILES)) {
+    if (!PHASES.includes(entry.phase)) continue;
     const epoch = entry.timestamp ? Date.parse(entry.timestamp) : 0;
     const time = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString([], { hour12: false }) : "";
     const issueId = entry.issueId && entry.issueId !== "_all" ? entry.issueId : "system";
@@ -242,39 +224,44 @@ function readLoopEvents(root) {
 }
 
 function latestLoopEvent(loopEvents) {
-  if (!loopEvents) return null;
   return Object.entries(loopEvents)
     .flatMap(([phase, entries]) => entries.map((entry) => ({ phase, entry })))
-    .filter((item) => Array.isArray(item.entry))
     .sort((left, right) => Number(left.entry[3] ?? 0) - Number(right.entry[3] ?? 0))
     .at(-1) ?? null;
 }
 
+function readBranch(root) {
+  const cached = branchCache.get(root);
+  if (cached && Date.now() - cached.at < GIT_BRANCH_TTL_MS) return cached.value;
+  let value = "";
+  try {
+    value = execFileSync("git", ["branch", "--show-current"], { cwd: root, encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    value = "";
+  }
+  branchCache.set(root, { at: Date.now(), value });
+  return value;
+}
+
 function readDaemon(root, config, loopEvents) {
   const runtime = readJson(path.join(root, ".aegis", "runtime-state.json"), null);
-  const branch = execGit(root, ["branch", "--show-current"]) || config?.git?.base_branch || "workspace";
   const status = runtime?.server_state ?? "stopped";
   const latest = latestLoopEvent(loopEvents);
   const activity = latest ? `${latest.phase}: ${latest.entry[1]}` : (status === "running" ? "waiting for loop event" : "idle");
   return {
     status,
+    mode: runtime?.mode ?? "auto",
     pid: status === "running" && runtime?.pid ? String(runtime.pid) : "none",
     phase: latest?.phase ?? "idle",
     activity,
     lastEventAt: latest?.entry?.[0] ?? "",
+    startedAt: runtime?.started_at ?? "",
     uptime: status === "running" ? runtime?.started_at ?? "running" : runtime?.stopped_at ?? "not running",
-    adapter: config?.runtime ?? "unconfigured",
+    stopReason: runtime?.last_stop_reason ?? "",
+    adapter: config?.runtime || "unconfigured",
     stream: existsSync(path.join(root, ".aegis", "logs", "daemon.log")) ? "connected" : "waiting",
-    branch,
+    branch: readBranch(root) || config?.git?.base_branch || "workspace",
   };
-}
-
-function execGit(root, args) {
-  try {
-    return execFileSync("git", args, { cwd: root, encoding: "utf8", windowsHide: true }).trim();
-  } catch {
-    return "";
-  }
 }
 
 function buildHealth(root, tickets, mergeQueue, artifacts, agents, records = []) {
@@ -302,11 +289,18 @@ function buildHealth(root, tickets, mergeQueue, artifacts, agents, records = [])
   ];
 }
 
-function buildRunSummary(tickets, daemon, workspace) {
+// Matches the Agora tracker adapter: coordination tickets group work but are never dispatched.
+function isExecutableTicket(ticket) {
+  return !ticket.labels.includes("role:coordination");
+}
+
+function buildRunSummary(allTickets, daemon, workspace, agents) {
+  const tickets = allTickets.filter(isExecutableTicket);
   const total = tickets.length;
   const done = tickets.filter((ticket) => ticket.column === "done").length;
   const halted = tickets.filter((ticket) => ticket.column === "halted").length;
   const active = tickets.filter((ticket) => ["ready", "in_progress", "in_review", "blocked", "ready_to_merge"].includes(ticket.column)).length;
+  const costUsd = agents.reduce((sum, agent) => sum + (Number(agent.usage?.costUsd) || 0), 0);
   return {
     total,
     done,
@@ -314,69 +308,32 @@ function buildRunSummary(tickets, daemon, workspace) {
     active,
     complete: total > 0 && done === total && halted === 0 && active === 0,
     running: daemon.status === "running",
+    costUsd: Number(costUsd.toFixed(4)),
     workspace,
   };
 }
 
-export async function listModelOptions(root, adapter) {
-  if (adapter === "codex") {
-    const options = readCodexModelOptions();
-    return {
-      options,
-      providers: options.length ? ["openai-codex"] : [],
-      message: options.length ? "" : "Run Codex once so local model availability can be cached.",
-    };
-  }
-
-  if (adapter !== "pi") {
-    return { options: [], providers: [], message: "No authenticated model registry is exposed for this adapter yet." };
-  }
-
-  try {
-    const { getModels, getProviders } = await import("@mariozechner/pi-ai");
-    const providers = getProviders().sort();
-    return {
-      providers,
-      options: providers
-        .flatMap((provider) => getModels(provider).map((model) => ({
-          provider,
-          id: model.id,
-          value: `${provider}:${model.id}`,
-          label: `${provider} / ${model.name ?? model.id}`,
-        })))
-        .sort((left, right) => left.label.localeCompare(right.label)),
-      message: providers.length ? "" : "No Pi model providers are exposed by the runtime registry.",
-    };
-  } catch (error) {
-    return {
-      options: [],
-      providers: [],
-      message: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
-
+/** One consistent snapshot of every Aegis truth plane for the operator console. */
 export async function readOlympusState(root, workspace = { root: "", seeded: false }) {
   const config = normalizeConfigForOlympus(readJson(path.join(root, ".aegis", "config.json"), null));
   const tickets = readAgoraTickets(root);
   const dispatchRecords = readDispatchRecords(root);
   const mergeQueue = readMergeQueue(root);
   const artifacts = readArtifacts(root);
-  const agents = readSessions(root, dispatchRecords);
+  const phaseEntries = readRecentPhaseEntries(root, SESSION_PHASE_FILES);
+  const agents = readSessions(root, dispatchRecords, phaseEntries);
   const daemonLogs = tailLines(path.join(root, ".aegis", "logs", "daemon.log"))
     .filter((line) => !line.toLowerCase().includes("scripted"));
-  const loopEvents = readLoopEvents(root);
-  const adapterOptions = detectAdapterOptions(root);
-  const runtime = config?.runtime ?? adapterOptions[0] ?? "pi";
-  const modelOptions = runtime ? { [runtime]: await listModelOptions(root, runtime) } : {};
+  const loopEvents = buildLoopEvents(phaseEntries);
+  const runtime = config?.runtime || LIVE_ADAPTERS[0];
   const daemon = readDaemon(root, config, loopEvents);
   return {
     generatedAt: new Date().toISOString(),
     workspace,
     daemon,
-    runSummary: buildRunSummary(tickets, daemon, workspace),
-    adapterOptions,
-    modelOptions,
+    runSummary: buildRunSummary(tickets, daemon, workspace, agents),
+    adapterOptions: LIVE_ADAPTERS,
+    modelOptions: { [runtime]: await listModelOptions(root, runtime) },
     ...(config ? { config: flattenConfig(config), configFilePresent: true } : { configFilePresent: false }),
     tickets,
     dispatchRecords,
@@ -384,7 +341,7 @@ export async function readOlympusState(root, workspace = { root: "", seeded: fal
     artifacts,
     agents,
     logs: daemonLogs,
-    loopEvents: loopEvents ?? Object.fromEntries(PHASES.map((phase) => [phase, []])),
+    loopEvents,
     healthChecks: buildHealth(root, tickets, mergeQueue, artifacts, agents, dispatchRecords),
   };
 }

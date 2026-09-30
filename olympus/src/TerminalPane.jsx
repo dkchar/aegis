@@ -36,7 +36,7 @@ export default function TerminalPane({ session, title, selected = false, compact
       fontFamily: "JetBrains Mono, ui-monospace, SFMono-Regular, Consolas, monospace",
       fontSize: 13,
       lineHeight: 1.25,
-      theme: { background: "#05080d", foreground: "#e5edf7", cursor: "#e5edf7", green: "#4ade80", red: "#f87171" },
+      theme: { background: "#0a0e15", foreground: "#d5dbe5", cursor: "#35c9b6", green: "#4ade80", red: "#f87171", cyan: "#35c9b6", yellow: "#facc15" },
     });
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
@@ -81,7 +81,7 @@ export default function TerminalPane({ session, title, selected = false, compact
       p="sm"
       h="100%"
       className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-2"
-      style={{ borderColor: selected ? "var(--mantine-color-cyan-5)" : undefined }}
+      style={{ borderColor: selected ? "var(--mantine-color-aegis-5)" : undefined }}
     >
       <UnstyledButton onClick={onSelect} w="100%">
         <Group gap="xs" justify="space-between" wrap="nowrap">

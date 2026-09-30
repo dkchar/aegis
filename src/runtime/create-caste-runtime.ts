@@ -3,6 +3,11 @@ import type { CasteName } from "./caste-runtime.js";
 import { PiCasteRuntime } from "./pi-caste-runtime.js";
 import { CodexCasteRuntime, createCodexModelConfigs } from "./codex-caste-runtime.js";
 import {
+  ClaudeCasteRuntime,
+  createClaudeModelConfigs,
+  resolveClaudeRuntimeOptionsFromEnv,
+} from "./claude-caste-runtime.js";
+import {
   createDefaultScriptedCasteRuntime,
   createScriptedModelConfigs,
 } from "./scripted-caste-runtime.js";
@@ -14,6 +19,7 @@ export interface CreateCasteRuntimeOptions {
   createPiRuntime?: () => CasteRuntime;
   createScriptedRuntime?: () => CasteRuntime;
   createCodexRuntime?: () => CasteRuntime;
+  createClaudeRuntime?: () => CasteRuntime;
 }
 
 export interface CreateCasteRuntimeContext {
@@ -66,36 +72,41 @@ export function resolvePiRuntimeOptionsFromEnv(
   };
 }
 
+/**
+ * Builds the direct caste runtime for an adapter name. Unknown names fall back
+ * to the scripted runtime so seam tests never reach a live model by accident;
+ * the daemon rejects unknown adapters during startup preflight.
+ */
 export function createCasteRuntime(
   runtime: string,
   options: CreateCasteRuntimeOptions = {},
   context: CreateCasteRuntimeContext = {},
 ): CasteRuntime {
   const config = context.root ? loadConfig(context.root) : null;
-  const createPiRuntime = options.createPiRuntime ?? (() => {
-    const modelConfigs = config
-      ? createCasteConfig((caste) => resolveConfiguredCasteModel(config, caste))
-      : {};
-    return new PiCasteRuntime(modelConfigs, resolvePiRuntimeOptionsFromEnv());
-  });
-  const createScriptedRuntime = options.createScriptedRuntime
-    ?? (() => createDefaultScriptedCasteRuntime(
-      config ? createScriptedModelConfigs(config.models, config.thinking) : {},
-      context.root,
-      context.issueId,
-    ));
-  const createCodexRuntime = options.createCodexRuntime
-    ?? (() => new CodexCasteRuntime(
-      config ? createCodexModelConfigs(config.models, config.thinking) : {},
-    ));
 
   if (runtime === "pi") {
-    return createPiRuntime();
+    return options.createPiRuntime?.() ?? new PiCasteRuntime(
+      config ? createCasteConfig((caste) => resolveConfiguredCasteModel(config, caste)) : {},
+      resolvePiRuntimeOptionsFromEnv(),
+    );
   }
 
   if (runtime === "codex") {
-    return createCodexRuntime();
+    return options.createCodexRuntime?.() ?? new CodexCasteRuntime(
+      config ? createCodexModelConfigs(config.models, config.thinking) : {},
+    );
   }
 
-  return createScriptedRuntime();
+  if (runtime === "claude") {
+    return options.createClaudeRuntime?.() ?? new ClaudeCasteRuntime(
+      config ? createClaudeModelConfigs(config.models, config.thinking) : {},
+      resolveClaudeRuntimeOptionsFromEnv(),
+    );
+  }
+
+  return options.createScriptedRuntime?.() ?? createDefaultScriptedCasteRuntime(
+    config ? createScriptedModelConfigs(config.models, config.thinking) : {},
+    context.root,
+    context.issueId,
+  );
 }

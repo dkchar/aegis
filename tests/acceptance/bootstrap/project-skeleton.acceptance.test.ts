@@ -102,7 +102,7 @@ describe("S00 project skeleton acceptance", () => {
 
     expect(existsSync(cliPath)).toBe(true);
     expect(cliRun.status).toBe(0);
-    expect(cliRun.stdout).toContain("Aegis CLI scaffold ready");
+    expect(cliRun.stdout).toContain("Usage: aegis <command>");
     expect(sharedPathsModule.resolveProjectPaths(repoRoot)).toEqual({
       repoRoot,
       srcRoot: path.join(repoRoot, "src"),
@@ -136,7 +136,7 @@ describe("S00 project skeleton acceptance", () => {
       );
 
       expect(linkedCliRun.status).toBe(0);
-      expect(linkedCliRun.stdout).toContain("Aegis CLI scaffold ready");
+      expect(linkedCliRun.stdout).toContain("Usage: aegis <command>");
     } finally {
       rmSync(linkedRoot, { recursive: true, force: true });
     }

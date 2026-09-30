@@ -33,3 +33,6 @@ jobs:
 
       - name: Run builds
         run: npm run build
+
+      - name: Build Olympus
+        run: npm run olympus:build

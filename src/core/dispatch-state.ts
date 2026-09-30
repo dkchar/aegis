@@ -1,12 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+
 import {
-  calculateFailureCooldown,
+  applyOperationalFailure,
+  applySentinelOperationalFailure,
   type OperationalFailureKind,
-  resolveFailureWindowStartMs,
-  shouldEscalateSentinelOperationalFailure,
 } from "./failure-policy.js";
-import { renameWithRetries } from "../shared/atomic-write.js";
+import { writeJsonAtomic } from "../shared/atomic-write.js";
 
 export type AgentCaste = "oracle" | "titan" | "sentinel" | "janus";
 
@@ -63,16 +63,57 @@ export interface DispatchState {
   records: Record<string, DispatchRecord>;
 }
 
-function aegisDir(projectRoot: string): string {
-  return join(projectRoot, ".aegis");
-}
+/** Stages where a live adapter session is expected to own the record. */
+export const IN_PROGRESS_STAGES: ReadonlySet<DispatchStage> = new Set<DispatchStage>([
+  "scouting",
+  "implementing",
+  "reviewing",
+  "merging",
+  "resolving_integration",
+]);
 
 function dispatchStatePath(projectRoot: string): string {
-  return join(aegisDir(projectRoot), "dispatch-state.json");
+  return join(projectRoot, ".aegis", "dispatch-state.json");
 }
 
-function dispatchStateTmpPath(projectRoot: string): string {
-  return join(aegisDir(projectRoot), "dispatch-state.json.tmp");
+export function emptyDispatchState(): DispatchState {
+  return {
+    schemaVersion: 1,
+    records: {},
+  };
+}
+
+export function createDispatchRecord(
+  issueId: string,
+  sessionProvenanceId: string,
+  timestamp: string,
+): DispatchRecord {
+  return {
+    issueId,
+    stage: "pending",
+    runningAgent: null,
+    lastCompletedCaste: null,
+    blockedByIssueId: null,
+    reviewFeedbackRef: null,
+    policyArtifactRef: null,
+    oracleAssessmentRef: null,
+    oracleReady: null,
+    oracleDecompose: null,
+    oracleBlockers: null,
+    titanHandoffRef: null,
+    titanClarificationRef: null,
+    sentinelVerdictRef: null,
+    janusArtifactRef: null,
+    failureTranscriptRef: null,
+    operationalFailureKind: null,
+    fileScope: null,
+    failureCount: 0,
+    consecutiveFailures: 0,
+    failureWindowStartMs: null,
+    cooldownUntil: null,
+    sessionProvenanceId,
+    updatedAt: timestamp,
+  };
 }
 
 export function loadDispatchState(projectRoot: string): DispatchState {
@@ -122,84 +163,7 @@ export function loadDispatchState(projectRoot: string): DispatchState {
 }
 
 export function saveDispatchState(projectRoot: string, state: DispatchState): void {
-  const dir = aegisDir(projectRoot);
-  mkdirSync(dir, { recursive: true });
-
-  const tmpPath = dispatchStateTmpPath(projectRoot);
-  const finalPath = dispatchStatePath(projectRoot);
-  writeFileSync(tmpPath, JSON.stringify(state, null, 2), "utf-8");
-  renameWithRetries(tmpPath, finalPath);
-}
-
-const IN_PROGRESS_STAGES = new Set<DispatchStage>([
-  "scouting",
-  "implementing",
-  "reviewing",
-  "merging",
-  "resolving_integration",
-]);
-
-export function reconcileDispatchState(
-  state: DispatchState,
-  liveSessionId: string,
-  timestamp = new Date().toISOString(),
-): DispatchState {
-  const reconciledRecords: Record<string, DispatchRecord> = {};
-
-  for (const [issueId, record] of Object.entries(state.records)) {
-    if (
-      IN_PROGRESS_STAGES.has(record.stage)
-      && record.sessionProvenanceId !== liveSessionId
-    ) {
-      if (record.stage === "reviewing" && record.runningAgent?.caste === "sentinel") {
-        const nextConsecutiveFailures = record.consecutiveFailures + 1;
-        reconciledRecords[issueId] = {
-          ...record,
-          stage: shouldEscalateSentinelOperationalFailure(nextConsecutiveFailures)
-            ? "failed_operational"
-            : "implemented",
-          runningAgent: null,
-          failureCount: record.failureCount + 1,
-          consecutiveFailures: nextConsecutiveFailures,
-          operationalFailureKind: "runtime_failure",
-          failureWindowStartMs: record.failureWindowStartMs
-            ?? resolveFailureWindowStartMs(timestamp),
-          cooldownUntil: calculateFailureCooldown(timestamp),
-          sessionProvenanceId: liveSessionId,
-          updatedAt: timestamp,
-        };
-        continue;
-      }
-
-      reconciledRecords[issueId] = {
-        ...record,
-        stage: "failed_operational",
-        runningAgent: null,
-        failureCount: record.failureCount + 1,
-        consecutiveFailures: record.consecutiveFailures + 1,
-        operationalFailureKind: "runtime_failure",
-        failureWindowStartMs: record.failureWindowStartMs
-          ?? resolveFailureWindowStartMs(timestamp),
-        cooldownUntil: null,
-        sessionProvenanceId: liveSessionId,
-        updatedAt: timestamp,
-      };
-    } else {
-      reconciledRecords[issueId] = { ...record };
-    }
-  }
-
-  return {
-    schemaVersion: state.schemaVersion,
-    records: reconciledRecords,
-  };
-}
-
-export function emptyDispatchState(): DispatchState {
-  return {
-    schemaVersion: 1,
-    records: {},
-  };
+  writeJsonAtomic(dispatchStatePath(projectRoot), state);
 }
 
 export function replaceDispatchRecord(
@@ -216,70 +180,92 @@ export function replaceDispatchRecord(
   };
 }
 
-function resolveStoppedStage(record: DispatchRecord): DispatchStage {
-  if (record.stage === "scouting") {
-    return "pending";
-  }
-
-  if (record.stage === "implementing") {
-    return "scouted";
-  }
-
-  if (record.stage === "reviewing") {
-    return "implemented";
-  }
-
-  if (record.stage === "merging" || record.stage === "resolving_integration") {
-    return "queued_for_merge";
-  }
-
-  return record.stage;
+/** Loads the latest state, replaces one record, and saves it back. */
+export function saveDispatchRecord(projectRoot: string, record: DispatchRecord) {
+  saveDispatchState(projectRoot, replaceDispatchRecord(loadDispatchState(projectRoot), record.issueId, record));
 }
 
+/**
+ * Marks in-progress records owned by another daemon as operational failures.
+ * Interrupted Sentinel reviews retry at the review layer.
+ */
+export function reconcileDispatchState(
+  state: DispatchState,
+  liveSessionId: string,
+  timestamp = new Date().toISOString(),
+): DispatchState {
+  const reconciledRecords: Record<string, DispatchRecord> = {};
+
+  for (const [issueId, record] of Object.entries(state.records)) {
+    if (!IN_PROGRESS_STAGES.has(record.stage) || record.sessionProvenanceId === liveSessionId) {
+      reconciledRecords[issueId] = { ...record };
+      continue;
+    }
+
+    const failed = record.stage === "reviewing" && record.runningAgent?.caste === "sentinel"
+      ? applySentinelOperationalFailure(record, { timestamp })
+      : applyOperationalFailure(record, { timestamp, cooldown: false });
+    reconciledRecords[issueId] = {
+      ...failed,
+      sessionProvenanceId: liveSessionId,
+    };
+  }
+
+  return {
+    schemaVersion: state.schemaVersion,
+    records: reconciledRecords,
+  };
+}
+
+function resolveStoppedStage(record: DispatchRecord): DispatchStage {
+  switch (record.stage) {
+    case "scouting":
+      return "pending";
+    case "implementing":
+      return "scouted";
+    case "reviewing":
+      return "implemented";
+    case "merging":
+    case "resolving_integration":
+      return "queued_for_merge";
+    default:
+      return record.stage;
+  }
+}
+
+/** Rolls running records back one stage after a clean daemon stop. */
 export function releaseStoppedRunningRecords(
   state: DispatchState,
   sessionProvenanceId: string,
   timestamp = new Date().toISOString(),
 ): DispatchState {
-  let changed = false;
   const records = Object.fromEntries(
-    Object.entries(state.records).map(([issueId, record]) => {
-      if (!record.runningAgent) {
-        return [issueId, { ...record }];
-      }
-
-      changed = true;
-      return [issueId, {
-        ...record,
-        stage: resolveStoppedStage(record),
-        runningAgent: null,
-        cooldownUntil: null,
-        sessionProvenanceId,
-        updatedAt: timestamp,
-      }];
-    }),
+    Object.entries(state.records).map(([issueId, record]) => [
+      issueId,
+      record.runningAgent
+        ? {
+          ...record,
+          stage: resolveStoppedStage(record),
+          runningAgent: null,
+          cooldownUntil: null,
+          sessionProvenanceId,
+          updatedAt: timestamp,
+        }
+        : { ...record },
+    ]),
   );
 
-  return changed
-    ? {
-        schemaVersion: state.schemaVersion,
-        records,
-      }
-    : {
-        schemaVersion: state.schemaVersion,
-        records,
-      };
+  return {
+    schemaVersion: state.schemaVersion,
+    records,
+  };
 }
 
-export function activeTitanScopes(state: DispatchState): Array<{ issueId: string; files: string[] }> {
-  const result: Array<{ issueId: string; files: string[] }> = [];
-  for (const record of Object.values(state.records)) {
-    if (record.stage === "implementing" && record.fileScope !== null) {
-      result.push({
-        issueId: record.issueId,
-        files: [...record.fileScope.files],
-      });
-    }
-  }
-  return result;
+export function listRunningRecords(state: DispatchState) {
+  return Object.values(state.records).filter((record) => record.runningAgent !== null);
+}
+
+export function countRunningAgents(state: DispatchState, caste?: AgentCaste) {
+  return Object.values(state.records).filter((record) =>
+    record.runningAgent !== null && (caste === undefined || record.runningAgent.caste === caste)).length;
 }

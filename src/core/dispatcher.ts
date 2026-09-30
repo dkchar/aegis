@@ -1,13 +1,8 @@
-import type { DispatchRecord, DispatchState } from "./dispatch-state.js";
+import { createDispatchRecord, type DispatchState } from "./dispatch-state.js";
 import type { DispatchDecision } from "./triage.js";
 import type { AgentRuntime } from "../runtime/agent-runtime.js";
 import { writePhaseLog } from "./phase-log.js";
-import {
-  calculateFailureCooldown,
-  classifyOperationalFailure,
-  resolveNextOperationalFailureCount,
-  resolveFailureWindowStartMs,
-} from "./failure-policy.js";
+import { applyOperationalFailure } from "./failure-policy.js";
 
 export interface DispatchInput {
   dispatchState: DispatchState;
@@ -24,62 +19,11 @@ export interface DispatchResult {
   failed: string[];
 }
 
-function createInitialRecord(issueId: string, sessionProvenanceId: string, timestamp: string): DispatchRecord {
-  return {
-    issueId,
-    stage: "pending",
-    runningAgent: null,
-    lastCompletedCaste: null,
-    blockedByIssueId: null,
-    reviewFeedbackRef: null,
-    policyArtifactRef: null,
-    oracleAssessmentRef: null,
-    oracleReady: null,
-    oracleDecompose: null,
-    oracleBlockers: null,
-    titanHandoffRef: null,
-    titanClarificationRef: null,
-    sentinelVerdictRef: null,
-    janusArtifactRef: null,
-    failureTranscriptRef: null,
-    operationalFailureKind: null,
-    fileScope: null,
-    failureCount: 0,
-    consecutiveFailures: 0,
-    failureWindowStartMs: null,
-    cooldownUntil: null,
-    sessionProvenanceId,
-    updatedAt: timestamp,
-  };
-}
-
-function toFailedOperationalRecord(
-  previous: DispatchRecord | undefined,
-  issueId: string,
-  sessionProvenanceId: string,
-  timestamp: string,
-  errorMessage?: string | null,
-): DispatchRecord {
-  const record = previous ?? createInitialRecord(issueId, sessionProvenanceId, timestamp);
-  return {
-    ...record,
-    issueId,
-    stage: "failed_operational",
-    runningAgent: null,
-    failureCount: record.failureCount + 1,
-    consecutiveFailures: resolveNextOperationalFailureCount(
-      record.consecutiveFailures,
-      errorMessage,
-    ),
-    operationalFailureKind: classifyOperationalFailure(errorMessage),
-    failureWindowStartMs: record.failureWindowStartMs
-      ?? resolveFailureWindowStartMs(timestamp),
-    cooldownUntil: calculateFailureCooldown(timestamp),
-    sessionProvenanceId,
-    updatedAt: timestamp,
-  };
-}
-
+/**
+ * Launches one adapter session per triage decision and records it as the
+ * issue's `runningAgent`. Launch only starts work; monitor and reaper own
+ * completion.
+ */
 export async function dispatchReadyWork(input: DispatchInput): Promise<DispatchResult> {
   const timestamp = input.now ?? new Date().toISOString();
   const records = { ...input.dispatchState.records };
@@ -87,6 +31,9 @@ export async function dispatchReadyWork(input: DispatchInput): Promise<DispatchR
   const failed: string[] = [];
 
   for (const decision of input.decisions) {
+    const baseRecord = records[decision.issueId]
+      ?? createDispatchRecord(decision.issueId, input.sessionProvenanceId, timestamp);
+
     try {
       const launched = await input.runtime.launch({
         root: input.root,
@@ -95,8 +42,6 @@ export async function dispatchReadyWork(input: DispatchInput): Promise<DispatchR
         caste: decision.caste,
         stage: decision.stage,
       });
-      const previous = records[decision.issueId];
-      const baseRecord = previous ?? createInitialRecord(decision.issueId, input.sessionProvenanceId, timestamp);
 
       records[decision.issueId] = {
         ...baseRecord,
@@ -126,14 +71,10 @@ export async function dispatchReadyWork(input: DispatchInput): Promise<DispatchR
       });
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      const previous = records[decision.issueId];
-      records[decision.issueId] = toFailedOperationalRecord(
-        previous,
-        decision.issueId,
-        input.sessionProvenanceId,
-        timestamp,
-        detail,
-      );
+      records[decision.issueId] = {
+        ...applyOperationalFailure(baseRecord, { timestamp, errorMessage: detail }),
+        sessionProvenanceId: input.sessionProvenanceId,
+      };
       failed.push(decision.issueId);
       writePhaseLog(input.root, {
         timestamp,
@@ -144,8 +85,8 @@ export async function dispatchReadyWork(input: DispatchInput): Promise<DispatchR
         detail,
       });
 
-      // Phase D has no durable failure classifier yet, so a launch error
-      // fails closed for the remainder of the current dispatch pass.
+      // A launch error usually means the adapter itself is unhealthy, so the
+      // rest of this pass fails closed instead of repeating the same error.
       break;
     }
   }

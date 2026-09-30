@@ -60,11 +60,11 @@ export default function Chronos({ state }) {
 
 function ChronosPanel({ icon: Icon, title, meta, controls, legend, children }) {
   return (
-    <Paper withBorder radius="sm" bg="dark.9" style={{ minWidth: 0, overflow: "hidden" }}>
+    <Paper withBorder bg="dark.9" style={{ minWidth: 0, overflow: "hidden" }}>
       <Stack gap={0}>
         <Group justify="space-between" px="md" py="sm" bg="dark.8" wrap="nowrap">
           <Group gap="xs" wrap="nowrap">
-            <ThemeIcon color="cyan" variant="light" radius="xl" size="sm"><Icon size={14} /></ThemeIcon>
+            <ThemeIcon color="aegis" variant="light" radius="xl" size="sm"><Icon size={14} /></ThemeIcon>
             <Title order={2} size="sm">{title}</Title>
             <Badge color="gray" variant="light" size="xs">{meta}</Badge>
           </Group>
@@ -90,7 +90,7 @@ function TimelineLegend() {
 function MergeLegend() {
   return (
     <Group gap="xs" px="md" py="xs" wrap="wrap">
-      <Badge color="cyan" variant="dot" size="xs">parent link</Badge>
+      <Badge color="aegis" variant="dot" size="xs">parent link</Badge>
       <Badge color="gray" variant="dot" size="xs">ticket order</Badge>
       <Badge color="green" variant="dot" size="xs">done</Badge>
       <Badge color="yellow" variant="dot" size="xs">active</Badge>

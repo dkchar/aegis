@@ -1,6 +1,6 @@
 # Screenshots
 
-These screenshots are 1920x1080 captures of Olympus running at `http://127.0.0.1:4173/`.
+These 16:9 (1600x900) captures show Olympus at `http://127.0.0.1:4173/` supervising a drained seeded graph with the Claude Code adapter selected.
 
 ## Ops
 

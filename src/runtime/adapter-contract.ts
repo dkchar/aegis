@@ -47,6 +47,17 @@ export interface AdapterSessionSnapshot {
   error?: string;
 }
 
+/** Token and cost accounting reported by an adapter, when available. */
+export interface AdapterUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
+  costUsd?: number;
+  turns?: number;
+  durationMs?: number;
+}
+
 export interface AdapterFinalResult {
   sessionId: string;
   caste: AdapterCasteName;
@@ -58,6 +69,9 @@ export interface AdapterFinalResult {
   outputText: string;
   toolsUsed: string[];
   messageLog: AdapterSessionMessage[];
+  /** Human-readable adapter activity (tool calls, results) for operators. */
+  terminalLog?: string[];
+  usage?: AdapterUsage;
   artifactRefs: AdapterArtifactRef[];
   startedAt: string;
   finishedAt: string;

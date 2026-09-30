@@ -4,7 +4,7 @@ import {
   type FindOperations,
   type ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
-import { spawn, spawnSync, type SpawnOptions } from "node:child_process";
+import { spawn, type SpawnOptions } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -50,7 +50,14 @@ import type {
   CasteSessionResult,
 } from "./caste-runtime.js";
 import type { ResolvedConfiguredCasteModel } from "./pi-model-config.js";
-import { buildCodexRunEnvironment } from "./codex-caste-runtime.js";
+import {
+  buildAgentShellEnvironment,
+  isForbiddenLongRunningCommand,
+  terminateProcessTree,
+  terminateWorkspaceProcesses,
+} from "./workspace-processes.js";
+import { listDirtyFiles } from "../shared/git.js";
+import { extractAllowedFileScope } from "../castes/scope-markers.js";
 
 type PiCodingAgentModule = typeof import("@mariozechner/pi-coding-agent");
 const require = createRequire(import.meta.url);
@@ -211,116 +218,15 @@ export function buildHiddenShellSpawnOptions(
   return {
     cwd,
     detached: process.platform !== "win32",
-    env: buildCodexRunEnvironment(env ?? process.env),
+    env: buildAgentShellEnvironment(env ?? process.env),
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   };
 }
 
-function terminateProcessTree(pid: number) {
-  if (process.platform === "win32") {
-    spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    return;
-  }
-
-  try {
-    process.kill(-pid, "SIGTERM");
-  } catch {
-    // Ignore missing process group.
-  }
-  try {
-    process.kill(pid, "SIGTERM");
-  } catch {
-    // Ignore missing process.
-  }
-}
-
-function normalizeProcessPath(candidate: string, platform: NodeJS.Platform) {
-  const normalized = (platform === "win32"
-    ? path.win32.resolve(candidate)
-    : path.posix.resolve(candidate)).replace(/\\/g, "/");
-  return platform === "win32" ? normalized.toLowerCase() : normalized;
-}
-
-function commandLineContainsWorkspace(commandLine: string, workspace: string) {
-  let searchFrom = 0;
-  while (searchFrom < commandLine.length) {
-    const index = commandLine.indexOf(workspace, searchFrom);
-    if (index === -1) {
-      return false;
-    }
-    const next = commandLine[index + workspace.length];
-    if (next === undefined || next === "/" || next === "\"" || next === "'" || /\s/.test(next)) {
-      return true;
-    }
-    searchFrom = index + workspace.length;
-  }
-  return false;
-}
-
-export function commandLineReferencesWorkspace(
-  commandLine: string,
-  workingDirectory: string,
-  platform: NodeJS.Platform = process.platform,
-) {
-  const normalizedCommand = commandLine.replace(/\\/g, "/");
-  const comparableCommand = platform === "win32"
-    ? normalizedCommand.toLowerCase()
-    : normalizedCommand;
-  const workspace = normalizeProcessPath(workingDirectory, platform);
-  return commandLineContainsWorkspace(comparableCommand, workspace);
-}
-
-export function terminateWorkspaceProcesses(
-  workingDirectory: string,
-  platform: NodeJS.Platform = process.platform,
-) {
-  const workspace = normalizeProcessPath(workingDirectory, platform);
-  if (platform === "win32") {
-    const script = [
-      "$ErrorActionPreference = 'SilentlyContinue'",
-      `$workspace = ${JSON.stringify(workspace)}`,
-      `$rawWorkspace = ${JSON.stringify(path.resolve(workingDirectory))}`,
-      "$current = $PID",
-      "Get-CimInstance Win32_Process | Where-Object {",
-      "  $_.ProcessId -ne $current -and $_.CommandLine -and (",
-      "    $_.CommandLine.ToLowerInvariant().Contains($rawWorkspace.ToLowerInvariant()) -or",
-      "    $_.CommandLine.Replace('\\','/').ToLowerInvariant().Contains($workspace)",
-      "  )",
-      "} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
-    ].join("\n");
-    spawnSync("powershell.exe", ["-NoProfile", "-Command", script], {
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    return;
-  }
-
-  const ps = spawnSync("ps", ["-eo", "pid=,command="], {
-    encoding: "utf8",
-    windowsHide: true,
-  });
-  if (ps.status !== 0) {
-    return;
-  }
-  for (const line of ps.stdout.split(/\r?\n/)) {
-    const match = line.trim().match(/^(\d+)\s+(.+)$/);
-    if (!match) {
-      continue;
-    }
-    const pid = Number(match[1]);
-    const commandLine = match[2] ?? "";
-    if (pid > 0 && pid !== process.pid && commandLineReferencesWorkspace(commandLine, workingDirectory, platform)) {
-      try {
-        process.kill(pid, "SIGTERM");
-      } catch {
-        // Ignore missing process.
-      }
-    }
-  }
+/** Kills every process rooted in the Pi session workspace (session teardown and abort). */
+export function terminatePiSessionProcesses(workingDirectory: string) {
+  terminateWorkspaceProcesses(workingDirectory, "all");
 }
 
 function resolveSafeShellCwd(cwd: string, workingDirectory: string) {
@@ -576,18 +482,6 @@ function assertCommandWithinWorkingDirectory(command: string, workingDirectory: 
   }
 }
 
-function extractAllowedFileScopeFromPrompt(prompt: string): string[] {
-  const match = prompt.match(/^Allowed file scope:\s*(.+)$/im);
-  if (!match) {
-    return [];
-  }
-
-  return match[1]!
-    .split(",")
-    .map((entry) => entry.replace(/\\/g, "/").replace(/^\.\//, "").trim())
-    .filter((entry) => entry.length > 0);
-}
-
 function normalizeExecutableToken(token: string) {
   return path.basename(stripShellQuotes(token)).replace(/\.(cmd|exe|ps1|bat)$/i, "").toLowerCase();
 }
@@ -673,20 +567,8 @@ function assertTerminalOnlyCommand(command: string) {
   }
 }
 
-export function isForbiddenLongRunningShellCommand(command: string) {
-  const normalized = command.replace(/\\/g, "/").replace(/\s+/g, " ").trim().toLowerCase();
-  return /\b(npm|npm\.cmd|pnpm|pnpm\.cmd|yarn|yarn\.cmd|bun|bun\.cmd)\s+run\s+(dev|preview|start)\b/.test(normalized)
-    || /\b(npm|npm\.cmd|pnpm|pnpm\.cmd|yarn|yarn\.cmd|bun|bun\.cmd)\s+(dev|preview|start)\b/.test(normalized)
-    || /\b(vite|next|astro)\s+dev\b/.test(normalized)
-    || /\b(vite|vite\.cmd|vite\.js)\s+(--host|--port|dev|preview|serve)\b/.test(normalized)
-    || /node_modules\/(\.bin\/)?vite\b.*\s(dev|preview|serve|--host|--port)\b/.test(normalized)
-    || /vite\/bin\/vite\.js\b.*\s(dev|preview|serve|--host|--port)\b/.test(normalized)
-    || /\b(vitest|tsc)\b.*\s--watch\b/.test(normalized)
-    || /\bwebpack\s+serve\b/.test(normalized);
-}
-
 function assertNoLongRunningShellCommand(command: string) {
-  if (!isForbiddenLongRunningShellCommand(command)) {
+  if (!isForbiddenLongRunningCommand(command)) {
     return;
   }
 
@@ -695,30 +577,12 @@ function assertNoLongRunningShellCommand(command: string) {
   );
 }
 
-function readGitChangedFiles(workingDirectory: string) {
-  const probe = spawnSync("git", ["status", "--porcelain", "--untracked-files=all"], {
-    cwd: workingDirectory,
-    encoding: "utf8",
-    windowsHide: true,
-  });
-  if (probe.status !== 0) {
-    return [];
-  }
-
-  return probe.stdout
-    .split(/\r?\n/)
-    .map((line) => line.slice(3).trim())
-    .filter((line) => line.length > 0)
-    .map((line) => line.includes(" -> ") ? line.split(" -> ").at(-1)! : line)
-    .map((line) => line.replace(/\\/g, "/").replace(/^\.\//, ""));
-}
-
 function assertBashDidNotDirtyOutOfScope(workingDirectory: string, allowedFileScope: string[]) {
   if (allowedFileScope.length === 0) {
     return;
   }
 
-  const outOfScope = readGitChangedFiles(workingDirectory)
+  const outOfScope = (listDirtyFiles(workingDirectory) ?? [])
     .filter((file) => !isPathAllowedByScope(file, allowedFileScope));
   if (outOfScope.length === 0) {
     return;
@@ -890,7 +754,7 @@ function resolveTools(
   prompt: string,
 ) {
   if (caste === "titan") {
-    const allowedFileScope = extractAllowedFileScopeFromPrompt(prompt);
+    const allowedFileScope = extractAllowedFileScope(prompt);
     return [
       wrapTitanFileTool(piCodingAgent.createReadTool(workingDirectory), workingDirectory),
       wrapTitanBashTool(
@@ -1358,7 +1222,7 @@ export class PiCasteRuntime implements CasteRuntime {
       };
     } finally {
       session.dispose();
-      terminateWorkspaceProcesses(input.workingDirectory);
+      terminatePiSessionProcesses(input.workingDirectory);
     }
   }
 }

@@ -1,4 +1,4 @@
-import { isProcessRunning, readRuntimeState, type RuntimeStateRecord } from "./runtime-state.js";
+import { routeToDaemonOrRunLocal, formatCommandResult, type DaemonRoutingOptions } from "./daemon-routing.js";
 import {
   requestCasteCommandFromDaemon,
   type RuntimeCasteAction,
@@ -7,10 +7,9 @@ import { runCasteCommand } from "../core/caste-runner.js";
 import { createTrackerClient } from "../tracker/create-tracker.js";
 import { loadConfig } from "../config/load-config.js";
 import { createCasteRuntime } from "../runtime/create-caste-runtime.js";
+import { resolveArtifactEmissionMode } from "../runtime/runtime-registry.js";
 
-export interface RunDirectCasteCommandOptions {
-  readRuntimeState?: (root?: string) => RuntimeStateRecord | null;
-  isProcessRunning?: (pid: number) => boolean;
+export interface RunDirectCasteCommandOptions extends DaemonRoutingOptions {
   runLocal?: (
     root: string,
     action: RuntimeCasteAction,
@@ -24,16 +23,8 @@ export interface RunDirectCasteCommandOptions {
   ) => Promise<unknown>;
 }
 
-function isDaemonOwned(
-  runtimeState: RuntimeStateRecord | null,
-  processRunning: (pid: number) => boolean,
-) {
-  return runtimeState !== null
-    && runtimeState.server_state === "running"
-    && processRunning(runtimeState.pid);
-}
-
-async function runUnsupportedLocalAction(
+/** Runs one caste action in-process with the configured adapter. */
+export async function runLocalCasteCommand(
   root: string,
   action: RuntimeCasteAction,
   issueId: string,
@@ -45,7 +36,7 @@ async function runUnsupportedLocalAction(
     issueId,
     tracker: createTrackerClient(),
     runtime: createCasteRuntime(config.runtime, {}, { root, issueId }),
-    artifactEmissionMode: config.runtime === "pi" ? "tool" : "json",
+    artifactEmissionMode: resolveArtifactEmissionMode(config.runtime),
   });
 }
 
@@ -55,19 +46,14 @@ export async function runDirectCasteCommand(
   issueId: string,
   options: RunDirectCasteCommandOptions = {},
 ) {
-  const readRuntime = options.readRuntimeState ?? readRuntimeState;
-  const processRunning = options.isProcessRunning ?? isProcessRunning;
-  const runLocal = options.runLocal ?? runUnsupportedLocalAction;
+  const runLocal = options.runLocal ?? runLocalCasteCommand;
   const routeToDaemon = options.routeToDaemon ?? requestCasteCommandFromDaemon;
-  const runtimeState = readRuntime(root);
-
-  if (runtimeState && isDaemonOwned(runtimeState, processRunning)) {
-    return routeToDaemon(root, action, issueId, runtimeState.pid);
-  }
-
-  return runLocal(root, action, issueId);
+  return routeToDaemonOrRunLocal(
+    root,
+    options,
+    () => runLocal(root, action, issueId),
+    (targetPid) => routeToDaemon(root, action, issueId, targetPid),
+  );
 }
 
-export function formatCasteCommandResult(result: unknown) {
-  return JSON.stringify(result);
-}
+export const formatCasteCommandResult = formatCommandResult;

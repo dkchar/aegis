@@ -1,26 +1,47 @@
 # Usage Guide
 
-This guide gives operator commands. `docs/AEGIS.md` remains the canonical source of truth.
+Operator commands. `docs/AEGIS.md` remains the canonical source of truth.
 
-## Install
+## Install And Build
 
 ```bash
 npm install
-```
-
-## Build
-
-```bash
 npm run build
 ```
 
+`npm run build` compiles Agora and the CLI into `dist/`. Run `node dist/index.js help` for the command list.
+
 ## Initialize A Project
+
+In the git repository Aegis should work on:
 
 ```bash
 node dist/index.js init
 ```
 
-This creates Aegis project state paths and updates ignore rules as needed.
+This creates `.aegis/` state files and adds Aegis paths to `.gitignore`. Edit `.aegis/config.json` to choose a runtime adapter and models (see [configuration](configuration.md)).
+
+## Choose A Runtime
+
+| Runtime | Setup |
+| --- | --- |
+| `claude` | `npm install -g @anthropic-ai/claude-code`, run `claude` once to sign in, set models to `anthropic:<model-id>` |
+| `codex` | install the Codex CLI and sign in |
+| `pi` | configure providers in `.pi/settings.json` or `~/.pi/agent/settings.json` |
+| `scripted` | nothing; deterministic tests only |
+
+`aegis start` runs a preflight that reports exactly what is missing (git repo, tracker, config, adapter CLI, model refs, state paths) with a suggested fix.
+
+## Create Work
+
+Aegis reads tickets from Agora:
+
+```bash
+node packages/agora/dist/cli.js create --title "Add dark mode" --body "..." --scope src/theme.ts,src/App.tsx --column ready --actor human --json
+node packages/agora/dist/cli.js board --json
+```
+
+`--scope` declares the files the ticket owns; Titan edits are validated against it.
 
 ## Start And Stop
 
@@ -29,6 +50,8 @@ node dist/index.js start
 node dist/index.js stop
 ```
 
+The daemon runs one cycle every `poll_interval_seconds`: poll, triage, dispatch, monitor, reap, launch Sentinel reviews, enqueue passed candidates, then land the next merge.
+
 ## Status And Logs
 
 ```bash
@@ -36,7 +59,7 @@ node dist/index.js status
 node dist/index.js stream daemon
 ```
 
-Use these before trusting UI state. Terminal and `.aegis` files are the authority.
+Use these before trusting UI state. Terminal output and `.aegis` files are the authority. `status` lists issues that exhausted operational retries under `terminal_operational_failures`.
 
 ## Direct Phase Commands
 
@@ -56,6 +79,8 @@ node dist/index.js review AG-0001
 node dist/index.js process AG-0001
 ```
 
+`process` advances the issue one step from its current stage. When a daemon is running, direct commands are handed to it through `.aegis/runtime-commands/` so they never race the daemon over state; the command waits for the daemon's answer.
+
 ## Merge
 
 ```bash
@@ -64,46 +89,41 @@ node dist/index.js merge next
 
 ## Olympus
 
-Start the operator console:
-
 ```bash
 npm run olympus:dev
 ```
 
-Open:
-
-```text
-http://127.0.0.1:4173/
-```
-
-Build or check Olympus:
-
-```bash
-npm run olympus:build
-npm run olympus:check
-```
+Open `http://127.0.0.1:4173/`. See [Olympus](olympus.md).
 
 ## Seeded Mock Proof Commands
 
 Seeding remains command-only.
 
 ```bash
-npm run mock:seed
-npm run mock:run
+AEGIS_MOCK_RUN_RUNTIME=claude npm run mock:seed   # or scripted, codex, pi
+npm run mock:run -- node dist/index.js start
 npm run mock:acceptance
 ```
 
-The seeded mock path is a proof fixture. Olympus can observe the resulting truth planes, but it should not hide setup behind a seed button.
+The seed writes a fresh repository under `../aegis-qa/aegis-mock-run`. `AEGIS_MOCK_RUN_MODEL_REFERENCE` overrides the model for every caste.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Preflight blocked | run `node dist/index.js start` and follow the `fix:` lines |
+| Issue never dispatches | `status`; triage skips issues in cooldown, over capacity, overlapping another Titan's scope, or past the retry ceiling |
+| Session killed | `stuck_kill_seconds`, adapter inactivity timeout, or a forbidden dev server in the transcript |
+| Daemon stopped in `paused` mode | a provider usage limit was hit; wait for the reset, then start again |
+| Merge keeps failing | `.aegis/merge-queue.json` `lastError`, then Janus artifacts under `.aegis/janus/` |
 
 ## Verification
 
-Typical local gates:
-
 ```bash
-npm run olympus:check
-npm test
 npm run lint
+npm test
 npm run build
+npm run olympus:check
 ```
 
 Do not claim proof completion without checking command output, dispatch state, merge state, artifacts, and generated app behavior.

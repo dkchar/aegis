@@ -1,12 +1,7 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import path from "node:path";
+
+import { writeJsonAtomic } from "../shared/atomic-write.js";
 
 export type ServerLifecycleState = "running" | "stopped";
 export type OrchestrationMode = "auto" | "paused";
@@ -79,11 +74,7 @@ export function writeRuntimeState(
   state: RuntimeStateRecord,
   root = process.cwd(),
 ) {
-  const runtimeStatePath = resolveRuntimeStatePath(root);
-  const temporaryPath = `${runtimeStatePath}.tmp`;
-  mkdirSync(path.dirname(runtimeStatePath), { recursive: true });
-  writeFileSync(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
-  renameSync(temporaryPath, runtimeStatePath);
+  writeJsonAtomic(resolveRuntimeStatePath(root), state);
 }
 
 export function readStopRequest(root = process.cwd()): RuntimeStopRequest | null {
@@ -112,11 +103,7 @@ export function writeStopRequest(
   root: string,
   request: RuntimeStopRequest,
 ) {
-  const stopRequestPath = resolveStopRequestPath(root);
-  const temporaryPath = `${stopRequestPath}.tmp`;
-  mkdirSync(path.dirname(stopRequestPath), { recursive: true });
-  writeFileSync(temporaryPath, `${JSON.stringify(request, null, 2)}\n`, "utf8");
-  renameSync(temporaryPath, stopRequestPath);
+  writeJsonAtomic(resolveStopRequestPath(root), request);
 }
 
 export function clearStopRequest(root = process.cwd()) {

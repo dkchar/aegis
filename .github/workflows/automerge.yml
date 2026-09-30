@@ -4,7 +4,8 @@ on:
   # Trigger explicitly when the named check workflows complete — more reliable
   # than check_suite, which won't re-fire for Actions-triggered suites.
   workflow_run:
-    workflows: ["CI", "Claude Code Review"]
+    # Must match the `name:` of .github/workflows/ci.yml exactly.
+    workflows: ["Seam-only CI"]
     types: [completed]
   # Also trigger when PR reviews are submitted (Claude approvals)
   pull_request_review:
@@ -18,10 +19,10 @@ jobs:
   automerge:
     name: Auto-merge if all checks pass
     runs-on: ubuntu-latest
-    # Trigger when CI finishes (Claude Code Review is disabled).
+    # Trigger when CI finishes successfully, or on review submission.
     if: |
       github.event_name == 'pull_request_review' ||
-      github.event.workflow_run.name == 'CI'
+      (github.event.workflow_run.name == 'Seam-only CI' && github.event.workflow_run.conclusion == 'success')
 
     steps:
       - uses: pascalgn/automerge-action@v0.16.4

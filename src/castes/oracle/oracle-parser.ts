@@ -1,3 +1,5 @@
+import { parseJsonObjectText } from "../../shared/json.js";
+
 export type OracleComplexity = "trivial" | "moderate" | "complex";
 
 export interface OracleAssessment {
@@ -71,7 +73,7 @@ function assertComplexity(value: unknown): OracleComplexity {
 }
 
 export function parseOracleAssessment(raw: string): OracleAssessment {
-  const parsed = JSON.parse(raw) as unknown;
+  const parsed = parseJsonObjectText(raw);
   const obj = assertPlainObject(parsed);
 
   for (const key of Object.keys(obj)) {

@@ -1,5 +1,14 @@
 import { loadConfig } from "../config/load-config.js";
-import { loadDispatchState, saveDispatchState } from "./dispatch-state.js";
+import type { AegisConfig } from "../config/schema.js";
+import {
+  countRunningAgents,
+  listRunningRecords,
+  loadDispatchState,
+  saveDispatchRecord,
+  saveDispatchState,
+  type DispatchRecord,
+  type DispatchState,
+} from "./dispatch-state.js";
 import { dispatchReadyWork } from "./dispatcher.js";
 import { monitorActiveWork } from "./monitor.js";
 import { pollReadyWork } from "./poller.js";
@@ -7,19 +16,14 @@ import { reapFinishedWork } from "./reaper.js";
 import { triageReadyWork } from "./triage.js";
 import { createTrackerClient } from "../tracker/create-tracker.js";
 import type { AgentRuntime } from "../runtime/agent-runtime.js";
-import { createAgentRuntime } from "../runtime/scripted-agent-runtime.js";
-import { createCasteRuntime } from "../runtime/create-caste-runtime.js";
+import { createAgentRuntime } from "../runtime/dispatch-runtime.js";
 import { writePhaseLog } from "./phase-log.js";
 import { autoEnqueueImplementedIssuesForMerge } from "../merge/auto-enqueue.js";
-import { runCasteCommand } from "./caste-runner.js";
 import {
   recoverDispatchStateAfterPoll,
   recoverReviewingRecord,
 } from "./dispatch-recovery.js";
-import {
-  calculateFailureCooldown,
-  resolveFailureWindowStartMs,
-} from "./failure-policy.js";
+import { applySentinelOperationalFailure } from "./failure-policy.js";
 
 export type LoopPhase = "poll" | "dispatch" | "monitor" | "reap";
 
@@ -45,28 +49,49 @@ export interface RunLoopPhaseOptions {
   }) => Promise<void>;
 }
 
+// Guards against launching the same review twice while an inline launch awaits.
 const ACTIVE_PRE_MERGE_REVIEWS = new Set<string>();
 
-function createDefaultRuntime(root: string) {
+interface CycleContext {
+  root: string;
+  config: AegisConfig;
+  runtime: AgentRuntime;
+  sessionProvenanceId: string;
+  timestamp: string;
+}
+
+function createCycleContext(root: string, options: RunLoopPhaseOptions, defaultProvenance: string): CycleContext {
   const config = loadConfig(root);
-  return createAgentRuntime(config.runtime);
+  return {
+    root,
+    config,
+    runtime: options.runtime ?? createAgentRuntime(config.runtime),
+    sessionProvenanceId: options.sessionProvenanceId ?? defaultProvenance,
+    timestamp: new Date().toISOString(),
+  };
 }
 
 interface DispatchPipelineResult {
-  dispatchState: ReturnType<typeof loadDispatchState>;
+  dispatchState: DispatchState;
   readyIssueIds: string[];
   dispatched: string[];
   skipped: Array<{ issueId: string; reason: string }>;
   failed: string[];
 }
 
-async function runDispatchPipeline(
-  root: string,
-  runtime: AgentRuntime,
-  sessionProvenanceId: string,
-  timestamp: string,
-): Promise<DispatchPipelineResult> {
-  const config = loadConfig(root);
+function logPoll(root: string, timestamp: string, readyIssueIds: string[]) {
+  writePhaseLog(root, {
+    timestamp,
+    phase: "poll",
+    issueId: "_all",
+    action: "poll_ready_work",
+    outcome: "ok",
+    detail: readyIssueIds.join(","),
+  });
+}
+
+async function runDispatchPipeline(context: CycleContext): Promise<DispatchPipelineResult> {
+  const { root, config, timestamp } = context;
   const tracker = createTrackerClient();
   let dispatchState = loadDispatchState(root);
   const snapshot = await pollReadyWork({
@@ -74,21 +99,14 @@ async function runDispatchPipeline(
     tracker,
     root,
   });
-
-  writePhaseLog(root, {
-    timestamp,
-    phase: "poll",
-    issueId: "_all",
-    action: "poll_ready_work",
-    outcome: "ok",
-    detail: snapshot.readyIssues.map((issue) => issue.id).join(","),
-  });
+  const readyIssueIds = snapshot.readyIssues.map((issue) => issue.id);
+  logPoll(root, timestamp, readyIssueIds);
 
   dispatchState = await recoverDispatchStateAfterPoll({
     root,
     tracker,
     dispatchState,
-    readyIssueIds: snapshot.readyIssues.map((issue) => issue.id),
+    readyIssueIds,
     timestamp,
   });
 
@@ -111,151 +129,53 @@ async function runDispatchPipeline(
   const dispatchResult = await dispatchReadyWork({
     dispatchState,
     decisions: triage.dispatchable,
-    runtime,
+    runtime: context.runtime,
     root,
-    sessionProvenanceId,
+    sessionProvenanceId: context.sessionProvenanceId,
     now: timestamp,
   });
   saveDispatchState(root, dispatchResult.state);
 
   return {
     dispatchState: dispatchResult.state,
-    readyIssueIds: snapshot.readyIssues.map((issue) => issue.id),
+    readyIssueIds,
     dispatched: dispatchResult.dispatched,
     skipped: triage.skipped,
     failed: dispatchResult.failed,
   };
 }
 
-async function runMonitorPipeline(
-  root: string,
-  runtime: AgentRuntime,
-  timestamp: string,
-  dispatchState = loadDispatchState(root),
-) {
-  const config = loadConfig(root);
-
+function runMonitorPipeline(context: CycleContext, dispatchState = loadDispatchState(context.root)) {
   return monitorActiveWork({
     dispatchState,
-    runtime,
+    runtime: context.runtime,
     thresholds: {
-      stuck_warning_seconds: config.thresholds.stuck_warning_seconds,
-      stuck_kill_seconds: config.thresholds.stuck_kill_seconds,
+      stuck_warning_seconds: context.config.thresholds.stuck_warning_seconds,
+      stuck_kill_seconds: context.config.thresholds.stuck_kill_seconds,
     },
-    root,
-    now: timestamp,
+    root: context.root,
+    now: context.timestamp,
   });
 }
 
 async function runReapPipeline(
-  root: string,
-  runtime: AgentRuntime,
-  timestamp: string,
+  context: CycleContext,
   issueIds: string[],
-  dispatchState = loadDispatchState(root),
+  dispatchState = loadDispatchState(context.root),
 ) {
   const reapResult = await reapFinishedWork({
     dispatchState,
-    runtime,
+    runtime: context.runtime,
     issueIds,
-    root,
-    now: timestamp,
+    root: context.root,
+    now: context.timestamp,
   });
-  saveDispatchState(root, reapResult.state);
+  saveDispatchState(context.root, reapResult.state);
   return reapResult;
 }
 
-function markRecordReviewing(root: string, issueId: string, timestamp: string) {
-  const dispatchState = loadDispatchState(root);
-  const record = dispatchState.records[issueId];
-  if (!record || (record.stage !== "implemented" && record.stage !== "reviewing")) {
-    return false;
-  }
-
-  saveDispatchState(root, {
-    schemaVersion: dispatchState.schemaVersion,
-    records: {
-      ...dispatchState.records,
-      [issueId]: {
-        ...record,
-        stage: "reviewing",
-        updatedAt: timestamp,
-      },
-    },
-  });
-
-  return true;
-}
-
-function markRecordReviewingWithAgent(input: {
-  root: string;
-  issueId: string;
-  timestamp: string;
-  sessionProvenanceId: string;
-  sessionId: string;
-  startedAt: string;
-}) {
-  const dispatchState = loadDispatchState(input.root);
-  const record = dispatchState.records[input.issueId];
-  if (!record || (record.stage !== "implemented" && record.stage !== "reviewing")) {
-    return false;
-  }
-
-  saveDispatchState(input.root, {
-    schemaVersion: dispatchState.schemaVersion,
-    records: {
-      ...dispatchState.records,
-      [input.issueId]: {
-        ...record,
-        stage: "reviewing",
-        runningAgent: {
-          caste: "sentinel",
-          sessionId: input.sessionId,
-          startedAt: input.startedAt,
-        },
-        cooldownUntil: null,
-        sessionProvenanceId: input.sessionProvenanceId,
-        updatedAt: input.timestamp,
-      },
-    },
-  });
-
-  return true;
-}
-
-function markReviewRetryCooldown(root: string, issueId: string, timestamp: string, detail: string) {
-  const dispatchState = loadDispatchState(root);
-  const record = dispatchState.records[issueId];
-  if (!record) {
-    return;
-  }
-
-  saveDispatchState(root, {
-    schemaVersion: dispatchState.schemaVersion,
-    records: {
-      ...dispatchState.records,
-      [issueId]: {
-        ...record,
-        stage: "implemented",
-        runningAgent: null,
-        failureCount: record.failureCount + 1,
-        consecutiveFailures: record.consecutiveFailures + 1,
-        failureWindowStartMs: record.failureWindowStartMs
-          ?? resolveFailureWindowStartMs(timestamp),
-        cooldownUntil: calculateFailureCooldown(timestamp),
-        updatedAt: timestamp,
-      },
-    },
-  });
-
-  writePhaseLog(root, {
-    timestamp,
-    phase: "dispatch",
-    issueId,
-    action: "sentinel_review_completed",
-    outcome: "failed",
-    detail,
-  });
+function isReviewStage(record: DispatchRecord | undefined): record is DispatchRecord {
+  return record?.stage === "implemented" || record?.stage === "reviewing";
 }
 
 function isRecordCoolingDown(record: { cooldownUntil: string | null }, timestamp: string) {
@@ -270,92 +190,140 @@ function isRecordCoolingDown(record: { cooldownUntil: string | null }, timestamp
     && cooldownMs > nowMs;
 }
 
-function clearStaleImplementedReviewAgent(root: string, issueId: string, timestamp: string) {
-  const dispatchState = loadDispatchState(root);
-  const record = dispatchState.records[issueId];
-  if (
-    !record
-    || record.stage !== "implemented"
-    || record.runningAgent?.caste !== "sentinel"
-  ) {
+/** Applies `transform` to the latest persisted record when `guard` accepts it. */
+function updateLatestRecord(
+  root: string,
+  issueId: string,
+  guard: (record: DispatchRecord | undefined) => record is DispatchRecord,
+  transform: (record: DispatchRecord) => DispatchRecord,
+) {
+  const record = loadDispatchState(root).records[issueId];
+  if (!guard(record)) {
     return false;
   }
 
-  saveDispatchState(root, {
-    schemaVersion: dispatchState.schemaVersion,
-    records: {
-      ...dispatchState.records,
-      [issueId]: {
-        ...record,
-        runningAgent: null,
-        updatedAt: timestamp,
-      },
-    },
-  });
+  saveDispatchRecord(root, transform(record));
+  return true;
+}
+
+function markReviewLaunchFailed(root: string, issueId: string, timestamp: string, detail: string) {
+  const updated = updateLatestRecord(
+    root,
+    issueId,
+    (record): record is DispatchRecord => record !== undefined,
+    (record) => applySentinelOperationalFailure(record, { timestamp, errorMessage: detail }),
+  );
+  if (!updated) {
+    return;
+  }
 
   writePhaseLog(root, {
     timestamp,
     phase: "dispatch",
     issueId,
-    action: "stale_review_agent_cleared",
-    outcome: "implemented",
+    action: "sentinel_review_completed",
+    outcome: "failed",
+    detail,
   });
+}
 
+function clearStaleImplementedReviewAgent(root: string, issueId: string, timestamp: string) {
+  const cleared = updateLatestRecord(
+    root,
+    issueId,
+    (record): record is DispatchRecord =>
+      record?.stage === "implemented" && record.runningAgent?.caste === "sentinel",
+    (record) => ({
+      ...record,
+      runningAgent: null,
+      updatedAt: timestamp,
+    }),
+  );
+  if (cleared) {
+    writePhaseLog(root, {
+      timestamp,
+      phase: "dispatch",
+      issueId,
+      action: "stale_review_agent_cleared",
+      outcome: "implemented",
+    });
+  }
+  return cleared;
+}
+
+async function launchSentinelSession(context: CycleContext, issueId: string) {
+  const { root, timestamp } = context;
+  const launched = await context.runtime.launch({
+    root,
+    issueId,
+    title: issueId,
+    caste: "sentinel",
+    stage: "reviewing",
+  });
+  const marked = updateLatestRecord(root, issueId, isReviewStage, (record) => ({
+    ...record,
+    stage: "reviewing",
+    runningAgent: {
+      caste: "sentinel",
+      sessionId: launched.sessionId,
+      startedAt: launched.startedAt,
+    },
+    cooldownUntil: null,
+    sessionProvenanceId: context.sessionProvenanceId,
+    updatedAt: timestamp,
+  }));
+  if (!marked) {
+    return false;
+  }
+
+  writePhaseLog(root, {
+    timestamp,
+    phase: "dispatch",
+    issueId,
+    action: "launch_sentinel",
+    outcome: "running",
+    sessionId: launched.sessionId,
+    detail: JSON.stringify({
+      caste: "sentinel",
+      stage: "reviewing",
+    }),
+  });
   return true;
 }
 
-function createPreMergeReviewLauncher(
-  root: string,
-  launchPreMergeReview?: RunLoopPhaseOptions["launchPreMergeReview"],
+async function runInlineReview(
+  context: CycleContext,
+  issueId: string,
+  launchPreMergeReview: NonNullable<RunLoopPhaseOptions["launchPreMergeReview"]>,
 ) {
-  if (launchPreMergeReview) {
-    return launchPreMergeReview;
+  const { root, timestamp } = context;
+  const marked = updateLatestRecord(root, issueId, isReviewStage, (record) => ({
+    ...record,
+    stage: "reviewing",
+    updatedAt: timestamp,
+  }));
+  if (marked) {
+    await launchPreMergeReview({ root, issueId, timestamp });
   }
-
-  return async ({ issueId, timestamp }: {
-    root: string;
-    issueId: string;
-    timestamp: string;
-  }) => {
-    const config = loadConfig(root);
-    const tracker = createTrackerClient();
-    await runCasteCommand({
-      root,
-      action: "review",
-      issueId,
-      tracker,
-      runtime: createCasteRuntime(config.runtime, {}, {
-        root,
-        issueId,
-      }),
-      artifactEmissionMode: config.runtime === "pi" ? "tool" : "json",
-      now: timestamp,
-    });
-  };
+  return marked;
 }
 
+/**
+ * Starts Sentinel for `implemented` work within capacity. Stranded `reviewing`
+ * records are recovered from a durable verdict first.
+ */
 async function runPreMergeReviews(
-  root: string,
-  timestamp: string,
-  runtime: AgentRuntime,
-  sessionProvenanceId: string,
+  context: CycleContext,
   launchPreMergeReview?: RunLoopPhaseOptions["launchPreMergeReview"],
 ): Promise<void> {
-  const config = loadConfig(root);
+  const { root, config, timestamp } = context;
   const initialState = loadDispatchState(root);
+  const activeAgentCount = countRunningAgents(initialState);
+  const activeSentinelCount = countRunningAgents(initialState, "sentinel");
   let reservedAgents = 0;
   let reservedSentinels = 0;
-  const activeAgentCount = Object.values(initialState.records)
-    .filter((record) => record.runningAgent !== null)
-    .length;
-  const activeSentinelCount = Object.values(initialState.records)
-    .filter((record) => record.runningAgent?.caste === "sentinel")
-    .length;
-  const reviewCandidates = Object.values(loadDispatchState(root).records)
-    .filter((record) => (
-      record.stage === "implemented" || record.stage === "reviewing"
-    ) && !isRecordCoolingDown(record, timestamp));
-  const launchReview = createPreMergeReviewLauncher(root, launchPreMergeReview);
+  const reviewCandidates = Object.values(initialState.records)
+    .filter((record) => isReviewStage(record) && !isRecordCoolingDown(record, timestamp));
 
   for (const record of reviewCandidates) {
     if (ACTIVE_PRE_MERGE_REVIEWS.has(record.issueId)) {
@@ -379,65 +347,29 @@ async function runPreMergeReviews(
 
     ACTIVE_PRE_MERGE_REVIEWS.add(record.issueId);
     try {
-      if (launchPreMergeReview) {
-        if (!markRecordReviewing(root, record.issueId, timestamp)) {
-          continue;
-        }
-        await launchReview({
-          root,
-          issueId: record.issueId,
-          timestamp,
-        });
-      } else {
-        const launched = await runtime.launch({
-          root,
-          issueId: record.issueId,
-          title: record.issueId,
-          caste: "sentinel",
-          stage: "reviewing",
-        });
-        if (!markRecordReviewingWithAgent({
-          root,
-          issueId: record.issueId,
-          timestamp,
-          sessionProvenanceId,
-          sessionId: launched.sessionId,
-          startedAt: launched.startedAt,
-        })) {
-          continue;
-        }
-        writePhaseLog(root, {
-          timestamp,
-          phase: "dispatch",
-          issueId: record.issueId,
-          action: "launch_sentinel",
-          outcome: "running",
-          sessionId: launched.sessionId,
-          detail: JSON.stringify({
-            caste: "sentinel",
-            stage: "reviewing",
-          }),
-          });
+      const started = launchPreMergeReview
+        ? await runInlineReview(context, record.issueId, launchPreMergeReview)
+        : await launchSentinelSession(context, record.issueId);
+      if (started) {
+        reservedAgents += 1;
+        reservedSentinels += 1;
       }
-      reservedAgents += 1;
-      reservedSentinels += 1;
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      markReviewRetryCooldown(root, record.issueId, timestamp, detail);
+      markReviewLaunchFailed(root, record.issueId, timestamp, detail);
     } finally {
       ACTIVE_PRE_MERGE_REVIEWS.delete(record.issueId);
     }
   }
 }
 
+/** Runs one loop phase directly (terminal `aegis poll|dispatch|monitor|reap`). */
 export async function runLoopPhase(
   root = process.cwd(),
   phase: LoopPhase,
   options: RunLoopPhaseOptions = {},
 ): Promise<LoopPhaseResult> {
-  const runtime = options.runtime ?? createDefaultRuntime(root);
-  const timestamp = new Date().toISOString();
-  const sessionProvenanceId = options.sessionProvenanceId ?? "direct-command";
+  const context = createCycleContext(root, options, "direct-command");
 
   if (phase === "poll") {
     const snapshot = await pollReadyWork({
@@ -445,27 +377,16 @@ export async function runLoopPhase(
       tracker: createTrackerClient(),
       root,
     });
-    writePhaseLog(root, {
-      timestamp,
-      phase: "poll",
-      issueId: "_all",
-      action: "poll_ready_work",
-      outcome: "ok",
-      detail: snapshot.readyIssues.map((issue) => issue.id).join(","),
-    });
+    const readyIssueIds = snapshot.readyIssues.map((issue) => issue.id);
+    logPoll(root, context.timestamp, readyIssueIds);
     return {
       phase,
-      readyIssueIds: snapshot.readyIssues.map((issue) => issue.id),
+      readyIssueIds,
     };
   }
 
   if (phase === "dispatch") {
-    const result = await runDispatchPipeline(
-      root,
-      runtime,
-      sessionProvenanceId,
-      timestamp,
-    );
+    const result = await runDispatchPipeline(context);
     return {
       phase,
       readyIssueIds: result.readyIssueIds,
@@ -476,7 +397,7 @@ export async function runLoopPhase(
   }
 
   if (phase === "monitor") {
-    const result = await runMonitorPipeline(root, runtime, timestamp);
+    const result = await runMonitorPipeline(context);
     return {
       phase,
       warnings: result.warnings,
@@ -487,12 +408,8 @@ export async function runLoopPhase(
 
   const dispatchState = loadDispatchState(root);
   const result = await runReapPipeline(
-    root,
-    runtime,
-    timestamp,
-    Object.values(dispatchState.records)
-      .filter((record) => record.runningAgent !== null)
-      .map((record) => record.issueId),
+    context,
+    listRunningRecords(dispatchState).map((record) => record.issueId),
     dispatchState,
   );
   return {
@@ -502,41 +419,16 @@ export async function runLoopPhase(
   };
 }
 
+/** One daemon tick: poll -> triage -> dispatch -> monitor -> reap, then review and enqueue. */
 export async function runDaemonCycle(
   root = process.cwd(),
   options: RunLoopPhaseOptions = {},
 ): Promise<void> {
-  const runtime = options.runtime ?? createDefaultRuntime(root);
-  const timestamp = new Date().toISOString();
-  const sessionProvenanceId = options.sessionProvenanceId ?? "daemon";
-  const dispatchResult = await runDispatchPipeline(
-    root,
-    runtime,
-    sessionProvenanceId,
-    timestamp,
-  );
+  const context = createCycleContext(root, options, "daemon");
+  const dispatchResult = await runDispatchPipeline(context);
+  const monitorResult = await runMonitorPipeline(context, dispatchResult.dispatchState);
 
-  const monitorResult = await runMonitorPipeline(
-    root,
-    runtime,
-    timestamp,
-    dispatchResult.dispatchState,
-  );
-
-  await runReapPipeline(
-    root,
-    runtime,
-    timestamp,
-    monitorResult.readyToReap,
-    dispatchResult.dispatchState,
-  );
-
-  await runPreMergeReviews(
-    root,
-    timestamp,
-    runtime,
-    sessionProvenanceId,
-    options.launchPreMergeReview,
-  );
-  autoEnqueueImplementedIssuesForMerge(root, timestamp);
+  await runReapPipeline(context, monitorResult.readyToReap, dispatchResult.dispatchState);
+  await runPreMergeReviews(context, options.launchPreMergeReview);
+  autoEnqueueImplementedIssuesForMerge(root, context.timestamp);
 }

@@ -19,7 +19,7 @@ import { readRuntimeState } from "../cli/runtime-state.js";
 import type { AegisIssue } from "../tracker/issue-model.js";
 import { isProcessRunning } from "../cli/runtime-state.js";
 import { AgoraStore, type AgoraColumn, type AgoraTicket } from "../../packages/agora/dist/index.js";
-import { renameWithRetries } from "../shared/atomic-write.js";
+import { writeJsonAtomic } from "../shared/atomic-write.js";
 
 const HAPPY_PATH_ISSUE_KEY = "foundation.app";
 const JANUS_ISSUE_KEY = "janus.integration";
@@ -300,11 +300,7 @@ function resolveFinalAppVerificationPath(root: string) {
 }
 
 function writeFinalAppVerification(root: string, verification: MockAcceptanceFinalAppVerification) {
-  const targetPath = resolveFinalAppVerificationPath(root);
-  const temporaryPath = `${targetPath}.tmp`;
-  mkdirSync(path.dirname(targetPath), { recursive: true });
-  writeFileSync(temporaryPath, `${JSON.stringify(verification, null, 2)}\n`, "utf8");
-  renameWithRetries(temporaryPath, targetPath);
+  writeJsonAtomic(resolveFinalAppVerificationPath(root), verification);
 }
 
 function readFinalAppVerification(root: string): MockAcceptanceFinalAppVerification {

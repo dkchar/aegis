@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import path from "node:path";
 
 import { readRuntimeState, type RuntimeStateRecord } from "./runtime-state.js";
@@ -15,7 +15,10 @@ export interface StreamDaemonOptions {
 }
 
 interface DaemonStreamCursor {
+  /** Byte offset into daemon.log already streamed. */
   daemonOffset: number;
+  /** Trailing partial line held until its newline arrives. */
+  pendingDaemonText: string;
   seenPhaseFiles: Set<string>;
   runtimeFingerprint: string | null;
 }
@@ -38,6 +41,7 @@ function initializeCursor(root: string): DaemonStreamCursor {
 
   return {
     daemonOffset: existsSync(daemonLogPath) ? statSync(daemonLogPath).size : 0,
+    pendingDaemonText: "",
     seenPhaseFiles: existsSync(phaseLogDirectory)
       ? new Set(readdirSync(phaseLogDirectory).filter((entry) => entry.endsWith(".json")))
       : new Set<string>(),
@@ -115,6 +119,35 @@ function formatPhaseEntry(entry: PhaseLogEntry) {
   return parts.join(" ");
 }
 
+/** Reads only bytes appended since the last poll; restarts if the log was truncated. */
+function readAppendedDaemonLines(daemonLogPath: string, cursor: DaemonStreamCursor) {
+  if (!existsSync(daemonLogPath)) {
+    return [];
+  }
+
+  const size = statSync(daemonLogPath).size;
+  if (size < cursor.daemonOffset) {
+    cursor.daemonOffset = 0;
+    cursor.pendingDaemonText = "";
+  }
+  if (size === cursor.daemonOffset) {
+    return [];
+  }
+
+  const buffer = Buffer.alloc(size - cursor.daemonOffset);
+  const fd = openSync(daemonLogPath, "r");
+  try {
+    readSync(fd, buffer, 0, buffer.length, cursor.daemonOffset);
+  } finally {
+    closeSync(fd);
+  }
+  cursor.daemonOffset = size;
+
+  const lines = `${cursor.pendingDaemonText}${buffer.toString("utf8")}`.split(/\r?\n/);
+  cursor.pendingDaemonText = lines.pop() ?? "";
+  return lines.filter((line) => line.trim().length > 0);
+}
+
 function pollDaemonStream(
   root: string,
   cursor: DaemonStreamCursor,
@@ -127,23 +160,8 @@ function pollDaemonStream(
     writeLine(formatRuntimeState(runtimeState));
   }
 
-  const daemonLogPath = resolveDaemonLogPath(root);
-  if (existsSync(daemonLogPath)) {
-    const daemonContents = readFileSync(daemonLogPath, "utf8");
-    if (daemonContents.length < cursor.daemonOffset) {
-      cursor.daemonOffset = 0;
-    }
-
-    const nextChunk = daemonContents.slice(cursor.daemonOffset);
-    cursor.daemonOffset = daemonContents.length;
-
-    for (const line of nextChunk.split(/\r?\n/)) {
-      if (line.trim().length === 0) {
-        continue;
-      }
-
-      writeLine(`[daemon] ${line}`);
-    }
+  for (const line of readAppendedDaemonLines(resolveDaemonLogPath(root), cursor)) {
+    writeLine(`[daemon] ${line}`);
   }
 
   const phaseLogDirectory = resolvePhaseLogDirectory(root);

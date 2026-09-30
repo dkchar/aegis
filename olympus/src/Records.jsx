@@ -60,7 +60,7 @@ export default function Records({ state, mutate }) {
         ]}
       />
       <AttentionCard rows={allAttentionRows} artifacts={artifactAttention} />
-      <Accordion variant="separated">
+      <Accordion variant="separated" defaultValue="records">
         <Accordion.Item value="records">
           <Accordion.Control>Records detail</Accordion.Control>
           <Accordion.Panel>
@@ -84,7 +84,7 @@ export default function Records({ state, mutate }) {
 function AttentionCard({ rows, artifacts }) {
   const hasItems = rows.length > 0 || artifacts.length > 0;
   return (
-    <Paper component="section" withBorder radius="sm" p="md">
+    <Paper component="section" withBorder p="md">
       <Stack gap="sm">
         <SectionHead icon={AlertTriangle} title="Attention" detail="Provider failures, exhausted work, and rejected artifacts stay visible here until the run recovers." />
         {!hasItems && <EmptyState title="No attention items" detail="Provider failures, exhausted work, and rejected artifacts appear here." />}
@@ -111,13 +111,13 @@ function AttentionCard({ rows, artifacts }) {
 
 function DispatchProgress({ rows }) {
   return (
-    <Paper component="section" withBorder radius="sm" p="md">
+    <Paper component="section" withBorder p="md">
       <Stack gap="sm">
         <SectionHead icon={Boxes} title="Dispatch Progress" detail="Current durable state per issue, with session ownership and artifact references." />
         {rows.length === 0 && <EmptyState title="No dispatch records" detail="Dispatch state fills after tickets enter the Aegis loop." />}
         <div className="grid min-w-0 gap-2 [grid-template-columns:repeat(auto-fit,minmax(18rem,1fr))]">
           {rows.map((row) => (
-            <Paper component="article" key={row.id} withBorder radius="sm" p="sm">
+            <Paper component="article" key={row.id} withBorder p="sm">
               <Stack gap="xs">
                 <Group justify="space-between" align="flex-start" wrap="nowrap">
                   <Stack gap={2} style={{ minWidth: 0 }}>
@@ -126,7 +126,7 @@ function DispatchProgress({ rows }) {
                   </Stack>
                   <StatusBadge status={row.status}>{row.status}</StatusBadge>
                 </Group>
-                <Group gap="xs"><Badge color="gray" variant="light">{row.stage}</Badge><Badge color="cyan" variant="light">{row.refs} refs</Badge></Group>
+                <Group gap="xs"><Badge color="gray" variant="light">{row.stage}</Badge><Badge color="aegis" variant="light">{row.refs} refs</Badge></Group>
                 <Text size="xs" c="dimmed" lineClamp={2}>{row.note}</Text>
                 <InfoLine label="agent" value={row.agent} />
                 <InfoLine label="scope" value={row.scope} />
@@ -192,12 +192,12 @@ function dispatchRefs(record) {
 
 function MergeQueue({ items }) {
   return (
-    <Paper component="section" withBorder radius="sm" p="md">
+    <Paper component="section" withBorder p="md">
       <Stack gap="sm">
         <SectionHead icon={GitMerge} title="Merge Queue" detail="Integration queue records and failure reasons." />
         {items.length === 0 && <EmptyState title="Merge queue empty" detail="Completed implementation work appears here when it is ready for integration." />}
         {items.map((item) => (
-          <Paper key={item.id} withBorder radius="sm" p="sm">
+          <Paper key={item.id} withBorder p="sm">
             <Stack gap="xs">
               <Group gap="xs" wrap="wrap"><Text size="sm" fw={700} ff="monospace">{item.id}</Text><StatusBadge status={item.state}>{item.state}</StatusBadge><Badge color="gray" variant="light">{item.priority}</Badge></Group>
               <Text size="xs" c="dimmed">{item.issue} - {item.note}</Text>
@@ -211,7 +211,7 @@ function MergeQueue({ items }) {
 
 function Artifacts({ state, mutate }) {
   return (
-    <Paper component="section" withBorder radius="sm" p="md">
+    <Paper component="section" withBorder p="md">
       <Stack gap="sm">
         <SectionHead icon={FileJson} title="Artifacts" detail="Recent caste, policy, and transcript records with outcome summaries." />
         {state.artifacts.length === 0 && <EmptyState title="No artifacts yet" detail="Aegis writes caste output here as sessions complete." />}
@@ -225,7 +225,7 @@ function Artifacts({ state, mutate }) {
               <Group justify="space-between" wrap="nowrap" align="flex-start">
                 <Stack gap={2} style={{ minWidth: 0 }}>
                   <Text truncate size="sm" fw={700}>{artifact.issue ? `${artifact.issue} ${artifact.kind}` : artifact.kind}</Text>
-                  <Text truncate size="xs" ff="monospace" c="cyan">{artifact.path}</Text>
+                  <Text truncate size="xs" ff="monospace" c="aegis">{artifact.path}</Text>
                   <Text size="xs" c="dimmed">{artifact.summary ?? "Structured artifact available"}</Text>
                 </Stack>
                 <StatusBadge status={artifact.status}>{artifact.status}</StatusBadge>

@@ -6,6 +6,8 @@ import {
 } from "node:fs";
 import path from "node:path";
 
+import { formatJson, writeTextAtomic } from "../shared/atomic-write.js";
+
 import { DEFAULT_AEGIS_CONFIG } from "./defaults.js";
 import {
   AEGIS_CONFIG_PATH,
@@ -34,6 +36,8 @@ export const DEFAULT_GITIGNORE_ENTRIES = [
   ".aegis/final-app-verification.json",
   ".aegis/runtime-state.json",
   ".aegis/runtime-stop-request.json",
+  ".aegis/runtime-commands/",
+  ".aegis/olympus-state.json",
   ".aegis/labors/",
   ".aegis/logs/",
   ".aegis/oracle/",
@@ -79,12 +83,16 @@ function seedFile(targetPath: string, contents: string) {
     return false;
   }
 
-  writeFileSync(targetPath, contents, "utf8");
-  return true;
-}
-
-function formatJsonFile(value: unknown) {
-  return `${JSON.stringify(value, null, 2)}\n`;
+  try {
+    // "wx" never clobbers a file created concurrently after the check above.
+    writeFileSync(targetPath, contents, { encoding: "utf8", flag: "wx" });
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 function updateGitIgnore(
@@ -110,7 +118,7 @@ function updateGitIgnore(
     : "";
   const suffix = `${missingEntries.join("\n")}\n`;
 
-  writeFileSync(gitIgnorePath, `${existingContents}${prefix}${suffix}`, "utf8");
+  writeTextAtomic(gitIgnorePath, `${existingContents}${prefix}${suffix}`);
   return true;
 }
 
@@ -134,7 +142,7 @@ function updatePackageJsonAliases(repoRoot: string): void {
   }
 
   try {
-    writeFileSync(packageJsonPath, result.packageJsonText, "utf8");
+    writeTextAtomic(packageJsonPath, result.packageJsonText);
   } catch {
     return;
   }
@@ -152,33 +160,16 @@ export function initProject(root = process.cwd()): InitProjectResult {
     }
   }
 
-  if (
-    seedFile(
-      resolveProjectRelativePath(plan.repoRoot, AEGIS_CONFIG_PATH),
-      formatJsonFile(DEFAULT_AEGIS_CONFIG),
-    )
-  ) {
-    createdFiles.push(resolveProjectRelativePath(plan.repoRoot, AEGIS_CONFIG_PATH));
-  }
-  if (
-    seedFile(
-      resolveProjectRelativePath(plan.repoRoot, ".aegis/dispatch-state.json"),
-      formatJsonFile(emptyDispatchState()),
-    )
-  ) {
-    createdFiles.push(
-      resolveProjectRelativePath(plan.repoRoot, ".aegis/dispatch-state.json"),
-    );
-  }
-  if (
-    seedFile(
-      resolveProjectRelativePath(plan.repoRoot, ".aegis/merge-queue.json"),
-      formatJsonFile(emptyMergeQueueState()),
-    )
-  ) {
-    createdFiles.push(
-      resolveProjectRelativePath(plan.repoRoot, ".aegis/merge-queue.json"),
-    );
+  const seededFiles: Array<[string, unknown]> = [
+    [AEGIS_CONFIG_PATH, DEFAULT_AEGIS_CONFIG],
+    [".aegis/dispatch-state.json", emptyDispatchState()],
+    [".aegis/merge-queue.json", emptyMergeQueueState()],
+  ];
+  for (const [relativePath, contents] of seededFiles) {
+    const targetPath = resolveProjectRelativePath(plan.repoRoot, relativePath);
+    if (seedFile(targetPath, formatJson(contents))) {
+      createdFiles.push(targetPath);
+    }
   }
   updatePackageJsonAliases(plan.repoRoot);
 

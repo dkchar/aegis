@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { spawn, spawnSync } from "node:child_process";
 
 import type {
   CasteName,
@@ -12,13 +11,15 @@ import type {
 } from "./caste-runtime.js";
 import type { AegisThinkingLevel } from "../config/schema.js";
 import { createCasteConfig, type CasteConfigRecord } from "../config/caste-config.js";
+import { parseModelReference, tailText, type ParsedModelConfig } from "./model-reference.js";
+import {
+  buildCliSpawnInvocation,
+  buildTerminateMatchingWorkspaceProcessesScript,
+  runSupervisedProcess,
+  terminateWorkspaceProcesses,
+} from "./workspace-processes.js";
 
-interface CodexModelConfig {
-  reference: string;
-  provider: string;
-  modelId: string;
-  thinkingLevel: AegisThinkingLevel;
-}
+type CodexModelConfig = ParsedModelConfig;
 
 interface CodexRunRequest {
   cwd: string;
@@ -41,428 +42,25 @@ export interface CodexCasteRuntimeOptions {
 }
 
 const DEFAULT_CODEX_SESSION_TIMEOUT_MS = 1_800_000;
-
-function parseModelReference(reference: string, thinkingLevel: AegisThinkingLevel): CodexModelConfig {
-  const separator = reference.indexOf(":");
-  if (separator === -1) {
-    return {
-      reference,
-      provider: "openai-codex",
-      modelId: reference,
-      thinkingLevel,
-    };
-  }
-
-  return {
-    reference,
-    provider: reference.slice(0, separator),
-    modelId: reference.slice(separator + 1),
-    thinkingLevel,
-  };
-}
-
-function defaultModelConfigs() {
-  return createCasteConfig(() => ({
-    reference: "openai-codex:gpt-5.4-mini",
-    provider: "openai-codex",
-    modelId: "gpt-5.4-mini",
-    thinkingLevel: "medium" as const,
-  }));
-}
-
-function quotePowerShellString(value: string) {
-  return `'${value.replace(/'/g, "''")}'`;
-}
+const CODEX_PROVIDER = "openai-codex";
+const CODEX_DEFAULT_MODEL = "gpt-5.4-mini";
+const CODEX_PROCESS_PATTERN = "\\bcodex(\\.cmd|\\.exe|\\.js)?\\b";
 
 function resolveCodexSandboxMode(platform: NodeJS.Platform) {
+  // Codex workspace-write shell execution is broken on Windows.
   return platform === "win32" ? "danger-full-access" : "workspace-write";
 }
 
-function normalizeProcessPath(candidate: string, platform: NodeJS.Platform) {
-  const normalized = (platform === "win32"
-    ? path.win32.resolve(candidate)
-    : path.posix.resolve(candidate)).replace(/\\/g, "/");
-  return platform === "win32" ? normalized.toLowerCase() : normalized;
-}
-
-function commandLineContainsWorkspace(commandLine: string, workspace: string) {
-  let searchFrom = 0;
-  while (searchFrom < commandLine.length) {
-    const index = commandLine.indexOf(workspace, searchFrom);
-    if (index === -1) {
-      return false;
-    }
-    const next = commandLine[index + workspace.length];
-    if (next === undefined || next === "/" || next === "\"" || next === "'" || /\s/.test(next)) {
-      return true;
-    }
-    searchFrom = index + workspace.length;
-  }
-  return false;
-}
-
-function resolveWindowsCommandPath(commandName: string) {
-  const result = spawnSync("where.exe", [commandName], {
-    encoding: "utf8",
-    windowsHide: true,
-  });
-  if (result.status !== 0) {
-    return null;
-  }
-
-  return result.stdout
-    .split(/\r?\n/)
-    .map((entry) => entry.trim())
-    .find((entry) => entry.toLowerCase().endsWith(`\\${commandName.toLowerCase()}`))
-    ?? null;
-}
-
-function writeCommandShim(shimDirectory: string, commandName: string, targetPath: string) {
-  mkdirSync(shimDirectory, { recursive: true });
-  writeFileSync(
-    path.join(shimDirectory, commandName),
-    [
-      "@echo off",
-      `"${targetPath}" %*`,
-      "",
-    ].join("\r\n"),
-    "utf8",
-  );
-}
-
-function writeRipgrepShim(shimDirectory: string, targetPath: string) {
-  mkdirSync(shimDirectory, { recursive: true });
-  writeFileSync(
-    path.join(shimDirectory, "rg.cmd"),
-    [
-      "@echo off",
-      `"${targetPath}" %*`,
-      "if %ERRORLEVEL% EQU 1 exit /B 0",
-      "exit /B %ERRORLEVEL%",
-      "",
-    ].join("\r\n"),
-    "utf8",
-  );
-}
-
-export function buildCodexRunEnvironment(
-  baseEnv: NodeJS.ProcessEnv = process.env,
-  platform: NodeJS.Platform = process.platform,
-  resolveCommandPath: (commandName: string) => string | null = resolveWindowsCommandPath,
-  shimDirectory = path.join(tmpdir(), "aegis-codex-runtime", "cmd-shims"),
-) {
-  if (platform !== "win32") {
-    return baseEnv;
-  }
-
-  let wroteShim = false;
-  for (const commandName of ["npm.cmd", "npx.cmd"]) {
-    const targetPath = resolveCommandPath(commandName);
-    if (!targetPath) {
-      continue;
-    }
-    writeCommandShim(shimDirectory, commandName, targetPath);
-    wroteShim = true;
-  }
-  const ripgrepPath = resolveCommandPath("rg.exe");
-  if (ripgrepPath) {
-    writeRipgrepShim(shimDirectory, ripgrepPath);
-    wroteShim = true;
-  }
-
-  if (!wroteShim) {
-    return baseEnv;
-  }
-
-  const currentPath = baseEnv.Path ?? baseEnv.PATH ?? "";
-  return {
-    ...baseEnv,
-    Path: `${shimDirectory}${path.delimiter}${currentPath}`,
-  };
-}
-
-export function commandLineReferencesWorkspace(
-  commandLine: string,
-  workingDirectory: string,
-  platform: NodeJS.Platform = process.platform,
-) {
-  const normalizedCommand = commandLine.replace(/\\/g, "/");
-  const comparableCommand = platform === "win32"
-    ? normalizedCommand.toLowerCase()
-    : normalizedCommand;
-  const workspace = normalizeProcessPath(workingDirectory, platform);
-  return commandLineContainsWorkspace(comparableCommand, workspace);
-}
-
-export function isForbiddenLongRunningWorkspaceCommand(commandLine: string) {
-  const normalized = commandLine.replace(/\\/g, "/").replace(/\s+/g, " ").trim().toLowerCase();
-  return /\b(npm|npm\.cmd|pnpm|pnpm\.cmd|yarn|yarn\.cmd|bun|bun\.cmd)\s+run\s+(dev|preview|start)\b/.test(normalized)
-    || /\b(npm|npm\.cmd|pnpm|pnpm\.cmd|yarn|yarn\.cmd|bun|bun\.cmd)\s+(dev|preview|start)\b/.test(normalized)
-    || /\b(vite|next|astro)\s+dev\b/.test(normalized)
-    || /node_modules\/(\.bin\/)?vite\b.*\s(dev|preview|serve|--host|--port)\b/.test(normalized)
-    || /vite\/bin\/vite\.js\b.*\s(dev|preview|serve|--host|--port)\b/.test(normalized)
-    || /\b(vitest|tsc)\b.*\s--watch\b/.test(normalized)
-    || /\bwebpack\s+serve\b/.test(normalized);
-}
-
-function isPlaywrightTestCommand(commandLine: string) {
-  const normalized = commandLine.replace(/\\/g, "/").replace(/\s+/g, " ").trim().toLowerCase();
-  return /\bplaywright(\.cmd|\.exe|\.js)?\b.*\btest\b/.test(normalized)
-    || /@playwright\/test\b.*\btest\b/.test(normalized);
-}
-
-export function isAllowedPlaywrightManagedWorkspaceServer(
-  processId: number,
-  parentByPid: Map<number, number>,
-  commandByPid: Map<number, string>,
-) {
-  let current = processId;
-  const visited = new Set<number>();
-  for (let depth = 0; depth < 20; depth += 1) {
-    const parent = parentByPid.get(current);
-    if (!parent || visited.has(parent)) {
-      return false;
-    }
-    visited.add(parent);
-    const commandLine = commandByPid.get(parent) ?? "";
-    if (isPlaywrightTestCommand(commandLine)) {
-      return true;
-    }
-    current = parent;
-  }
-  return false;
-}
-
-function findForbiddenWorkspaceProcess(
-  workingDirectory: string,
-  platform: NodeJS.Platform = process.platform,
-) {
-  if (platform === "win32") {
-    const script = [
-      "$ErrorActionPreference = 'SilentlyContinue'",
-      "Get-CimInstance Win32_Process | ForEach-Object {",
-      "  if ($_.CommandLine) { [Console]::Out.WriteLine(([string]$_.ProcessId) + \"`t\" + ([string]$_.ParentProcessId) + \"`t\" + $_.CommandLine) }",
-      "}",
-    ].join("\n");
-    const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
-      encoding: "utf8",
-      windowsHide: true,
-    });
-    if (result.status !== 0) {
-      return null;
-    }
-    const parentByPid = new Map<number, number>();
-    const commandByPid = new Map<number, string>();
-    const snapshots: Array<{ pid: number; commandLine: string }> = [];
-    for (const line of result.stdout.split(/\r?\n/)) {
-      const [pidText, parentText, commandLine] = line.split("\t", 3);
-      const pid = Number(pidText);
-      const parent = Number(parentText);
-      if (!Number.isFinite(pid) || !commandLine) {
-        continue;
-      }
-      if (Number.isFinite(parent)) {
-        parentByPid.set(pid, parent);
-      }
-      commandByPid.set(pid, commandLine);
-      snapshots.push({ pid, commandLine });
-    }
-    for (const snapshot of snapshots) {
-      const commandLine = snapshot.commandLine;
-      if (
-        commandLineReferencesWorkspace(commandLine, workingDirectory, platform)
-        && isForbiddenLongRunningWorkspaceCommand(commandLine)
-        && !isAllowedPlaywrightManagedWorkspaceServer(snapshot.pid, parentByPid, commandByPid)
-      ) {
-        return commandLine;
-      }
-    }
-    return null;
-  }
-
-  const ps = spawnSync("ps", ["-eo", "pid=,ppid=,command="], {
-    encoding: "utf8",
-    windowsHide: true,
-  });
-  if (ps.status !== 0) {
-    return null;
-  }
-  const parentByPid = new Map<number, number>();
-  const commandByPid = new Map<number, string>();
-  const snapshots: Array<{ pid: number; commandLine: string }> = [];
-  for (const line of ps.stdout.split(/\r?\n/)) {
-    const match = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
-    if (!match) {
-      continue;
-    }
-    const pid = Number(match[1]);
-    const parent = Number(match[2]);
-    const commandLine = match[3] ?? "";
-    if (!Number.isFinite(pid)) {
-      continue;
-    }
-    if (Number.isFinite(parent)) {
-      parentByPid.set(pid, parent);
-    }
-    commandByPid.set(pid, commandLine);
-    snapshots.push({ pid, commandLine });
-  }
-  for (const snapshot of snapshots) {
-    const commandLine = snapshot.commandLine;
-    if (
-      commandLineReferencesWorkspace(commandLine, workingDirectory, platform)
-      && isForbiddenLongRunningWorkspaceCommand(commandLine)
-      && !isAllowedPlaywrightManagedWorkspaceServer(snapshot.pid, parentByPid, commandByPid)
-    ) {
-      return commandLine;
-    }
-  }
-  return null;
-}
-
-export function buildTerminateWorkspaceProcessesScript(workingDirectory: string) {
-  const workspace = normalizeProcessPath(workingDirectory, "win32");
-  const rawWorkspace = path.resolve(workingDirectory);
-  return [
-    "$ErrorActionPreference = 'SilentlyContinue'",
-    `$workspace = ${JSON.stringify(workspace)}`,
-    `$rawWorkspace = ${JSON.stringify(rawWorkspace)}`,
-    "$current = $PID",
-    "$forbiddenPatterns = @(",
-    "  '\\b(npm|npm\\.cmd|pnpm|pnpm\\.cmd|yarn|yarn\\.cmd|bun|bun\\.cmd)\\s+run\\s+(dev|preview|start)\\b',",
-    "  '\\b(npm|npm\\.cmd|pnpm|pnpm\\.cmd|yarn|yarn\\.cmd|bun|bun\\.cmd)\\s+(dev|preview|start)\\b',",
-    "  '\\b(vite|next|astro)\\s+dev\\b',",
-    "  'node_modules/(\\.bin/)?vite\\b.*\\s(dev|preview|serve|--host|--port)\\b',",
-    "  'vite/bin/vite\\.js\\b.*\\s(dev|preview|serve|--host|--port)\\b',",
-    "  '\\b(vitest|tsc)\\b.*\\s--watch\\b',",
-    "  '\\bwebpack\\s+serve\\b'",
-    ")",
-    "Get-CimInstance Win32_Process | Where-Object {",
-    "  if ($_.ProcessId -eq $current -or -not $_.CommandLine) { return $false }",
-    "  $normalized = ($_.CommandLine.Replace('\\','/').ToLowerInvariant() -replace '\\s+', ' ').Trim()",
-    "  $matchesWorkspace = $_.CommandLine.ToLowerInvariant().Contains($rawWorkspace.ToLowerInvariant()) -or $normalized.Contains($workspace)",
-    "  if (-not $matchesWorkspace) { return $false }",
-    "  foreach ($pattern in $forbiddenPatterns) { if ($normalized -match $pattern) { return $true } }",
-    "  return $false",
-    "} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
-  ].join("\n");
-}
-
 export function buildTerminateCodexSessionProcessesScript(workingDirectory: string) {
-  const workspace = normalizeProcessPath(workingDirectory, "win32");
-  const rawWorkspace = path.resolve(workingDirectory);
-  return [
-    "$ErrorActionPreference = 'SilentlyContinue'",
-    `$workspace = ${JSON.stringify(workspace)}`,
-    `$rawWorkspace = ${JSON.stringify(rawWorkspace)}`,
-    "$current = $PID",
-    "Get-CimInstance Win32_Process | Where-Object {",
-    "  if ($_.ProcessId -eq $current -or -not $_.CommandLine) { return $false }",
-    "  $normalized = ($_.CommandLine.Replace('\\','/').ToLowerInvariant() -replace '\\s+', ' ').Trim()",
-    "  $matchesWorkspace = $_.CommandLine.ToLowerInvariant().Contains($rawWorkspace.ToLowerInvariant()) -or $normalized.Contains($workspace)",
-    "  if (-not $matchesWorkspace) { return $false }",
-    "  return $normalized -match '\\bcodex(\\.cmd|\\.exe|\\.js)?\\b'",
-    "} | ForEach-Object { taskkill /PID $_.ProcessId /T /F | Out-Null }",
-  ].join("\n");
+  return buildTerminateMatchingWorkspaceProcessesScript(workingDirectory, CODEX_PROCESS_PATTERN);
 }
 
-function terminateProcessTree(pid: number) {
-  if (process.platform === "win32") {
-    spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    return;
-  }
-
-  try {
-    process.kill(-pid, "SIGTERM");
-  } catch {
-    // Ignore missing process group.
-  }
-  try {
-    process.kill(pid, "SIGTERM");
-  } catch {
-    // Ignore missing process.
-  }
-}
-
-export function terminateWorkspaceProcesses(
-  workingDirectory: string,
-  platform: NodeJS.Platform = process.platform,
-) {
-  if (platform === "win32") {
-    spawnSync("powershell.exe", ["-NoProfile", "-Command", buildTerminateWorkspaceProcessesScript(workingDirectory)], {
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    return;
-  }
-
-  const ps = spawnSync("ps", ["-eo", "pid=,command="], {
-    encoding: "utf8",
-    windowsHide: true,
-  });
-  if (ps.status !== 0) {
-    return;
-  }
-  for (const line of ps.stdout.split(/\r?\n/)) {
-    const match = line.trim().match(/^(\d+)\s+(.+)$/);
-    if (!match) {
-      continue;
-    }
-    const pid = Number(match[1]);
-    const commandLine = match[2] ?? "";
-    if (
-      pid > 0
-      && pid !== process.pid
-      && commandLineReferencesWorkspace(commandLine, workingDirectory, platform)
-      && isForbiddenLongRunningWorkspaceCommand(commandLine)
-    ) {
-      try {
-        process.kill(pid, "SIGTERM");
-      } catch {
-        // Ignore missing process.
-      }
-    }
-  }
-}
-
+/** Kills Codex exec processes (and their trees) rooted in the workspace. */
 export function terminateCodexSessionProcesses(
   workingDirectory: string,
   platform: NodeJS.Platform = process.platform,
 ) {
-  if (platform === "win32") {
-    spawnSync("powershell.exe", ["-NoProfile", "-Command", buildTerminateCodexSessionProcessesScript(workingDirectory)], {
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    return;
-  }
-
-  const ps = spawnSync("ps", ["-eo", "pid=,command="], {
-    encoding: "utf8",
-    windowsHide: true,
-  });
-  if (ps.status !== 0) {
-    return;
-  }
-  for (const line of ps.stdout.split(/\r?\n/)) {
-    const match = line.trim().match(/^(\d+)\s+(.+)$/);
-    if (!match) {
-      continue;
-    }
-    const pid = Number(match[1]);
-    const commandLine = match[2] ?? "";
-    if (
-      pid > 0
-      && pid !== process.pid
-      && commandLineReferencesWorkspace(commandLine, workingDirectory, platform)
-      && /\bcodex(\.cmd|\.exe|\.js)?\b/i.test(commandLine)
-    ) {
-      terminateProcessTree(pid);
-    }
-  }
+  terminateWorkspaceProcesses(workingDirectory, new RegExp(CODEX_PROCESS_PATTERN, "i"), platform);
 }
 
 export function buildCodexExecArgs(
@@ -494,108 +92,18 @@ export function buildCodexSpawnInvocation(
   codexArgs: string[],
   platform: NodeJS.Platform = process.platform,
 ) {
-  if (platform === "win32") {
-    return {
-      command: "powershell.exe",
-      args: [
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        `& 'codex.cmd' ${codexArgs.map(quotePowerShellString).join(" ")}; exit $LASTEXITCODE`,
-      ],
-    };
-  }
-
-  return {
-    command: "codex",
-    args: codexArgs,
-  };
+  return buildCliSpawnInvocation("codex", codexArgs, platform);
 }
 
 function runCodexExec(request: CodexRunRequest): Promise<CodexRunResult> {
-  return new Promise((resolve) => {
-    const invocation = buildCodexSpawnInvocation(buildCodexExecArgs(request));
-    const child = spawn(invocation.command, invocation.args, {
-      cwd: request.cwd,
-      env: buildCodexRunEnvironment(),
-      windowsHide: true,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    let timeout: ReturnType<typeof setTimeout>;
-    let workspaceMonitor: ReturnType<typeof setInterval>;
-    const scheduleInactivityTimeout = () => {
-      clearTimeout(timeout);
-      timeout = setTimeout(() => {
-        if (typeof child.pid === "number") {
-          terminateProcessTree(child.pid);
-        } else {
-          child.kill("SIGKILL");
-        }
-        settle({
-          exitCode: 1,
-          stdout,
-          stderr: `${stderr}${stderr.length > 0 ? "\n" : ""}Codex session timed out after ${request.timeoutMs}ms without output.`,
-        });
-      }, request.timeoutMs);
-    };
-    const settle = (result: CodexRunResult) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timeout);
-      clearInterval(workspaceMonitor);
-      cleanup();
-      resolve(result);
-    };
-    const cleanup = () => {
-      terminateWorkspaceProcesses(request.cwd);
-    };
-    scheduleInactivityTimeout();
-    workspaceMonitor = setInterval(() => {
-      const forbiddenCommand = findForbiddenWorkspaceProcess(request.cwd);
-      if (!forbiddenCommand) {
-        return;
-      }
-      if (typeof child.pid === "number") {
-        terminateProcessTree(child.pid);
-      } else {
-        child.kill("SIGKILL");
-      }
-      settle({
-        exitCode: 1,
-        stdout,
-        stderr: `${stderr}${stderr.length > 0 ? "\n" : ""}Codex session launched forbidden long-running workspace process: ${forbiddenCommand}`,
-      });
-    }, 5_000);
-
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => {
-      scheduleInactivityTimeout();
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk) => {
-      scheduleInactivityTimeout();
-      stderr += chunk;
-    });
-    child.on("error", (error) => {
-      settle({
-        exitCode: 1,
-        stdout,
-        stderr: `${stderr}${stderr.length > 0 ? "\n" : ""}${error.message}`,
-      });
-    });
-    child.on("close", (exitCode) => {
-      settle({ exitCode, stdout, stderr });
-    });
-    child.stdin.end(request.prompt);
+  const invocation = buildCodexSpawnInvocation(buildCodexExecArgs(request));
+  return runSupervisedProcess({
+    label: "Codex",
+    command: invocation.command,
+    args: invocation.args,
+    cwd: request.cwd,
+    stdin: request.prompt,
+    inactivityTimeoutMs: request.timeoutMs,
   });
 }
 
@@ -609,7 +117,7 @@ export class CodexCasteRuntime implements CasteRuntime {
     options: CodexCasteRuntimeOptions = {},
   ) {
     this.modelConfigs = {
-      ...defaultModelConfigs(),
+      ...createCasteConfig(() => parseModelReference(`${CODEX_PROVIDER}:${CODEX_DEFAULT_MODEL}`, "medium", CODEX_PROVIDER)),
       ...modelConfigs,
     };
     this.sessionTimeoutMs = options.sessionTimeoutMs ?? DEFAULT_CODEX_SESSION_TIMEOUT_MS;
@@ -625,20 +133,26 @@ export class CodexCasteRuntime implements CasteRuntime {
     const outputPath = path.join(outputDirectory, `${sessionId}.txt`);
     writeFileSync(outputPath, "", "utf8");
 
-    const result = await this.runner({
-      cwd: input.workingDirectory,
-      modelId: modelConfig.modelId,
-      thinkingLevel: modelConfig.thinkingLevel,
-      prompt: input.prompt,
-      outputPath,
-      timeoutMs: this.sessionTimeoutMs,
-    });
+    let result: CodexRunResult;
+    let outputText: string;
+    try {
+      result = await this.runner({
+        cwd: input.workingDirectory,
+        modelId: modelConfig.modelId,
+        thinkingLevel: modelConfig.thinkingLevel,
+        prompt: input.prompt,
+        outputPath,
+        timeoutMs: this.sessionTimeoutMs,
+      });
+      outputText = readFileSync(outputPath, "utf8").trim();
+    } finally {
+      rmSync(outputPath, { force: true });
+    }
+
     const finishedAt = new Date().toISOString();
-    const outputText = readFileSync(outputPath, "utf8").trim();
-    rmSync(outputPath, { force: true });
     const error = result.exitCode === 0
       ? undefined
-      : [result.stderr.trim(), result.stdout.trim()].filter((chunk) => chunk.length > 0).join("\n");
+      : [tailText(result.stderr), tailText(result.stdout)].filter((chunk) => chunk.length > 0).join("\n");
 
     return {
       sessionId,
@@ -671,5 +185,5 @@ export function createCodexModelConfigs(
   models: CasteConfigRecord<string>,
   thinking: CasteConfigRecord<AegisThinkingLevel>,
 ) {
-  return createCasteConfig((caste: CasteName) => parseModelReference(models[caste], thinking[caste]));
+  return createCasteConfig((caste: CasteName) => parseModelReference(models[caste], thinking[caste], CODEX_PROVIDER));
 }

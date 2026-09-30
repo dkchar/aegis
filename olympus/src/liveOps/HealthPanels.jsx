@@ -7,7 +7,7 @@ import { phases } from "../state.js";
 
 export function PhaseEventBoard({ state }) {
   return (
-    <Paper component="section" withBorder radius="sm" p="md">
+    <Paper component="section" withBorder p="md">
       <Stack gap="sm">
         <SectionHead icon={Activity} title="Daemon Events" detail="Phase logs with newest output pinned at the bottom." />
         <div className="overflow-x-auto pb-2">
@@ -31,17 +31,17 @@ function PhaseEventColumn({ phase, events }) {
   }, [events]);
 
   return (
-    <Paper withBorder radius="sm" mih={320} style={{ display: "grid", gridTemplateRows: "auto minmax(0, 1fr)", overflow: "hidden" }}>
+    <Paper withBorder mih={320} style={{ display: "grid", gridTemplateRows: "auto minmax(0, 1fr)", overflow: "hidden" }}>
       <Group justify="space-between" px="sm" py="xs">
         <Text truncate ff="monospace" size="xs" fw={700} tt="uppercase">{phase}</Text>
         <Badge color="gray" variant="light" size="xs">{events.length}</Badge>
       </Group>
       <div ref={scrollRef} className="terminal-scroll grid max-h-72 content-start gap-2 overflow-y-scroll p-3 font-mono text-xs leading-relaxed">
         {events.length === 0 && (
-          <Paper withBorder radius="sm" p="xs"><Text size="xs" c="dimmed">Waiting for {phase} output.</Text></Paper>
+          <Paper withBorder p="xs"><Text size="xs" c="dimmed">Waiting for {phase} output.</Text></Paper>
         )}
         {events.map(([time, event, detail], index) => (
-          <Paper key={`${time}-${event}-${index}`} withBorder radius="sm" p="xs">
+          <Paper key={`${time}-${event}-${index}`} withBorder p="xs">
             <Stack gap={2}>
               <Text size="xs" ff="monospace" c="dimmed">{time}</Text>
               <Text size="xs" ff="monospace" c="green">{event}</Text>
@@ -56,13 +56,13 @@ function PhaseEventColumn({ phase, events }) {
 
 export function HealthDeck({ state }) {
   return (
-    <Paper component="section" withBorder radius="sm" p="md">
+    <Paper component="section" withBorder p="md">
       <Stack gap="sm">
         <SectionHead icon={CheckCircle2} title="Run Health" detail="Readiness across tracker, state files, merge queue, artifacts, and sessions." />
         <Stack gap="xs">
           {state.healthChecks.length === 0 && <EmptyState title="No health signals" detail="Readiness checks appear after Olympus connects to an Aegis workspace." />}
           {state.healthChecks.map(([label, status, detail]) => (
-            <Paper key={label} withBorder radius="sm" p="sm">
+            <Paper key={label} withBorder p="sm">
               <Group align="flex-start" wrap="nowrap">
                 <HealthIcon status={status} />
                 <Stack gap={2} style={{ minWidth: 0 }}>

@@ -21,6 +21,8 @@ describe("Olympus React UI", () => {
     const viteConfig = readOlympusFile("vite.config.js");
     const server = readOlympusFile(path.join("server", "olympus-api.js"));
     const stateReader = readOlympusFile(path.join("server", "state-reader.js"));
+    const adapters = readOlympusFile(path.join("server", "adapters.js"));
+    const configSchema = readOlympusFile(path.join("server", "config-schema.js"));
     const sessionReader = readOlympusFile(path.join("server", "session-reader.js"));
     const packageJson = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
 
@@ -64,9 +66,13 @@ describe("Olympus React UI", () => {
     expect(server).toContain("openWorkspaceDirectory");
     expect(server).toContain("FolderBrowserDialog");
     expect(server).toContain("Workspace does not exist");
-    expect(stateReader).toContain("getProviders");
-    expect(stateReader).toContain("getModels");
-    expect(stateReader).toContain("models_cache.json");
+    expect(stateReader).toContain("readOlympusState");
+    expect(adapters).toContain("getProviders");
+    expect(adapters).toContain("getModels");
+    expect(adapters).toContain("models_cache.json");
+    expect(adapters).toContain("claude-opus-5-5");
+    expect(configSchema).toContain("unflattenAndValidateConfig");
+    expect(server).toContain("unflattenAndValidateConfig");
     expect(sessionReader).toContain("!report.issueId && !report.caste");
     expect(server).toContain("spawnBackground");
     expect(server).toContain("waitForDaemonStart");

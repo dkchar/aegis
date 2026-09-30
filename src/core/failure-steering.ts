@@ -1,7 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
-
 import type { AgentCaste, DispatchRecord } from "./dispatch-state.js";
+import type { ArtifactEmissionMode } from "../runtime/runtime-registry.js";
+import { isJsonRecord, readArtifactRecord } from "../shared/json.js";
 
 const TOOL_BY_CASTE: Record<AgentCaste, string> = {
   oracle: "emit_oracle_assessment",
@@ -14,6 +13,7 @@ interface FailureSteeringInput {
   root: string;
   caste: AgentCaste;
   record: DispatchRecord;
+  emissionMode?: ArtifactEmissionMode;
 }
 
 interface TranscriptSummary {
@@ -23,36 +23,24 @@ interface TranscriptSummary {
 }
 
 function readTranscriptSummary(root: string, ref: string | null | undefined): TranscriptSummary | null {
-  if (!ref) {
+  const parsed = readArtifactRecord(root, ref);
+  if (!parsed) {
     return null;
   }
 
-  const resolvedPath = path.isAbsolute(ref) ? ref : path.join(root, ref);
-  if (!existsSync(resolvedPath)) {
-    return null;
-  }
+  const messageLog = Array.isArray(parsed["messageLog"]) ? parsed["messageLog"] : [];
+  const recentMessages = messageLog
+    .slice(-4)
+    .flatMap((message) => {
+      const content = isJsonRecord(message) ? message["content"] : null;
+      return typeof content === "string" ? [content] : [];
+    });
 
-  try {
-    const parsed = JSON.parse(readFileSync(resolvedPath, "utf8")) as Record<string, unknown>;
-    const messageLog = Array.isArray(parsed.messageLog) ? parsed.messageLog : [];
-    const recentMessages = messageLog
-      .slice(-4)
-      .flatMap((message) => {
-        if (typeof message !== "object" || message === null || Array.isArray(message)) {
-          return [];
-        }
-        const content = (message as Record<string, unknown>).content;
-        return typeof content === "string" ? [content] : [];
-      });
-
-    return {
-      error: typeof parsed.error === "string" ? parsed.error : null,
-      outputText: typeof parsed.outputText === "string" ? parsed.outputText : null,
-      recentMessages,
-    };
-  } catch {
-    return null;
-  }
+  return {
+    error: typeof parsed["error"] === "string" ? parsed["error"] : null,
+    outputText: typeof parsed["outputText"] === "string" ? parsed["outputText"] : null,
+    recentMessages,
+  };
 }
 
 function compactText(input: string) {
@@ -70,6 +58,7 @@ function addUnique(lines: string[], line: string) {
   }
 }
 
+/** Up to six prompt lines that steer a retry away from the previous failure. */
 export function buildFailureSteeringPromptLines(input: FailureSteeringInput): string[] {
   const lines: string[] = [];
   const transcript = readTranscriptSummary(input.root, input.record.failureTranscriptRef);
@@ -97,7 +86,9 @@ export function buildFailureSteeringPromptLines(input: FailureSteeringInput): st
   if (containsAny(transcriptText, ["missing", "no 'emit_", "tool contract violation", "Tool contract repair required"])) {
     addUnique(
       lines,
-      `The prior failure missed the final artifact contract; end this attempt by calling ${toolName} exactly once with the final payload.`,
+      input.emissionMode === "json"
+        ? "The prior failure missed the final artifact contract; end this attempt by returning only the final JSON artifact."
+        : `The prior failure missed the final artifact contract; end this attempt by calling ${toolName} exactly once with the final payload.`,
     );
   }
 

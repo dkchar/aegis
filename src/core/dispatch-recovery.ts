@@ -1,12 +1,14 @@
-import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 
+import { isPolicyCreatedBlockerDescription } from "../castes/scope-markers.js";
 import { parseSentinelVerdict } from "../castes/sentinel/sentinel-parser.js";
 import { parseTitanArtifact } from "../castes/titan/titan-parser.js";
 import { loadConfig } from "../config/load-config.js";
 import { createTrackerClient } from "../tracker/create-tracker.js";
 import { hasNewScope, normalizeFileScope, normalizeScopeFile } from "../shared/file-scope.js";
+import { listDirtyFiles } from "../shared/git.js";
+import { readArtifactRecord } from "../shared/json.js";
 import { applyScopeExpansion } from "./control-plane-policy.js";
 import { loadDispatchState, saveDispatchState, type DispatchState } from "./dispatch-state.js";
 import { writePhaseLog } from "./phase-log.js";
@@ -30,22 +32,7 @@ export interface DispatchRecoveryInput {
   timestamp: string;
 }
 
-function readPolicyArtifact(root: string, artifactRef: string | null | undefined) {
-  if (!artifactRef) {
-    return null;
-  }
-
-  const artifactPath = path.join(root, artifactRef);
-  if (!existsSync(artifactPath)) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(readFileSync(artifactPath, "utf8")) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
+const readPolicyArtifact = readArtifactRecord;
 
 function isResolvedPolicyBlockerReady(input: {
   root: string;
@@ -229,9 +216,8 @@ function resolveDurableSentinelRef(root: string, issueId: string, currentRef: st
   return candidates.find((candidate) => existsSync(path.join(root, candidate))) ?? null;
 }
 
-function readDurableSentinelVerdict(root: string, artifactRef: string) {
-  const payload = JSON.parse(readFileSync(path.join(root, artifactRef), "utf8")) as Record<string, unknown>;
-
+/** Re-validates the verdict fields of a persisted Sentinel artifact (session metadata is ignored). */
+function parseSentinelVerdictRecord(payload: Record<string, unknown>) {
   return parseSentinelVerdict(JSON.stringify({
     verdict: payload["verdict"],
     reviewSummary: payload["reviewSummary"],
@@ -240,6 +226,14 @@ function readDurableSentinelVerdict(root: string, artifactRef: string) {
     touchedFiles: payload["touchedFiles"],
     contractChecks: payload["contractChecks"],
   }));
+}
+
+function readDurableSentinelVerdict(root: string, artifactRef: string) {
+  const payload = readArtifactRecord(root, artifactRef);
+  if (!payload) {
+    throw new Error(`Sentinel artifact ${artifactRef} is unreadable.`);
+  }
+  return parseSentinelVerdictRecord(payload);
 }
 
 export function recoverReviewingRecord(root: string, issueId: string, timestamp: string) {
@@ -254,7 +248,13 @@ export function recoverReviewingRecord(root: string, issueId: string, timestamp:
     return false;
   }
 
-  const verdict = readDurableSentinelVerdict(root, sentinelVerdictRef);
+  let verdict: ReturnType<typeof readDurableSentinelVerdict>;
+  try {
+    verdict = readDurableSentinelVerdict(root, sentinelVerdictRef);
+  } catch {
+    // An unreadable verdict is treated as no verdict: Sentinel runs again.
+    return false;
+  }
   const reviewStage = verdict.verdict === "pass" ? "queued_for_merge" : "rework_required";
   saveDispatchState(root, {
     schemaVersion: dispatchState.schemaVersion,
@@ -296,7 +296,10 @@ function resolveDurableTitanRef(root: string, issueId: string, currentRef: strin
 }
 
 function readDurableTitanArtifact(root: string, artifactRef: string) {
-  const payload = JSON.parse(readFileSync(path.join(root, artifactRef), "utf8")) as Record<string, unknown>;
+  const payload = readArtifactRecord(root, artifactRef);
+  if (!payload) {
+    throw new Error(`Titan artifact ${artifactRef} is unreadable.`);
+  }
 
   return parseTitanArtifact(JSON.stringify({
     outcome: payload["outcome"],
@@ -369,34 +372,14 @@ function recoverFailedTitanRecord(root: string, issueId: string, timestamp: stri
   return true;
 }
 
-function isPolicyCreatedBlockerDescription(description: string | null | undefined) {
-  return typeof description === "string"
-    && description.includes("Policy proposal:")
-    && description.includes("Fingerprint:")
-    && description.includes("Scope evidence:");
-}
-
 function readSentinelCreateBlockerFinding(root: string, ref: string | null | undefined) {
-  if (!ref) {
-    return null;
-  }
-
-  const artifactPath = path.join(root, ref);
-  if (!existsSync(artifactPath)) {
+  const raw = readArtifactRecord(root, ref);
+  if (!raw) {
     return null;
   }
 
   try {
-    const raw = JSON.parse(readFileSync(artifactPath, "utf8")) as Record<string, unknown>;
-    const artifact = parseSentinelVerdict(JSON.stringify({
-      verdict: raw["verdict"],
-      reviewSummary: raw["reviewSummary"],
-      blockingFindings: raw["blockingFindings"],
-      advisories: raw["advisories"],
-      touchedFiles: raw["touchedFiles"],
-      contractChecks: raw["contractChecks"],
-    }));
-    return artifact.blockingFindings.find((finding) =>
+    return parseSentinelVerdictRecord(raw).blockingFindings.find((finding) =>
       finding.route === "create_blocker" && finding.required_files.length > 0
     ) ?? null;
   } catch {
@@ -416,38 +399,9 @@ function fingerprintScopeExpansion(issueId: string, finding: {
     .slice(0, 48) || "scope-expansion";
 }
 
-function extractGitStatusPath(line: string) {
-  const rawPath = line.length > 3 ? line.slice(3).trim() : "";
-  if (rawPath.length === 0) {
-    return null;
-  }
-
-  return normalizeScopeFile(
-    rawPath.includes(" -> ")
-      ? line.split(" -> ").at(-1)?.trim() ?? rawPath
-      : rawPath,
-  );
-}
-
 function readDirtyLaborFiles(laborPath: string) {
-  const result = spawnSync("git", ["status", "--porcelain", "--untracked-files=all"], {
-    cwd: laborPath,
-    encoding: "utf8",
-    windowsHide: true,
-  });
-  if (result.status !== 0) {
-    return null;
-  }
-
-  const files = result.stdout
-    .split(/\r?\n/)
-    .map((line) => line.trimEnd())
-    .filter((line) => line.length > 0)
-    .map((line) => extractGitStatusPath(line))
-    .filter((entry): entry is string => entry !== null)
-    .sort();
-
-  return files.length > 0 ? files : null;
+  const files = listDirtyFiles(laborPath);
+  return files && files.length > 0 ? files : null;
 }
 
 async function recoverFailedPolicyBlockerScopeRecords(input: {

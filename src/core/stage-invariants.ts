@@ -83,15 +83,3 @@ export function assertTitanDispatchEligibility(record: DispatchRecord) {
     throw new Error(error);
   }
 }
-
-export function isOracleBlockedFromTitan(record: DispatchRecord) {
-  void record;
-  return false;
-}
-
-export function canRerunSentinelReview(record: DispatchRecord) {
-  return record.stage === "rework_required"
-    && record.oracleAssessmentRef !== null
-    && record.titanHandoffRef !== null
-    && record.sentinelVerdictRef !== null;
-}

@@ -11,12 +11,41 @@ import { parseStartOverrides, startAegis } from "./cli/start.js";
 import { stopAegis } from "./cli/stop.js";
 import { streamDaemonView } from "./cli/stream.js";
 import { initProject } from "./config/init-project.js";
+import type { LoopPhase } from "./core/loop-runner.js";
+import type { RuntimeCasteAction } from "./cli/runtime-command.js";
+import { RUNTIME_ADAPTER_NAMES } from "./runtime/runtime-registry.js";
 import { resolveProjectPaths, type ProjectPaths } from "./shared/paths.js";
 
 export interface BootstrapManifest {
   appName: "aegis";
   paths: ProjectPaths;
 }
+
+const PHASE_COMMANDS = new Set<string>(["poll", "dispatch", "monitor", "reap"]);
+const CASTE_COMMANDS = new Set<string>(["scout", "implement", "review", "process"]);
+
+export const CLI_USAGE = [
+  "Usage: aegis <command> [args]",
+  "",
+  "Project",
+  "  init                    Create .aegis/ state files and ignore rules",
+  "  start                   Run the daemon (poll -> triage -> dispatch -> monitor -> reap)",
+  "  stop                    Stop the running daemon and release active sessions",
+  "  status                  Print daemon, queue, and operational-failure status as JSON",
+  "  stream [daemon]         Follow daemon and phase logs",
+  "",
+  "Loop phases (routed to the daemon when one is running)",
+  "  poll | dispatch | monitor | reap",
+  "",
+  "Caste commands",
+  "  scout <issue>           Run Oracle",
+  "  implement <issue>       Run Titan",
+  "  review <issue>          Run Sentinel",
+  "  process <issue>         Advance the issue one step from its current stage",
+  "  merge next              Land the next queued candidate",
+  "",
+  `Runtime adapters: ${RUNTIME_ADAPTER_NAMES.join(", ")} (set "runtime" in .aegis/config.json)`,
+].join("\n");
 
 function normalizeExecutionPath(candidate: string) {
   const resolvedPath = path.resolve(candidate);
@@ -35,26 +64,27 @@ export function buildBootstrapManifest(root = process.cwd()): BootstrapManifest 
   };
 }
 
+function fail(message: string) {
+  console.error(message);
+  process.exitCode = 1;
+}
+
 export async function runCli(
   root = process.cwd(),
   argv = process.argv.slice(2),
 ): Promise<BootstrapManifest> {
   const manifest = buildBootstrapManifest(root);
-  const [command] = argv;
+  const [command, ...args] = argv;
 
-  if (!command) {
-    console.log(`Aegis CLI scaffold ready at ${manifest.paths.repoRoot}`);
+  if (!command || command === "help" || command === "--help" || command === "-h") {
+    console.log(`Aegis CLI ready at ${manifest.paths.repoRoot}\n\n${CLI_USAGE}`);
     return manifest;
   }
 
   if (command === "init") {
     const result = initProject(root);
-    const createdPathCount =
-      result.createdDirectories.length + result.createdFiles.length;
-    const gitIgnoreNote = result.updatedGitIgnore
-      ? "; .gitignore updated"
-      : "";
-
+    const createdPathCount = result.createdDirectories.length + result.createdFiles.length;
+    const gitIgnoreNote = result.updatedGitIgnore ? "; .gitignore updated" : "";
     console.log(
       `Aegis project initialized at ${manifest.paths.repoRoot} (${createdPathCount} paths created${gitIgnoreNote})`,
     );
@@ -62,23 +92,20 @@ export async function runCli(
   }
 
   if (command === "start") {
-    const overrides = parseStartOverrides(argv.slice(1));
-    const result = await startAegis(root, overrides);
+    const result = await startAegis(root, parseStartOverrides(args));
     console.log(`Aegis started in ${result.mode} mode (pid ${process.pid})`);
     return manifest;
   }
 
   if (command === "status") {
-    const snapshot = await getAegisStatus(root);
-    console.log(formatStatusSnapshot(snapshot));
+    console.log(formatStatusSnapshot(await getAegisStatus(root)));
     return manifest;
   }
 
   if (command === "stream") {
-    const target = argv[1] ?? "daemon";
+    const target = args[0] ?? "daemon";
     if (target !== "daemon") {
-      console.error(`Unsupported stream target: ${target}`);
-      process.exitCode = 1;
+      fail(`Unsupported stream target: ${target}`);
       return manifest;
     }
 
@@ -86,37 +113,25 @@ export async function runCli(
     return manifest;
   }
 
-  if (
-    command === "poll"
-    || command === "dispatch"
-    || command === "monitor"
-    || command === "reap"
-  ) {
-    const result = await runDirectPhaseCommand(root, command);
+  if (PHASE_COMMANDS.has(command)) {
+    const result = await runDirectPhaseCommand(root, command as LoopPhase);
     console.log(formatPhaseCommandResult(result));
     return manifest;
   }
 
-  if (
-    command === "scout"
-    || command === "implement"
-    || command === "review"
-    || command === "process"
-  ) {
-    const issueId = argv[1];
-
+  if (CASTE_COMMANDS.has(command)) {
+    const issueId = args[0];
     if (!issueId) {
-      console.error(`Missing issue id for ${command}`);
-      process.exitCode = 1;
+      fail(`Missing issue id for ${command}`);
       return manifest;
     }
 
-    const result = await runDirectCasteCommand(root, command, issueId);
+    const result = await runDirectCasteCommand(root, command as RuntimeCasteAction, issueId);
     console.log(formatCasteCommandResult(result));
     return manifest;
   }
 
-  if (command === "merge" && argv[1] === "next") {
+  if (command === "merge" && args[0] === "next") {
     const result = await runDirectMergeCommand(root, "next");
     console.log(formatMergeCommandResult(result));
     return manifest;
@@ -124,13 +139,11 @@ export async function runCli(
 
   if (command === "stop") {
     const result = await stopAegis(root, "manual");
-    const forcedSuffix = result.forced ? " (forced)" : "";
-    console.log(`Aegis stopped${forcedSuffix}.`);
+    console.log(`Aegis stopped${result.forced ? " (forced)" : ""}.`);
     return manifest;
   }
-  console.error(`Unsupported command: ${command}`);
-  process.exitCode = 1;
 
+  fail(`Unsupported command: ${command}\n\n${CLI_USAGE}`);
   return manifest;
 }
 

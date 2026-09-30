@@ -2,13 +2,15 @@ import { execFileSync, spawn } from "node:child_process";
 import { existsSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { readJson, readRequestBody, sendJson, writeJsonAtomic } from "./io.js";
+import { LIVE_ADAPTERS } from "./adapters.js";
+import { flattenConfig, unflattenAndValidateConfig } from "./config-schema.js";
+import { readJson, readJsonBody, sendJson, writeJsonAtomic } from "./io.js";
 import { listModelOptions, readOlympusState } from "./state-reader.js";
 
-const CASTES = ["oracle", "titan", "sentinel", "janus"];
 const COLUMNS = ["backlog", "ready", "in_progress", "in_review", "blocked", "ready_to_merge", "done", "halted"];
-const REAL_ADAPTERS = ["codex", "pi"];
 const START_TIMEOUT_MS = 10_000;
+const EVENT_PUSH_MS = 1_500;
+const EVENT_HEARTBEAT_MS = 15_000;
 const START_POLL_MS = 100;
 const OLYMPUS_STATE_FILE = path.join(".aegis", "olympus-state.json");
 
@@ -24,71 +26,6 @@ function persistOlympusRoot(projectRoot, activeRoot) {
     activeRoot,
     updatedAt: new Date().toISOString(),
   });
-}
-
-function flattenConfig(config) {
-  if (!config || typeof config !== "object") return null;
-  return {
-    runtime: config.runtime ?? "",
-    "models.oracle": config.models?.oracle ?? "",
-    "models.titan": config.models?.titan ?? "",
-    "models.sentinel": config.models?.sentinel ?? "",
-    "models.janus": config.models?.janus ?? "",
-    "thinking.oracle": config.thinking?.oracle ?? "",
-    "thinking.titan": config.thinking?.titan ?? "",
-    "thinking.sentinel": config.thinking?.sentinel ?? "",
-    "thinking.janus": config.thinking?.janus ?? "",
-    "concurrency.max_agents": String(config.concurrency?.max_agents ?? ""),
-    "concurrency.max_oracles": String(config.concurrency?.max_oracles ?? ""),
-    "concurrency.max_titans": String(config.concurrency?.max_titans ?? ""),
-    "concurrency.max_sentinels": String(config.concurrency?.max_sentinels ?? ""),
-    "concurrency.max_janus": String(config.concurrency?.max_janus ?? ""),
-    "thresholds.poll_interval_seconds": String(config.thresholds?.poll_interval_seconds ?? ""),
-    "thresholds.stuck_warning_seconds": String(config.thresholds?.stuck_warning_seconds ?? ""),
-    "thresholds.stuck_kill_seconds": String(config.thresholds?.stuck_kill_seconds ?? ""),
-    "thresholds.allow_complex_auto_dispatch": String(config.thresholds?.allow_complex_auto_dispatch ?? ""),
-    "thresholds.scope_overlap_threshold": String(config.thresholds?.scope_overlap_threshold ?? ""),
-    "thresholds.janus_retry_threshold": String(config.thresholds?.janus_retry_threshold ?? ""),
-    "janus.enabled": String(config.janus?.enabled ?? ""),
-    "janus.max_invocations_per_issue": String(config.janus?.max_invocations_per_issue ?? ""),
-    "labor.base_path": config.labor?.base_path ?? "",
-    "git.base_branch": config.git?.base_branch ?? "",
-  };
-}
-
-function unflattenConfig(flat) {
-  const numberValue = (key) => Number(flat[key]);
-  const booleanValue = (key) => String(flat[key]) === "true";
-  return {
-    runtime: String(flat.runtime ?? ""),
-    models: Object.fromEntries(CASTES.map((caste) => [caste, String(flat[`models.${caste}`] ?? "")])),
-    thinking: Object.fromEntries(CASTES.map((caste) => [caste, String(flat[`thinking.${caste}`] ?? "medium")])),
-    concurrency: {
-      max_agents: numberValue("concurrency.max_agents"),
-      max_oracles: numberValue("concurrency.max_oracles"),
-      max_titans: numberValue("concurrency.max_titans"),
-      max_sentinels: numberValue("concurrency.max_sentinels"),
-      max_janus: numberValue("concurrency.max_janus"),
-    },
-    thresholds: {
-      poll_interval_seconds: numberValue("thresholds.poll_interval_seconds"),
-      stuck_warning_seconds: numberValue("thresholds.stuck_warning_seconds"),
-      stuck_kill_seconds: numberValue("thresholds.stuck_kill_seconds"),
-      allow_complex_auto_dispatch: booleanValue("thresholds.allow_complex_auto_dispatch"),
-      scope_overlap_threshold: numberValue("thresholds.scope_overlap_threshold"),
-      janus_retry_threshold: numberValue("thresholds.janus_retry_threshold"),
-    },
-    janus: {
-      enabled: booleanValue("janus.enabled"),
-      max_invocations_per_issue: numberValue("janus.max_invocations_per_issue"),
-    },
-    labor: {
-      base_path: String(flat["labor.base_path"] ?? ""),
-    },
-    git: {
-      base_branch: String(flat["git.base_branch"] ?? ""),
-    },
-  };
 }
 
 function nodeCommand() {
@@ -246,16 +183,18 @@ function buildProject(root) {
 }
 
 async function writeConfig(root, req, res) {
-  const body = await readRequestBody(req);
-  const payload = JSON.parse(body || "{}");
-  const config = unflattenConfig(payload.config ?? {});
-  await writeJsonAtomic(path.join(root, ".aegis", "config.json"), config);
+  const payload = await readJsonBody(req);
+  const { config, errors } = unflattenAndValidateConfig(payload.config ?? {});
+  if (errors.length > 0) {
+    sendJson(res, 400, { error: `Config not saved: ${errors.join(" ")}`, errors });
+    return;
+  }
+  writeJsonAtomic(path.join(root, ".aegis", "config.json"), config);
   sendJson(res, 200, { ok: true, config: flattenConfig(config) });
 }
 
 async function handleWorkspaceSwitch(projectRoot, runtimeState, req, res) {
-  const body = await readRequestBody(req);
-  const payload = JSON.parse(body || "{}");
+  const payload = await readJsonBody(req);
   const requestedRoot = String(payload.root ?? "").trim();
   const nextRoot = requestedRoot ? path.resolve(requestedRoot) : projectRoot;
 
@@ -353,8 +292,7 @@ function normalizeList(value) {
 }
 
 async function handleTicketCreate(projectRoot, runtimeState, req, res) {
-  const body = await readRequestBody(req);
-  const payload = JSON.parse(body || "{}");
+  const payload = await readJsonBody(req);
   const root = runtimeState.activeRoot || projectRoot;
   const draft = payload.ticket ?? {};
   const title = String(draft.title ?? "").trim();
@@ -388,8 +326,7 @@ async function handleTicketCreate(projectRoot, runtimeState, req, res) {
 }
 
 async function handleTicketMove(projectRoot, runtimeState, req, res) {
-  const body = await readRequestBody(req);
-  const payload = JSON.parse(body || "{}");
+  const payload = await readJsonBody(req);
   const ticketId = String(payload.ticketId ?? "").trim();
   const column = String(payload.column ?? "").trim();
   if (!ticketId) {
@@ -417,13 +354,12 @@ async function handleTicketMove(projectRoot, runtimeState, req, res) {
 }
 
 async function handleControl(projectRoot, runtimeState, req, res) {
-  const body = await readRequestBody(req);
-  const payload = JSON.parse(body || "{}");
+  const payload = await readJsonBody(req);
   const action = String(payload.action ?? "");
   const config = payload.config ?? {};
-  const adapter = String(config.runtime ?? "codex");
-  if (!REAL_ADAPTERS.includes(adapter)) {
-    sendJson(res, 400, { error: "Select Pi or Codex in Config before using Olympus controls." });
+  const adapter = String(config.runtime ?? "");
+  if (!LIVE_ADAPTERS.includes(adapter)) {
+    sendJson(res, 400, { error: "Select Claude, Codex, or Pi in Config before using Olympus controls." });
     return;
   }
 
@@ -489,27 +425,41 @@ async function sendEvents(getRoot, projectRoot, req, res) {
     Connection: "keep-alive",
   });
   let closed = false;
-  req.on("close", () => {
-    closed = true;
-  });
+  let lastPayload = "";
+  let pushing = false;
 
+  // Snapshots are rebuilt every tick but only sent when something changed.
   const push = async () => {
-    if (closed) return;
-    const root = getRoot();
-    const payload = await readOlympusState(root, { root, seeded: root !== projectRoot });
-    res.write(`event: state\n`);
-    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    if (closed || pushing) return;
+    pushing = true;
+    try {
+      const root = getRoot();
+      const { generatedAt, ...state } = await readOlympusState(root, { root, seeded: root !== projectRoot });
+      const payload = JSON.stringify(state);
+      if (payload === lastPayload || closed) return;
+      lastPayload = payload;
+      res.write("event: state\n");
+      res.write(`data: ${JSON.stringify({ ...state, generatedAt })}\n\n`);
+    } catch (error) {
+      if (!closed) {
+        res.write("event: error\n");
+        res.write(`data: ${JSON.stringify({ message: error instanceof Error ? error.message : String(error) })}\n\n`);
+      }
+    } finally {
+      pushing = false;
+    }
   };
 
+  const timer = setInterval(() => void push(), EVENT_PUSH_MS);
+  const heartbeat = setInterval(() => {
+    if (!closed) res.write(": keep-alive\n\n");
+  }, EVENT_HEARTBEAT_MS);
+  req.on("close", () => {
+    closed = true;
+    clearInterval(timer);
+    clearInterval(heartbeat);
+  });
   await push();
-  const timer = setInterval(() => {
-    push().catch((error) => {
-      res.write(`event: error\n`);
-      res.write(`data: ${JSON.stringify({ message: error.message })}\n\n`);
-    });
-  }, 1500);
-
-  req.on("close", () => clearInterval(timer));
 }
 
 export function olympusApiPlugin({ root = process.cwd() } = {}) {

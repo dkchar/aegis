@@ -1,9 +1,13 @@
 import {
   appendFileSync,
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  readSync,
   renameSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -120,7 +124,7 @@ function normalizeStringList(value: unknown, field: string): string[] {
 }
 
 function atomicWriteJson(filePath: string, value: unknown): void {
-  const tmpPath = `${filePath}.tmp`;
+  const tmpPath = `${filePath}.${process.pid}-${Date.now()}.tmp`;
   writeFileSync(tmpPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
   renameSync(tmpPath, filePath);
 }
@@ -166,15 +170,32 @@ function createLoopSignature(ticket: AgoraTicket, input: MoveTicketInput): strin
   return `${ticket.column}->${input.to}:${normalizeReasonKind(input)}:${scope}`;
 }
 
+const EVENT_TAIL_BYTES = 64 * 1024;
+
+function readLastLine(filePath: string): string | null {
+  const size = statSync(filePath).size;
+  if (size === 0) {
+    return null;
+  }
+
+  // Events are append-only, so the next id only depends on the final line.
+  const length = Math.min(size, EVENT_TAIL_BYTES);
+  const buffer = Buffer.alloc(length);
+  const fd = openSync(filePath, "r");
+  try {
+    readSync(fd, buffer, 0, length, size - length);
+  } finally {
+    closeSync(fd);
+  }
+  const lines = buffer.toString("utf8").trimEnd().split(/\r?\n/);
+  return lines.at(-1) ?? null;
+}
+
 function createEventId(eventsPath: string): number {
   if (!existsSync(eventsPath)) {
     return 1;
   }
-  const raw = readFileSync(eventsPath, "utf8").trim();
-  if (!raw) {
-    return 1;
-  }
-  const lastLine = raw.split(/\r?\n/).at(-1);
+  const lastLine = readLastLine(eventsPath);
   if (!lastLine) {
     return 1;
   }
