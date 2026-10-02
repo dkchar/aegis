@@ -9,7 +9,6 @@ import { loadDispatchState, saveDispatchState, type DispatchRecord } from "../..
 import { autoEnqueueImplementedIssuesForMerge } from "../../../src/merge/auto-enqueue.js";
 import { runMergeNext } from "../../../src/merge/merge-next.js";
 import { loadMergeQueueState, saveMergeQueueState, type MergeQueueItem } from "../../../src/merge/merge-state.js";
-import { ScriptedCasteRuntime } from "../../../src/runtime/scripted-caste-runtime.js";
 import type { AegisIssue } from "../../../src/tracker/issue-model.js";
 
 const tempRoots: string[] = [];
@@ -114,24 +113,26 @@ describe("merge queue failure handling", () => {
     expect(loadDispatchState(root).records[ISSUE]?.cooldownUntil).toBeTruthy();
   });
 
-  it("fails closed when Janus itself fails at the merge boundary", async () => {
+  it("hands Janus off without running it inside the merge step", async () => {
     const root = createTempRoot();
     seed(root, { attempts: DEFAULT_AEGIS_CONFIG.thresholds.janus_retry_threshold });
 
     const result = await runMergeNext(root, {
       tracker,
-      runtime: new ScriptedCasteRuntime({
-        janus: () => ({ output: "{}", error: "Janus provider crashed" }),
-      }),
       executor: { execute: vi.fn(async () => ({ outcome: "conflict" as const, detail: "CONFLICT (content)" })) },
       now: NOW,
     });
 
-    expect(result).toMatchObject({ status: "failed", tier: "T3", stage: "failed_operational" });
-    expect(loadMergeQueueState(root).items[0]).toMatchObject({ status: "failed", janusInvocations: 1 });
+    expect(result).toMatchObject({ status: "escalated", tier: "T3", stage: "resolving_integration" });
+    expect(loadMergeQueueState(root).items[0]).toMatchObject({
+      status: "failed",
+      janusInvocations: 1,
+      lastOutcome: "conflict",
+    });
     expect(loadDispatchState(root).records[ISSUE]).toMatchObject({
-      stage: "failed_operational",
-      consecutiveFailures: 1,
+      stage: "resolving_integration",
+      runningAgent: null,
+      consecutiveFailures: 0,
     });
   });
 
@@ -157,16 +158,29 @@ describe("merge queue failure handling", () => {
 });
 
 describe("autoEnqueueImplementedIssuesForMerge", () => {
-  it("leaves current and in-flight queue items untouched", () => {
+  it("leaves current queue items untouched", () => {
     const root = createTempRoot();
-    seed(root, { status: "merging", updatedAt: "2026-05-01T09:30:00.000Z" });
+    seed(root, { updatedAt: "2026-05-01T09:30:00.000Z" });
 
     const result = autoEnqueueImplementedIssuesForMerge(root, NOW);
 
     expect(result.enqueuedIssueIds).toEqual([ISSUE]);
     expect(loadMergeQueueState(root).items[0]).toMatchObject({
-      status: "merging",
+      status: "queued",
       updatedAt: "2026-05-01T09:30:00.000Z",
+    });
+  });
+
+  it("requeues a merging item stranded by an interrupted merge", () => {
+    const root = createTempRoot();
+    seed(root, { status: "merging", attempts: 1, updatedAt: "2026-05-01T09:30:00.000Z" });
+
+    autoEnqueueImplementedIssuesForMerge(root, NOW);
+
+    expect(loadMergeQueueState(root).items[0]).toMatchObject({
+      status: "queued",
+      attempts: 1,
+      updatedAt: NOW,
     });
   });
 

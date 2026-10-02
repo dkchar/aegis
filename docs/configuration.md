@@ -33,7 +33,7 @@
 | `models.<caste>` | `<provider>:<model-id>`. Claude uses `anthropic:claude-opus-5-5` style refs; Pi refs must match an authenticated provider. |
 | `thinking.<caste>` | `off`, `low`, `medium`, `high`. Passed to Codex as reasoning effort, to Pi as thinking level, and to Claude Code as effort (`off` runs at `low`). |
 | `concurrency.max_agents` | Total concurrent sessions (minimum 1). |
-| `concurrency.max_<caste>s` | Per-caste session caps (minimum 1). |
+| `concurrency.max_<caste>s` | Per-caste session caps (minimum 1). `max_janus` caps concurrent Janus integration sessions. |
 | `thresholds.poll_interval_seconds` | Daemon cycle interval. |
 | `thresholds.stuck_warning_seconds` | Session idle time (no adapter activity) that logs a warning. |
 | `thresholds.stuck_kill_seconds` | Session idle time that terminates the session. Long sessions that keep reporting activity are not killed; adapters without activity reporting are measured from session start. |

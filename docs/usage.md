@@ -50,7 +50,7 @@ node dist/index.js start
 node dist/index.js stop
 ```
 
-The daemon runs one cycle every `poll_interval_seconds`: poll, triage, dispatch, monitor, reap, launch Sentinel reviews, enqueue passed candidates, then land the next merge.
+The daemon runs one cycle every `poll_interval_seconds`: poll, triage, dispatch, monitor, reap, launch Sentinel reviews and Janus resolutions, enqueue passed candidates, then drain the merge queue.
 
 ## Status And Logs
 
@@ -99,6 +99,8 @@ node dist/index.js process AG-0001
 ```bash
 node dist/index.js merge next
 ```
+
+`merge next` attempts one queued candidate. A T3 escalation returns `status: "escalated"` and leaves the issue in `resolving_integration`; the daemon launches Janus, or run `node dist/index.js process <issue>` to run it directly.
 
 ## Olympus
 

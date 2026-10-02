@@ -23,7 +23,7 @@ import {
   recoverDispatchStateAfterPoll,
   recoverReviewingRecord,
 } from "./dispatch-recovery.js";
-import { applySentinelOperationalFailure } from "./failure-policy.js";
+import { applyOperationalFailure, applySentinelOperationalFailure } from "./failure-policy.js";
 
 export type LoopPhase = "poll" | "dispatch" | "monitor" | "reap";
 
@@ -374,6 +374,93 @@ async function runPreMergeReviews(
   }
 }
 
+function isAwaitingJanus(record: DispatchRecord | undefined): record is DispatchRecord {
+  return record?.stage === "resolving_integration" && record.runningAgent === null;
+}
+
+function markJanusLaunchFailed(root: string, issueId: string, timestamp: string, detail: string) {
+  const updated = updateLatestRecord(
+    root,
+    issueId,
+    isAwaitingJanus,
+    (record) => applyOperationalFailure(record, { timestamp, errorMessage: detail }),
+  );
+  if (updated) {
+    writePhaseLog(root, {
+      timestamp,
+      phase: "dispatch",
+      issueId,
+      action: "launch_janus",
+      outcome: "failed",
+      detail,
+    });
+  }
+}
+
+/**
+ * Starts Janus for merge-escalated (`resolving_integration`) work within
+ * capacity. Janus runs as an adapter session like every other caste and the
+ * reaper settles it, so the merge queue never waits on model work.
+ */
+async function launchJanusResolutions(context: CycleContext): Promise<void> {
+  const { root, config, timestamp } = context;
+  const state = loadDispatchState(root);
+  let activeAgents = countRunningAgents(state);
+  let activeJanus = countRunningAgents(state, "janus");
+
+  for (const record of Object.values(state.records)) {
+    if (!isAwaitingJanus(record) || isRecordCoolingDown(record, timestamp)) {
+      continue;
+    }
+    if (
+      activeAgents >= config.concurrency.max_agents
+      || activeJanus >= config.concurrency.max_janus
+    ) {
+      return;
+    }
+
+    try {
+      const launched = await context.runtime.launch({
+        root,
+        issueId: record.issueId,
+        title: record.issueId,
+        caste: "janus",
+        stage: "resolving_integration",
+      });
+      const marked = updateLatestRecord(root, record.issueId, isAwaitingJanus, (latest) => ({
+        ...latest,
+        runningAgent: {
+          caste: "janus",
+          sessionId: launched.sessionId,
+          startedAt: launched.startedAt,
+        },
+        sessionProvenanceId: context.sessionProvenanceId,
+        updatedAt: timestamp,
+      }));
+      if (!marked) {
+        continue;
+      }
+      activeAgents += 1;
+      activeJanus += 1;
+      writePhaseLog(root, {
+        timestamp,
+        phase: "dispatch",
+        issueId: record.issueId,
+        action: "launch_janus",
+        outcome: "running",
+        sessionId: launched.sessionId,
+        detail: JSON.stringify({
+          caste: "janus",
+          stage: "resolving_integration",
+        }),
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      markJanusLaunchFailed(root, record.issueId, timestamp, detail);
+    }
+  }
+}
+
 /** Runs one loop phase directly (terminal `aegis poll|dispatch|monitor|reap`). */
 export async function runLoopPhase(
   root = process.cwd(),
@@ -430,7 +517,10 @@ export async function runLoopPhase(
   };
 }
 
-/** One daemon tick: poll -> triage -> dispatch -> monitor -> reap, then review and enqueue. */
+/**
+ * One daemon tick: poll -> triage -> dispatch -> monitor -> reap, then launch
+ * Sentinel reviews and Janus resolutions, and enqueue Sentinel-passed work.
+ */
 export async function runDaemonCycle(
   root = process.cwd(),
   options: RunLoopPhaseOptions = {},
@@ -441,5 +531,6 @@ export async function runDaemonCycle(
 
   await runReapPipeline(context, monitorResult.readyToReap, dispatchResult.dispatchState);
   await runPreMergeReviews(context, options.launchPreMergeReview);
+  await launchJanusResolutions(context);
   autoEnqueueImplementedIssuesForMerge(root, context.timestamp);
 }

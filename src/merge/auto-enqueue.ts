@@ -19,16 +19,17 @@ export interface AutoEnqueueMergeResult {
   mergeQueueState: MergeQueueState;
 }
 
+/**
+ * Only `queued_for_merge` records reach this check, so a `merging` item here
+ * was stranded by an interrupted merge (the live executor holds the record in
+ * `merging`). Treating it as current would deadlock the issue; requeue it.
+ */
 function isCurrentQueueEntry(
   item: MergeQueueItem | undefined,
   candidate: ReturnType<typeof readTitanMergeCandidate>,
 ) {
   if (!item) {
     return false;
-  }
-  // An in-flight merge is never reset underneath the merge executor.
-  if (item.status === "merging") {
-    return true;
   }
   return item.status === "queued"
     && item.candidateBranch === candidate.candidate_branch

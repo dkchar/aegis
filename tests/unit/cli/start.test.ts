@@ -182,7 +182,7 @@ describe("startAegis daemon loop", () => {
     expect(runDaemonCycle).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps daemon merge pass active across Janus requeue and fail-closed outcomes", async () => {
+  it("drains the merge queue after every daemon cycle across Janus escalation and fail-closed outcomes", async () => {
     vi.useFakeTimers();
     const root = createTempRoot();
     initProject(root);
@@ -207,23 +207,24 @@ describe("startAegis daemon loop", () => {
     );
 
     const runDaemonCycle = vi.fn(async () => undefined);
-    const runMergeCommand = vi.fn()
-      .mockResolvedValueOnce({
+    const runMergeCommand = vi.fn();
+    const drainMergeQueue = vi.fn()
+      .mockResolvedValueOnce([{
         action: "merge_next",
-        status: "janus_requeued",
+        status: "escalated",
         issueId: "aegis-janus-1",
         queueItemId: "queue-aegis-janus-1",
         tier: "T3",
-        stage: "queued_for_merge",
-      })
-      .mockResolvedValueOnce({
+        stage: "resolving_integration",
+      }])
+      .mockResolvedValueOnce([{
         action: "merge_next",
         status: "failed",
         issueId: "aegis-janus-1",
         queueItemId: "queue-aegis-janus-1",
         tier: "T3",
         stage: "failed",
-      });
+      }]);
 
     const startModule = await import("../../../src/cli/start.js");
     const result = await startModule.startAegis(root, {}, {
@@ -236,16 +237,18 @@ describe("startAegis daemon loop", () => {
       registerSignalHandlers: false,
       runDaemonCycle,
       runMergeCommand,
+      drainMergeQueue,
     });
 
     expect(runDaemonCycle).toHaveBeenCalledTimes(1);
-    expect(runMergeCommand).toHaveBeenCalledTimes(1);
-    expect(runMergeCommand).toHaveBeenNthCalledWith(1, root, "next");
+    expect(drainMergeQueue).toHaveBeenCalledTimes(1);
+    expect(drainMergeQueue).toHaveBeenNthCalledWith(1, root);
 
     await vi.advanceTimersByTimeAsync(1_100);
     expect(runDaemonCycle).toHaveBeenCalledTimes(2);
-    expect(runMergeCommand).toHaveBeenCalledTimes(2);
-    expect(runMergeCommand).toHaveBeenNthCalledWith(2, root, "next");
+    expect(drainMergeQueue).toHaveBeenCalledTimes(2);
+    expect(drainMergeQueue).toHaveBeenNthCalledWith(2, root);
+    expect(runMergeCommand).not.toHaveBeenCalled();
 
     const runtimeState = readRuntimeState(root);
     expect(runtimeState?.server_state).toBe("running");

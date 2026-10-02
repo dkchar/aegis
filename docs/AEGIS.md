@@ -342,17 +342,25 @@ Titan candidate -> Sentinel pre-merge gate -> merge queue -> complete
 
 Janus is only after merge/integration failure.
 
+Merge queue throughput:
+
+- The merge step is mechanical and never waits on model work. A T3 escalation hands the parent to `resolving_integration` and settles the queue item as failed with the merge outcome and detail Janus needs; Janus then runs as an adapter-owned session like every other caste.
+- Each daemon cycle drains the queue: every queued candidate is attempted at most once per pass, so all mergeable work lands without waiting a poll interval per merge.
+- Queue order is fewest attempts first, FIFO among equals. A requeued candidate never blocks fresh candidates behind it and retries after they move the target branch.
+- A queue item that cannot merge (missing or out-of-stage dispatch record) fails closed instead of stalling the queue.
+
 Runtime session ownership:
 
 - Long-running caste work must be represented as adapter-owned sessions in dispatch state.
 - Stuck detection measures idle time since the session's last adapter activity, not session age: a long session that keeps working is not killed, a silent one is.
-- Oracle, Titan, and Sentinel review work use durable `runningAgent` records and advance only through monitor/reaper or explicit caste command completion.
+- Oracle, Titan, Sentinel review, and Janus integration work use durable `runningAgent` records and advance only through monitor/reaper or explicit caste command completion. Janus launches within `max_janus` and `max_agents`.
 - The daemon dispatch loop may launch sessions, but must not synchronously wait on live model work as an inline side effect.
 - If Titan fails operationally after Oracle context exists, retry stays at Titan with the existing Oracle artifact instead of restarting scouting.
 - If a Sentinel review session is interrupted or fails operationally, the parent returns to `implemented` with cooldown so retry stays at the review layer.
 - Repeated Sentinel operational failure escalates to `failed_operational`; triage then routes Titan with the existing Oracle artifact and durable review feedback instead of relaunching review forever.
 - Repeated operational failures have a deterministic retry ceiling. Once exhausted, triage skips the issue with `operational_failure_limit` and status reports the terminal operational failure instead of draining adapter quota forever.
 - A stranded `reviewing` record with a durable Sentinel verdict is recovered from the artifact; without a verdict it retries Sentinel, not Oracle/Titan.
+- Mechanical merge stages resume instead of redoing model work: an interrupted `merging` record requeues, a stranded `merging` queue item is requeued, and `resolving_integration` work awaiting Janus (or whose Janus session a clean stop released) relaunches Janus. A Janus session lost with a dead daemon is an operational failure.
 - Rework dispatch must include the durable Sentinel or Janus feedback artifact in the Titan prompt. Repeating a parent handoff without the blocking finding is a control-plane bug.
 
 ## Mutation Policy

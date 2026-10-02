@@ -81,7 +81,9 @@ Merge decisions are mechanical:
 - merge queue item is valid
 - integration succeeds or routes to Janus
 
-A merge executor error or a failed Janus session marks the queue item failed and the issue `failed_operational` with retry accounting; nothing is left stranded in `merging`. Candidates that pass Sentinel again are re-queued automatically.
+Each daemon cycle drains the merge queue: every queued item is attempted at most once per pass, fewest attempts first, so a requeued candidate never blocks fresh ones. A merge executor error marks the queue item failed and the issue `failed_operational` with retry accounting; nothing is left stranded in `merging`. A queue item whose dispatch record is missing or out of stage fails closed instead of stalling the queue. Candidates that pass Sentinel again are re-queued automatically.
+
+T3 escalation never runs model work inside the merge step. The issue moves to `resolving_integration` and the queue item settles as failed with `lastOutcome` and `lastError`. The daemon then launches Janus as an adapter session within `max_janus`; Janus reads its merge context from the queue item, and the reaper settles its outcome (rework, blocker, or `failed_operational` on session failure). Without a daemon, `aegis process <issue>` runs the escalated Janus directly.
 
 ## Operational Exhaustion
 
@@ -104,3 +106,5 @@ After each poll, `src/core/dispatch-recovery.ts` repairs records from durable ev
 - failed Titan records with a valid durable handoff return to `implemented`
 - failed Titan labors holding only in-scope uncommitted edits retry Titan without wiping the labor
 - stranded `reviewing` records with a readable Sentinel verdict are routed from the verdict; otherwise Sentinel runs again
+- on daemon start, an interrupted `merging` record requeues and `resolving_integration` work awaiting Janus keeps waiting for its launch; a clean stop leaves released Janus work in `resolving_integration` for relaunch
+- a `merging` queue item stranded by an interrupted merge is requeued when its issue is `queued_for_merge` again
