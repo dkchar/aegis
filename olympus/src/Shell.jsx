@@ -1,4 +1,3 @@
-import { ActionIcon, Alert, Badge, Button, Group, Paper, SimpleGrid, Stack, Text, ThemeIcon, Title, Tooltip } from "@mantine/core";
 import { motion } from "motion/react";
 import {
   AlertTriangle,
@@ -7,18 +6,22 @@ import {
   Clock,
   GitMerge,
   ListChecks,
+  Monitor,
+  Moon,
   OctagonAlert,
   Play,
   RefreshCw,
   ShieldHalf,
   Square,
+  Sun,
   TerminalSquare,
-  Timer,
 } from "lucide-react";
 import { useState } from "react";
 import { loadOlympusState, runOlympusControl } from "./api.js";
 import { hydrateOlympusState, markApiError } from "./state.js";
-import { formatUsd, LiveDot, StatCard } from "./ui.jsx";
+import { LiveDot, Stat, StatBar, formatUsd } from "./components/aegis.jsx";
+import { Alert, Badge, Button, Separator, Tooltip } from "./components/ui/index.js";
+import { themePreferences } from "./theme.js";
 
 export const tabs = [
   ["live", "Ops"],
@@ -64,7 +67,7 @@ export function resolveInitialViewState() {
 
 export function SuccessBanner({ summary }) {
   return (
-    <Alert color="green" variant="light" title="Run complete" icon={<CheckCircle2 size={20} />}>
+    <Alert tone="success" title="Run complete">
       All {summary.total} tracker records reached Done. Artifacts, transcripts, logs, and merge records remain available in Records.
     </Alert>
   );
@@ -79,13 +82,17 @@ function formatUptime(startedAt, status) {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-export function Header({ state, mutate }) {
+function workspaceName(root) {
+  if (!root) return "current project";
+  return root.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || root;
+}
+
+/** Sticky top bar: brand and workspace, view navigation, daemon status, and controls. */
+export function Header({ state, mutate, nav, theme }) {
   const configIssues = state.configIssues ?? [];
   const [pendingAction, setPendingAction] = useState("");
   const running = state.daemon.status === "running";
   const startBlocked = configIssues.length > 0 || state.configDirty;
-  const uptime = formatUptime(state.daemon.startedAt, state.daemon.status);
-  const workspaceLabel = state.workspace?.root || "current project";
 
   function refreshState() {
     loadOlympusState()
@@ -108,63 +115,110 @@ export function Header({ state, mutate }) {
   }
 
   return (
-    <Paper component="header" withBorder p="md" className="olympus-header">
-      <Group justify="space-between" align="center" wrap="wrap" gap="md">
-        <Group gap="md" wrap="nowrap" style={{ minWidth: 0 }}>
-          <ThemeIcon size={44} radius="md" variant="gradient" gradient={{ from: "aegis.6", to: "indigo.6", deg: 135 }}>
-            <ShieldHalf size={26} />
-          </ThemeIcon>
-          <Stack gap={2} style={{ minWidth: 0 }}>
-            <Group gap="xs" wrap="nowrap">
-              <Title order={1} size="h3">Olympus</Title>
-              <Text size="sm" c="dimmed" visibleFrom="sm">Aegis swarm operations console</Text>
-            </Group>
-            <Text size="xs" ff="monospace" c="dimmed" truncate title={workspaceLabel}>
-              {workspaceLabel} · {state.daemon.branch}
-            </Text>
-          </Stack>
-        </Group>
-        <Group gap="xs" justify="flex-end" wrap="wrap">
+    <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-md">
+      <div className="mx-auto flex max-w-[1880px] flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5">
+        <Brand root={state.workspace?.root} branch={state.daemon.branch} />
+        <div className="order-last w-full min-w-0 lg:order-none lg:w-auto">{nav}</div>
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          <DaemonStatus state={state} />
+          {configIssues.length > 0 && <Badge tone="danger">{configIssues.length} config gaps</Badge>}
+          {state.configDirty && <Badge tone="warning">Unsaved config</Badge>}
+          <Separator orientation="vertical" className="mx-1 hidden h-5 sm:block" />
+          <Tooltip content={startBlocked ? "Complete and save Config first" : running ? "Daemon is running" : "Start the Aegis daemon"}>
+            <span>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => control("start")}
+                disabled={Boolean(pendingAction) || startBlocked || running}
+                loading={pendingAction === "start"}
+              >
+                {pendingAction !== "start" && <Play />}
+                Start
+              </Button>
+            </span>
+          </Tooltip>
           <Button
-            leftSection={<Play size={15} />}
-            onClick={() => control("start")}
-            disabled={Boolean(pendingAction) || startBlocked || running}
-            loading={pendingAction === "start"}
-          >
-            Start
-          </Button>
-          <Button
-            color="red"
-            variant="light"
-            leftSection={<Square size={14} />}
+            variant="danger-soft"
+            size="sm"
             onClick={() => control("stop")}
             disabled={Boolean(pendingAction) || !running}
             loading={pendingAction === "stop"}
           >
+            {pendingAction !== "stop" && <Square />}
             Stop
           </Button>
-          <Tooltip label="Refresh state">
-            <ActionIcon color="gray" variant="default" size="lg" aria-label="Refresh state" onClick={refreshState}>
-              <RefreshCw size={18} />
-            </ActionIcon>
+          <Tooltip content="Refresh state">
+            <Button variant="ghost" size="icon-sm" aria-label="Refresh state" onClick={refreshState}>
+              <RefreshCw />
+            </Button>
           </Tooltip>
-        </Group>
-      </Group>
-      <Group gap="xs" mt="sm" wrap="wrap">
-        <StatusPill status={state.daemon.status} />
-        <Badge color="gray" variant="light">PID {state.daemon.pid}</Badge>
-        {uptime && <Badge color="gray" variant="light" leftSection={<Timer size={12} />}>up {uptime}</Badge>}
-        <Badge color="aegis" variant="light">adapter {state.daemon.adapter}</Badge>
-        <Badge color={state.apiStatus === "connected" ? "green" : "yellow"} variant="light">
-          Events {state.apiStatus}
-        </Badge>
-        {state.daemon.phase && state.daemon.phase !== "idle" && (
-          <Badge color="gray" variant="outline">{state.daemon.activity}</Badge>
-        )}
-        {configIssues.length > 0 && <Badge color="red" variant="light">{configIssues.length} config gaps</Badge>}
-        {state.configDirty && <Badge color="yellow" variant="light">Unsaved config</Badge>}
-      </Group>
-    </Paper>
+          <ThemeToggle {...theme} />
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function Brand({ root, branch }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2.5">
+      <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-primary to-violet text-primary-foreground shadow-sm">
+        <ShieldHalf className="size-[18px]" aria-hidden="true" />
+      </div>
+      <div className="grid min-w-0 leading-tight">
+        <h1 className="text-[15px] font-semibold tracking-tight">Olympus</h1>
+        <Tooltip content={root || "Current project"}>
+          <span className="truncate font-mono text-[11px] text-muted-foreground">
+            {workspaceName(root)} <span className="text-subtle-foreground">·</span> {branch}
+          </span>
+        </Tooltip>
+      </div>
+    </div>
+  );
+}
+
+/** Daemon lifecycle, uptime, pid, adapter, and event-stream health in one cluster. */
+function DaemonStatus({ state }) {
+  const status = state.daemon.status;
+  const tone = status === "running" ? "success" : status === "paused" ? "warning" : "danger";
+  const uptime = formatUptime(state.daemon.startedAt, status);
+  const eventsLive = state.apiStatus === "connected";
+  const activity = state.daemon.phase && state.daemon.phase !== "idle" ? `Latest loop event: ${state.daemon.activity}` : "No loop events yet";
+
+  return (
+    <div className="flex items-center gap-2">
+      <Tooltip content={activity}>
+        <span className="inline-flex h-7 items-center gap-2 rounded-full border border-border bg-surface px-2.5 text-xs">
+          <LiveDot tone={tone} live={status === "running"} />
+          <span className="font-medium capitalize text-foreground">Daemon {status}</span>
+          {uptime && <span className="font-mono text-muted-foreground">{uptime}</span>}
+          {status === "running" && <span className="hidden font-mono text-subtle-foreground xl:inline">pid {state.daemon.pid}</span>}
+        </span>
+      </Tooltip>
+      <Badge tone="accent" size="md" className="font-mono">{state.daemon.adapter}</Badge>
+      <Tooltip content={state.apiMessage}>
+        <span className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border px-2.5 text-xs text-muted-foreground">
+          <LiveDot tone={eventsLive ? "success" : "warning"} />
+          Events {eventsLive ? "live" : state.apiStatus}
+        </span>
+      </Tooltip>
+    </div>
+  );
+}
+
+const themeIcons = { system: Monitor, light: Sun, dark: Moon };
+
+function ThemeToggle({ preference, setPreference }) {
+  if (!setPreference) return null;
+  const Icon = themeIcons[preference] ?? Monitor;
+  const next = themePreferences[(themePreferences.indexOf(preference) + 1) % themePreferences.length];
+  return (
+    <Tooltip content={`Theme: ${preference} (switch to ${next})`}>
+      <Button variant="ghost" size="icon-sm" aria-label={`Theme: ${preference}`} onClick={() => setPreference(next)}>
+        <Icon />
+      </Button>
+    </Tooltip>
   );
 }
 
@@ -178,52 +232,34 @@ export function KpiStrip({ state, flow }) {
   const cost = formatUsd(summary.costUsd);
 
   return (
-    <SimpleGrid cols={{ base: 2, sm: 3, lg: cost ? 7 : 6 }} spacing="sm">
-      <StatCard label="Progress" value={`${done}/${total}`} hint={`${percent}% done`} progress={percent} icon={CheckCircle2} />
-      <StatCard label="Ready" value={flow.executable} hint="executable tickets" icon={ListChecks} tone={flow.executable ? "aegis" : "gray"} />
-      <StatCard label="Sessions" value={activeSessions} hint={`${state.agents.length} recorded`} icon={TerminalSquare} tone={activeSessions ? "green" : "gray"} />
-      <StatCard label="Blocked" value={flow.blocked} hint="waiting on children" icon={Clock} tone={flow.blocked ? "yellow" : "gray"} />
-      <StatCard label="Merge Queue" value={flow.queueDepth} hint={`${flow.merged} merged`} icon={GitMerge} tone={flow.queueDepth ? "aegis" : "gray"} />
-      <StatCard label="Failures" value={flow.failures} hint="halted or exhausted" icon={OctagonAlert} tone={flow.failures ? "red" : "gray"} />
-      {cost && <StatCard label="Spend" value={cost} hint="reported by adapters" icon={CircleDollarSign} />}
-    </SimpleGrid>
+    <StatBar>
+      <Stat label="Progress" value={`${done}/${total}`} hint={`${percent}% of executable tickets done`} progress={percent} icon={CheckCircle2} tone={percent === 100 ? "success" : "neutral"} />
+      <Stat label="Ready" value={flow.executable} hint="executable tickets" icon={ListChecks} tone={flow.executable ? "accent" : "neutral"} />
+      <Stat label="Sessions" value={activeSessions} hint={`${state.agents.length} recorded`} icon={TerminalSquare} tone={activeSessions ? "success" : "neutral"} />
+      <Stat label="Blocked" value={flow.blocked} hint="waiting on dependencies" icon={Clock} tone={flow.blocked ? "warning" : "neutral"} />
+      <Stat label="Merge queue" value={flow.queueDepth} hint={`${flow.merged} merged`} icon={GitMerge} tone={flow.queueDepth ? "accent" : "neutral"} />
+      <Stat label="Failures" value={flow.failures} hint="halted or exhausted" icon={OctagonAlert} tone={flow.failures ? "danger" : "neutral"} />
+      {cost && <Stat label="Spend" value={cost} hint="reported by adapters" icon={CircleDollarSign} />}
+    </StatBar>
   );
 }
 
 export function Screen({ className = "", children }) {
   return (
     <motion.main
-      className={`grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 ${className}`}
-      initial={{ opacity: 0, y: 6 }}
+      className={`grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 ${className}`}
+      initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -6 }}
-      transition={{ duration: 0.16 }}
+      exit={{ opacity: 0, y: -4 }}
+      transition={{ duration: 0.14 }}
     >
       {children}
     </motion.main>
   );
 }
 
-export function StatusPill({ status }) {
-  const color = status === "running" ? "green" : status === "paused" ? "yellow" : "red";
-  return (
-    <Badge color={color} variant="light" leftSection={<LiveDot color={`var(--mantine-color-${color}-5)`} live={status === "running"} />}>
-      Daemon {status}
-    </Badge>
-  );
-}
-
-export function MetricPill({ label, value, tone }) {
-  const color = tone === "red" ? "red" : tone === "green" ? "green" : "yellow";
-  return (
-    <Badge color={color} variant="light">
-      {label}: <Text component="span" inherit ff="monospace">{value}</Text>
-    </Badge>
-  );
-}
-
 export function HealthIcon({ status }) {
-  if (status === "pass") return <CheckCircle2 color="var(--mantine-color-green-5)" size={20} />;
-  if (status === "pending" || status === "idle") return <Clock color="var(--mantine-color-aegis-5)" size={20} />;
-  return <AlertTriangle color="var(--mantine-color-red-5)" size={20} />;
+  if (status === "pass") return <CheckCircle2 className="size-4 shrink-0 text-success" aria-hidden="true" />;
+  if (status === "pending" || status === "idle") return <Clock className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />;
+  return <AlertTriangle className="size-4 shrink-0 text-warning" aria-hidden="true" />;
 }

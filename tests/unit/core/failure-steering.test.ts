@@ -71,6 +71,22 @@ describe("buildFailureSteeringPromptLines", () => {
     expect(lines.join("\n")).toContain("Stage and commit in-scope edits before emitting the artifact");
   });
 
+  it("steers JSON-mode retries after a structured output failure", () => {
+    const root = createTempRoot();
+    const transcriptRef = writeTranscript(root, "AG-1--sentinel.json", {
+      error: "Claude Code session ended with error_max_structured_output_retries.",
+    });
+
+    const lines = buildFailureSteeringPromptLines({
+      root,
+      caste: "sentinel",
+      record: createRecord({ failureTranscriptRef: transcriptRef }),
+      emissionMode: "json",
+    });
+
+    expect(lines.join("\n")).toContain("returning only the final JSON artifact");
+  });
+
   it("keeps steering caste-specific for each artifact contract", () => {
     const root = createTempRoot();
 

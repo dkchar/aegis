@@ -17,18 +17,30 @@ import type { ArtifactEmissionMode, JanusConflictContext } from "./types.js";
  */
 
 export const AEGIS_CASTE_SESSION_GUARD = [
-  "You are a dispatched Aegis caste subagent running one bounded assignment inside a labor worktree.",
+  "You are a dispatched Aegis caste subagent running one bounded assignment in its assigned working directory.",
   "If local agent skills or workflow guides mention SUBAGENT-STOP, that applies to this session; skip those skills and follow this Aegis prompt directly.",
   "Do not invoke or read local assistant skills, plugin workflows, or broad development playbooks unless this prompt explicitly asks for them.",
 ];
 
-export const WINDOWS_TERMINAL_GUARD = [
-  "Windows command guard: run package-manager commands as npm.cmd, npx.cmd, pnpm.cmd, yarn.cmd, or bun.cmd; never invoke .ps1 scripts directly.",
-  "Do not use GUI/open/start/invoke-item/Start-Process for checks. All checks must run in the terminal and return to the shell.",
-  "Do not run dev, preview, watch, or server commands such as npm run dev, npm run preview, vite, next dev, vitest --watch, or tsc --watch during caste work. Use finite checks like npm.cmd run build or npm.cmd test.",
-  "Guard optional file reads and probes so missing paths do not exit nonzero: use Test-Path before Get-Content, rg --files before reading discovered paths, or handle expected misses explicitly.",
-  "PowerShell `rg` no-match exits 1 and fails the adapter. For exploratory searches where no match is acceptable, wrap it as: rg -n \"pattern\" path; if ($LASTEXITCODE -eq 1) { exit 0 }.",
-];
+/**
+ * Terminal rules for caste shells. Every adapter's shell must return control
+ * (no servers, watchers, or GUIs); Windows sessions additionally get the
+ * PowerShell quirks that otherwise fail adapter commands.
+ */
+export function buildTerminalGuard(platform: NodeJS.Platform = process.platform) {
+  const npm = platform === "win32" ? "npm.cmd" : "npm";
+  return [
+    "Terminal guard: every command must finish and return to the shell. Do not open GUIs or browsers for checks.",
+    `Do not run dev, preview, watch, or server commands such as ${npm} run dev, ${npm} run preview, vite, next dev, vitest --watch, or tsc --watch; they are killed and fail the session. Use finite checks like ${npm} run build or ${npm} test.`,
+    ...(platform === "win32"
+      ? [
+        "Windows command guard: run package-manager commands as npm.cmd, npx.cmd, pnpm.cmd, yarn.cmd, or bun.cmd; never invoke .ps1 scripts directly or use Start-Process/Invoke-Item.",
+        "Guard optional file reads and probes so missing paths do not exit nonzero: use Test-Path before Get-Content, rg --files before reading discovered paths, or handle expected misses explicitly.",
+        "PowerShell `rg` no-match exits 1 and fails the adapter. For exploratory searches where no match is acceptable, wrap it as: rg -n \"pattern\" path; if ($LASTEXITCODE -eq 1) { exit 0 }.",
+      ]
+      : []),
+  ];
+}
 
 function formatFailureSteering(failureSteering: string[] | undefined) {
   return failureSteering?.length
@@ -72,7 +84,7 @@ export function buildOraclePrompt(
       : []),
     ...formatFailureSteering(failureSteering),
     "Produce only scout context: files, risks, suggested checks, and scope notes.",
-    ...WINDOWS_TERMINAL_GUARD,
+    ...buildTerminalGuard(),
     "Do not decide readiness, do not decompose, and do not propose new issues.",
     artifactEmissionInstruction(ORACLE_EMIT_ASSESSMENT_TOOL_NAME, "analysis is complete", emissionMode),
     "Return only JSON. No markdown fences. No prose before or after JSON.",
@@ -174,8 +186,7 @@ export function buildTitanPrompt(
       ]
       : []),
     "Preserve existing Aegis operational files and ignore rules. Do not modify .aegis/ or remove its existing .gitignore coverage.",
-    ...WINDOWS_TERMINAL_GUARD,
-    "Do not run long-running dev, preview, watcher, or server commands. They block the adapter session and will be treated as an operational failure.",
+    ...buildTerminalGuard(),
     "Oracle suggested checks are advisory; skip checks that require files or package manifests outside the allowed file scope.",
     "If a terminal command is rejected by the Aegis guard, do not retry variants of the same rejected command. Continue with in-scope edits and report the skipped check or guard rejection in tests_and_checks_run or known_risks.",
     "When you make implementation edits, stage and commit all intended changes in the labor worktree before you call the final artifact tool so the candidate branch head advances.",
@@ -233,7 +244,7 @@ export function buildSentinelPrompt(
       : []),
     "Return binary control verdict pass or fail_blocking.",
     ...formatFailureSteering(options?.failureSteering),
-    ...WINDOWS_TERMINAL_GUARD,
+    ...buildTerminalGuard(),
     "Sentinel is review-only. Do not edit files, repair defects, or complete missing work.",
     "If the candidate is incomplete, truncated, missing owned content, or otherwise fails the issue contract, emit fail_blocking with route=rework_owner.",
     ...(options?.titanReviewContext?.length ? options.titanReviewContext : []),
@@ -275,7 +286,7 @@ export function buildJanusPrompt(
     `Description: ${description}`,
     ...contextLines,
     ...formatFailureSteering(failureSteering),
-    ...WINDOWS_TERMINAL_GUARD,
+    ...buildTerminalGuard(),
     artifactEmissionInstruction(JANUS_EMIT_RESOLUTION_TOOL_NAME, "conflict analysis is complete", emissionMode),
     "Return only JSON. No markdown fences. No prose before or after JSON.",
     "JSON schema keys: originatingIssueId, queueItemId, preservedLaborPath, conflictSummary, resolutionStrategy, filesTouched, validationsRun, residualRisks, mutation_proposal.",

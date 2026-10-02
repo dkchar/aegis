@@ -91,12 +91,6 @@ export interface RuntimeAdapterContract {
   finalResult(root: string, sessionId: string): Promise<AdapterFinalResult | null>;
 }
 
-// Direct caste execution uses the same final-result shape but collapses spawn and
-// polling into one call for terminal commands and deterministic seam tests.
-export interface DirectCasteAdapterContract {
-  run(input: AdapterSpawnInput): Promise<AdapterFinalResult>;
-}
-
 export function toAdapterArtifactRefs(
   artifactRefs?: readonly AdapterArtifactRef[] | null,
 ): AdapterArtifactRef[] {

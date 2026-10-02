@@ -184,6 +184,7 @@ export async function runImplement(
       resolvedBlockerIssueId: record.blockedByIssueId ?? null,
       artifactEmissionMode: input.artifactEmissionMode,
     }),
+    onActivity: input.onActivity,
   } satisfies CasteRunInput;
 
   const laborProofBefore = captureGitProofPair(labor.laborPath);

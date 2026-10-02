@@ -16,10 +16,10 @@ npm run build
 In the git repository Aegis should work on:
 
 ```bash
-node dist/index.js init
+node dist/index.js init --runtime claude   # or codex, pi
 ```
 
-This creates `.aegis/` state files and adds Aegis paths to `.gitignore`. Edit `.aegis/config.json` to choose a runtime adapter and models (see [configuration](configuration.md)).
+This creates `.aegis/` state files and adds Aegis paths to `.gitignore`; it never touches `package.json`. `--runtime` seeds the config with that adapter and its default models. Without it the config uses `scripted`, the deterministic test runtime that fakes agent work, and `aegis start` warns about it. An existing `.aegis/config.json` is never rewritten; edit it to change the runtime or models (see [configuration](configuration.md)).
 
 ## Choose A Runtime
 
@@ -55,11 +55,24 @@ The daemon runs one cycle every `poll_interval_seconds`: poll, triage, dispatch,
 ## Status And Logs
 
 ```bash
-node dist/index.js status
-node dist/index.js stream daemon
+node dist/index.js status | jq
+node dist/index.js stream
 ```
 
-Use these before trusting UI state. Terminal output and `.aegis` files are the authority. `status` lists issues that exhausted operational retries under `terminal_operational_failures`.
+Use these before trusting UI state. Terminal output and `.aegis` files are the authority.
+
+`status` prints one JSON object:
+
+| Field | Meaning |
+| --- | --- |
+| `server_state`, `mode`, `uptime_ms` | daemon lifecycle |
+| `active_agents`, `queue_depth` | running sessions and ready Agora tickets |
+| `sessions` | live sessions: issue, caste, stage, `idle_seconds`, and `last_activity` (latest adapter line) |
+| `stages` | dispatch record count per stage |
+| `merge_queue` | merge items per status |
+| `terminal_operational_failures` | issues that exhausted operational retries |
+
+`stream` follows the daemon log, phase events, and live session activity. Session lines are labelled `[session <issue>/<caste>]` and interleaved by timestamp, so concurrent agents can be watched from one terminal.
 
 ## Direct Phase Commands
 
@@ -79,7 +92,7 @@ node dist/index.js review AG-0001
 node dist/index.js process AG-0001
 ```
 
-`process` advances the issue one step from its current stage. When a daemon is running, direct commands are handed to it through `.aegis/runtime-commands/` so they never race the daemon over state; the command waits for the daemon's answer.
+`process` advances the issue one step from its current stage. Run locally, a caste command prints live session activity to stderr and the JSON result to stdout. When a daemon is running, direct commands are handed to it through `.aegis/runtime-commands/` so they never race the daemon over state; the command waits for the daemon's answer.
 
 ## Merge
 
@@ -93,7 +106,11 @@ node dist/index.js merge next
 npm run olympus:dev
 ```
 
-Open `http://127.0.0.1:4173/`. See [Olympus](olympus.md).
+Open `http://127.0.0.1:4173/` (design system gallery at `/design.html`). See [Olympus](olympus.md).
+
+```bash
+npm run olympus:screenshots   # regenerate docs/screenshots after npm run build
+```
 
 ## Seeded Mock Proof Commands
 
@@ -113,7 +130,7 @@ The seed writes a fresh repository under `../aegis-qa/aegis-mock-run`. `AEGIS_MO
 | --- | --- |
 | Preflight blocked | run `node dist/index.js start` and follow the `fix:` lines |
 | Issue never dispatches | `status`; triage skips issues in cooldown, over capacity, overlapping another Titan's scope, or past the retry ceiling |
-| Session killed | `stuck_kill_seconds`, adapter inactivity timeout, or a forbidden dev server in the transcript |
+| Session killed | idle past `stuck_kill_seconds` (see `.aegis/logs/session-streams/<session>.log`), adapter inactivity timeout, or a forbidden dev server in the transcript |
 | Daemon stopped in `paused` mode | a provider usage limit was hit; wait for the reset, then start again |
 | Merge keeps failing | `.aegis/merge-queue.json` `lastError`, then Janus artifacts under `.aegis/janus/` |
 

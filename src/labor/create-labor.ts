@@ -1,6 +1,7 @@
 import path from "node:path";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+
+import { formatGitOutput, runGit } from "../shared/git.js";
 
 export interface LaborGitCommand {
   command: string;
@@ -65,14 +66,6 @@ export function planLaborCreation(request: LaborCreationRequest): LaborCreationP
   };
 }
 
-function runGit(projectRoot: string, args: string[]) {
-  return spawnSync("git", args, {
-    cwd: projectRoot,
-    encoding: "utf8",
-    windowsHide: true,
-  });
-}
-
 function normalizePath(candidate: string) {
   return path.resolve(candidate).toLowerCase();
 }
@@ -88,10 +81,6 @@ function isKnownWorktreePath(projectRoot: string, laborPath: string) {
     .split(/\r?\n/)
     .filter((line) => line.startsWith("worktree "))
     .some((line) => normalizePath(line.slice("worktree ".length)) === expected);
-}
-
-function formatGitFailure(result: ReturnType<typeof runGit>) {
-  return `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
 }
 
 function resolveWorktreeGitDirectory(laborPath: string) {
@@ -160,13 +149,13 @@ export function prepareLaborWorktree(plan: LaborCreationPlan) {
       const reset = runGit(plan.laborPath, ["reset", "--hard", plan.baseBranch]);
       if (reset.status !== 0) {
         throw new Error(
-          `Failed to refresh labor worktree ${plan.laborPath} for issue ${plan.issueId}. ${formatGitFailure(reset)}`,
+          `Failed to refresh labor worktree ${plan.laborPath} for issue ${plan.issueId}. ${formatGitOutput(reset)}`,
         );
       }
       const clean = runGit(plan.laborPath, ["clean", "-fdx"]);
       if (clean.status !== 0) {
         throw new Error(
-          `Failed to clean labor worktree ${plan.laborPath} for issue ${plan.issueId}. ${formatGitFailure(clean)}`,
+          `Failed to clean labor worktree ${plan.laborPath} for issue ${plan.issueId}. ${formatGitOutput(clean)}`,
         );
       }
     }
@@ -193,8 +182,8 @@ export function prepareLaborWorktree(plan: LaborCreationPlan) {
     return;
   }
 
-  const createError = formatGitFailure(created);
-  const fallbackError = formatGitFailure(fallback);
+  const createError = formatGitOutput(created);
+  const fallbackError = formatGitOutput(fallback);
   const detail = [createError, fallbackError].filter((value) => value.length > 0).join(" | ");
   throw new Error(
     `Failed to prepare labor worktree ${plan.laborPath} for issue ${plan.issueId}.${detail.length > 0 ? ` ${detail}` : ""}`,

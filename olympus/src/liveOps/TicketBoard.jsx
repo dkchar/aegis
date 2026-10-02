@@ -1,15 +1,26 @@
 import { DndContext, DragOverlay, closestCorners, useDroppable } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { Badge, Button, Group, Modal, Paper, Stack, Text } from "@mantine/core";
 import { AnimatePresence } from "motion/react";
 import { ListChecks, Plus } from "lucide-react";
 import { moveOlympusTicket } from "../api.js";
-import { SectionHead } from "../ui.jsx";
+import { SectionCard } from "../components/aegis.jsx";
+import { Badge, Button, Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, cn } from "../components/ui/index.js";
 import { columnLabels, columns, hydrateOlympusState, moveTicket } from "../state.js";
 import { TicketCard, TicketPreview } from "./TicketCard.jsx";
 import { TicketDraftForm } from "./TicketForms.jsx";
 
 const columnOptions = columns.map((column) => ({ value: column, label: columnLabels[column] }));
+
+export const columnDots = {
+  backlog: "bg-subtle-foreground",
+  blocked: "bg-danger",
+  ready: "bg-info",
+  in_progress: "bg-primary",
+  in_review: "bg-violet",
+  ready_to_merge: "bg-warning",
+  done: "bg-success",
+  halted: "bg-danger",
+};
 
 export function TicketBoard({ state, tickets, counts, draft, setDraft, addDraft, showDialog, setShowDialog, mutate, sensors }) {
   const activeTicket = tickets.find((ticket) => ticket.id === state.activeDragId);
@@ -26,11 +37,13 @@ export function TicketBoard({ state, tickets, counts, draft, setDraft, addDraft,
   }
 
   return (
-    <Paper component="section" withBorder p="md">
-      <Group mb="md" justify="space-between" align="flex-start" wrap="wrap">
-        <SectionHead icon={ListChecks} title="Agora Graph" detail="Tracker columns stay wide and scroll horizontally for dense boards." />
-        <Button color="aegis" leftSection={<Plus size={16} />} onClick={() => setShowDialog(true)}>Add Ticket</Button>
-      </Group>
+    <SectionCard
+      icon={ListChecks}
+      title="Agora Graph"
+      description="Tracker columns with live runtime projections from dispatch state. Drag a card or use Move to change its column."
+      actions={<Button variant="primary" size="sm" onClick={() => setShowDialog(true)}><Plus />Add Ticket</Button>}
+      bodyClassName="pt-0"
+    >
       <AddTicketDialog open={showDialog} draft={draft} setDraft={setDraft} addDraft={addDraft} onClose={() => setShowDialog(false)} />
       <DndContext
         sensors={sensors}
@@ -39,8 +52,8 @@ export function TicketBoard({ state, tickets, counts, draft, setDraft, addDraft,
         onDragCancel={() => mutate({ ...state, activeDragId: null })}
         onDragEnd={onDragEnd}
       >
-        <div className="overflow-x-auto pb-2">
-          <div className="flex min-h-[62vh] min-w-max items-stretch gap-3">
+        <div className="scroll-thin -mx-4 overflow-x-auto px-4 pb-2">
+          <div className="flex min-h-[58vh] min-w-max items-stretch gap-3">
             {columns.map((column) => (
               <KanbanColumn
                 key={column}
@@ -57,7 +70,7 @@ export function TicketBoard({ state, tickets, counts, draft, setDraft, addDraft,
           {activeTicket ? <TicketPreview ticket={activeTicket} overlay /> : null}
         </DragOverlay>
       </DndContext>
-    </Paper>
+    </SectionCard>
   );
 }
 
@@ -66,20 +79,23 @@ function KanbanColumn({ column, count, tickets, state, mutate }) {
 
   return (
     <SortableContext id={column} items={tickets.map((ticket) => ticket.id)} strategy={verticalListSortingStrategy}>
-      <Paper
+      <div
         ref={setNodeRef}
-        withBorder
-        p="sm"
-        className="grid h-[62vh] w-80 shrink-0 grid-rows-[auto_minmax(0,1fr)] gap-2 transition"
-        style={{ borderColor: isOver ? "var(--mantine-color-aegis-5)" : undefined, background: isOver ? "var(--mantine-color-aegis-light)" : undefined }}
         data-column={column}
+        className={cn(
+          "grid h-[58vh] w-72 shrink-0 grid-rows-[auto_minmax(0,1fr)] rounded-lg border border-border bg-surface-sunken transition-colors",
+          isOver && "border-primary/50 bg-primary/5",
+        )}
       >
-        <Group justify="space-between" gap="xs" wrap="nowrap">
-          <Text truncate size="xs" fw={700} tt="uppercase" c="dimmed">{columnLabels[column]}</Text>
-          <Badge color="gray" variant="light" size="xs">{count}</Badge>
-        </Group>
-        <div className="grid min-h-0 content-start gap-1.5 overflow-y-auto pr-1">
-          {tickets.length === 0 && <Paper withBorder p="sm" style={{ borderStyle: "dashed" }}><Text size="xs" fw={700} c="dimmed">No tickets</Text></Paper>}
+        <div className="flex items-center gap-2 px-3 py-2.5">
+          <span className={cn("size-2 rounded-full", columnDots[column])} aria-hidden="true" />
+          <h3 className="truncate text-xs font-medium text-foreground">{columnLabels[column]}</h3>
+          <Badge className="ml-auto font-mono">{count}</Badge>
+        </div>
+        <div className="scroll-thin grid min-h-0 content-start gap-2 overflow-y-auto px-2 pb-2">
+          {tickets.length === 0 && (
+            <p className="rounded-md border border-dashed border-border-strong px-3 py-4 text-center text-xs text-subtle-foreground">No tickets</p>
+          )}
           <AnimatePresence initial={false}>
             {tickets.map((ticket) => (
               <TicketCard
@@ -93,19 +109,24 @@ function KanbanColumn({ column, count, tickets, state, mutate }) {
             ))}
           </AnimatePresence>
         </div>
-      </Paper>
+      </div>
     </SortableContext>
   );
 }
 
 function AddTicketDialog({ open, draft, setDraft, addDraft, onClose }) {
   return (
-    <Modal opened={open} onClose={onClose} title="Add Agora Ticket" size="xl" centered closeButtonProps={{ "aria-label": "Close dialog" }}>
-      <Stack component="form" gap="md" onSubmit={addDraft}>
-        <Text size="sm" c="dimmed">Create a local ticket draft with the same fields operators expect from Agora.</Text>
-        <TicketDraftForm draft={draft} setDraft={setDraft} addDraft={addDraft} columnOptions={columnOptions} />
-      </Stack>
-    </Modal>
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent size="xl">
+        <DialogHeader>
+          <DialogTitle>Add Agora Ticket</DialogTitle>
+          <DialogDescription>Creates a ticket in the selected workspace's Agora board with the same fields as the Agora CLI.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={addDraft}>
+          <TicketDraftForm draft={draft} setDraft={setDraft} addDraft={addDraft} columnOptions={columnOptions} />
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

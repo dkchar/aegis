@@ -1,65 +1,51 @@
-import { createTheme } from "@mantine/core";
+import { useCallback, useEffect, useState } from "react";
 
-const sans = 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-const mono = '"JetBrains Mono", "Cascadia Code", "SFMono-Regular", Consolas, monospace';
+const STORAGE_KEY = "olympus.theme";
+export const themePreferences = ["system", "light", "dark"];
 
-// Olympus brand accent: a cool aegis teal that reads well on dark surfaces.
-const aegis = [
-  "#e3fbf8",
-  "#c9f2ec",
-  "#96e4da",
-  "#5fd5c6",
-  "#35c9b6",
-  "#1bc1ab",
-  "#00bda7",
-  "#00a592",
-  "#009381",
-  "#007f6e",
-];
+function readPreference() {
+  try {
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    return themePreferences.includes(stored) ? stored : "system";
+  } catch {
+    return "system";
+  }
+}
 
-// Slightly blue-shifted neutrals for depth without pure black.
-const dark = [
-  "#d5dbe5",
-  "#b3bccb",
-  "#8c97aa",
-  "#667286",
-  "#3c4658",
-  "#2a3242",
-  "#1d2432",
-  "#151b26",
-  "#0f141d",
-  "#0a0e15",
-];
+function resolveTheme(preference) {
+  if (preference !== "system") return preference;
+  return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
 
-export const olympusTheme = createTheme({
-  primaryColor: "aegis",
-  primaryShade: { dark: 5 },
-  colors: { aegis, dark },
-  defaultRadius: "md",
-  fontFamily: sans,
-  fontFamilyMonospace: mono,
-  headings: {
-    fontFamily: sans,
-    fontWeight: "750",
-  },
-  cursorType: "pointer",
-  focusRing: "auto",
-  components: {
-    Paper: {
-      defaultProps: { radius: "md" },
-    },
-    Badge: {
-      defaultProps: { radius: "sm" },
-      styles: { root: { textTransform: "none", fontWeight: 650, letterSpacing: 0 } },
-    },
-    Button: {
-      defaultProps: { radius: "md" },
-    },
-    Tabs: {
-      styles: { tab: { fontWeight: 600 } },
-    },
-    Tooltip: {
-      defaultProps: { withArrow: true, openDelay: 250 },
-    },
-  },
-});
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+}
+
+/** System/light/dark preference persisted per browser; applied to <html data-theme>. */
+export function useTheme() {
+  const [preference, setPreferenceState] = useState(readPreference);
+  const [theme, setTheme] = useState(() => resolveTheme(readPreference()));
+
+  useEffect(() => {
+    const update = () => {
+      const next = resolveTheme(preference);
+      setTheme(next);
+      applyTheme(next);
+    };
+    update();
+    const media = window.matchMedia?.("(prefers-color-scheme: light)");
+    media?.addEventListener("change", update);
+    return () => media?.removeEventListener("change", update);
+  }, [preference]);
+
+  const setPreference = useCallback((next) => {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, next);
+    } catch {
+      // Storage may be unavailable; the choice still applies for this page.
+    }
+    setPreferenceState(next);
+  }, []);
+
+  return { preference, setPreference, theme };
+}

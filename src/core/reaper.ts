@@ -9,7 +9,7 @@ import {
 } from "./dispatch-state.js";
 import type { AgentRuntime } from "../runtime/agent-runtime.js";
 import { buildArtifactRef, type ArtifactFamily } from "./artifact-store.js";
-import { writePhaseLog } from "./phase-log.js";
+import { writePhaseLog, writePhaseLogEntry, type PhaseLogWriter } from "./phase-log.js";
 import { applyOperationalFailure, applySentinelOperationalFailure } from "./failure-policy.js";
 import { validateDispatchRecordStage } from "./stage-invariants.js";
 import { normalizeFileScope } from "../shared/file-scope.js";
@@ -21,6 +21,8 @@ export interface ReapInput {
   issueIds: string[];
   root: string;
   now?: string;
+  /** Writer for the `_all` pass summary; defaults to always writing. */
+  writeSummaryLog?: PhaseLogWriter;
 }
 
 export interface ReapResult {
@@ -214,7 +216,7 @@ export async function reapFinishedWork(input: ReapInput): Promise<ReapResult> {
     });
   }
 
-  writePhaseLog(input.root, {
+  (input.writeSummaryLog ?? writePhaseLogEntry)(input.root, {
     timestamp,
     phase: "reap",
     issueId: "_all",

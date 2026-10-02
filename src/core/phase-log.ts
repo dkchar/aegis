@@ -35,3 +35,28 @@ export function writePhaseLog(root: string, entry: PhaseLogEntry) {
   ].join("-");
   return createJsonExclusive(path.join(resolvePhaseLogDirectory(root), `${fileName}.json`), entry);
 }
+
+export type PhaseLogWriter = (root: string, entry: PhaseLogEntry) => void;
+
+export const writePhaseLogEntry: PhaseLogWriter = (root, entry) => {
+  writePhaseLog(root, entry);
+};
+
+/**
+ * Writer for the daemon's per-cycle `_all` summaries. A summary identical to
+ * the previous one for the same phase and action is skipped, so an idle daemon
+ * stops adding files every poll while every change is still recorded.
+ * Issue-level events never go through this writer.
+ */
+export function createCycleSummaryWriter(): PhaseLogWriter {
+  const lastSummaryByKey = new Map<string, string>();
+  return (root, entry) => {
+    const key = [path.resolve(root), entry.phase, entry.action].join("\n");
+    const summary = JSON.stringify([entry.outcome, entry.sessionId ?? null, entry.detail ?? null]);
+    if (lastSummaryByKey.get(key) === summary) {
+      return;
+    }
+    lastSummaryByKey.set(key, summary);
+    writePhaseLog(root, entry);
+  };
+}

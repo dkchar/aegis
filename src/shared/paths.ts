@@ -19,5 +19,3 @@ export function resolveProjectPaths(root = process.cwd()): ProjectPaths {
 
   return buildProjectPaths(repoRoot);
 }
-
-export const projectPaths = resolveProjectPaths();

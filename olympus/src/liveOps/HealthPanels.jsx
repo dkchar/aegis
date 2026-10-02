@@ -1,24 +1,21 @@
-import { Badge, Group, Paper, Stack, Text } from "@mantine/core";
-import { Activity, CheckCircle2 } from "lucide-react";
+import { Activity, HeartPulse } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { HealthIcon } from "../Shell.jsx";
-import { EmptyState, SectionHead, StatusBadge } from "../ui.jsx";
+import { EmptyState, SectionCard, StatusBadge } from "../components/aegis.jsx";
+import { Badge } from "../components/ui/index.js";
 import { phases } from "../state.js";
 
 export function PhaseEventBoard({ state }) {
   return (
-    <Paper component="section" withBorder p="md">
-      <Stack gap="sm">
-        <SectionHead icon={Activity} title="Daemon Events" detail="Phase logs with newest output pinned at the bottom." />
-        <div className="overflow-x-auto pb-2">
-          <div className="grid min-w-[64rem] grid-cols-5 gap-3">
-            {phases.map((phase) => (
-              <PhaseEventColumn key={phase} phase={phase} events={state.loopEvents[phase] || []} />
-            ))}
-          </div>
+    <SectionCard icon={Activity} title="Daemon Events" description="Phase logs per loop stage; newest events stay pinned at the bottom.">
+      <div className="scroll-thin overflow-x-auto pb-1">
+        <div className="grid min-w-[56rem] grid-cols-5 gap-2">
+          {phases.map((phase) => (
+            <PhaseEventColumn key={phase} phase={phase} events={state.loopEvents[phase] || []} />
+          ))}
         </div>
-      </Stack>
-    </Paper>
+      </div>
+    </SectionCard>
   );
 }
 
@@ -31,49 +28,46 @@ function PhaseEventColumn({ phase, events }) {
   }, [events]);
 
   return (
-    <Paper withBorder mih={320} style={{ display: "grid", gridTemplateRows: "auto minmax(0, 1fr)", overflow: "hidden" }}>
-      <Group justify="space-between" px="sm" py="xs">
-        <Text truncate ff="monospace" size="xs" fw={700} tt="uppercase">{phase}</Text>
-        <Badge color="gray" variant="light" size="xs">{events.length}</Badge>
-      </Group>
-      <div ref={scrollRef} className="terminal-scroll grid max-h-72 content-start gap-2 overflow-y-scroll p-3 font-mono text-xs leading-relaxed">
-        {events.length === 0 && (
-          <Paper withBorder p="xs"><Text size="xs" c="dimmed">Waiting for {phase} output.</Text></Paper>
-        )}
-        {events.map(([time, event, detail], index) => (
-          <Paper key={`${time}-${event}-${index}`} withBorder p="xs">
-            <Stack gap={2}>
-              <Text size="xs" ff="monospace" c="dimmed">{time}</Text>
-              <Text size="xs" ff="monospace" c="green">{event}</Text>
-              <Text size="xs" ff="monospace" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{detail}</Text>
-            </Stack>
-          </Paper>
-        ))}
+    <div className="grid min-h-72 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md border border-border bg-surface-sunken">
+      <div className="flex items-center justify-between border-b border-border px-2.5 py-2">
+        <span className="font-mono text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{phase}</span>
+        <Badge>{events.length}</Badge>
       </div>
-    </Paper>
+      <ol ref={scrollRef} className="scroll-thin grid max-h-64 content-start gap-1.5 overflow-y-auto p-2">
+        {events.length === 0 && <li className="px-1 py-2 text-xs text-subtle-foreground">Waiting for {phase} output.</li>}
+        {events.map(([time, event, detail], index) => (
+          <li key={`${time}-${event}-${index}`} className="grid gap-0.5 rounded-md border border-border bg-surface px-2 py-1.5 font-mono text-[11px] leading-snug">
+            <span className="text-subtle-foreground">{time}</span>
+            <span className="text-primary">{event}</span>
+            {detail && <span className="break-all text-muted-foreground">{detail}</span>}
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 
 export function HealthDeck({ state }) {
   return (
-    <Paper component="section" withBorder p="md">
-      <Stack gap="sm">
-        <SectionHead icon={CheckCircle2} title="Run Health" detail="Readiness across tracker, state files, merge queue, artifacts, and sessions." />
-        <Stack gap="xs">
-          {state.healthChecks.length === 0 && <EmptyState title="No health signals" detail="Readiness checks appear after Olympus connects to an Aegis workspace." />}
+    <SectionCard icon={HeartPulse} title="Run Health" description="Readiness across tracker, state files, merge queue, artifacts, and sessions.">
+      {state.healthChecks.length === 0 ? (
+        <EmptyState title="No health signals" detail="Readiness checks appear after Olympus connects to an Aegis workspace." />
+      ) : (
+        <ul className="grid gap-px overflow-hidden rounded-md border border-border bg-border">
           {state.healthChecks.map(([label, status, detail]) => (
-            <Paper key={label} withBorder p="sm">
-              <Group align="flex-start" wrap="nowrap">
-                <HealthIcon status={status} />
-                <Stack gap={2} style={{ minWidth: 0 }}>
-                  <Group gap="xs" wrap="wrap"><Text size="sm" fw={700} truncate>{label}</Text><StatusBadge status={status}>{status}</StatusBadge></Group>
-                  <Text size="xs" c="dimmed">{detail}</Text>
-                </Stack>
-              </Group>
-            </Paper>
+            <li key={label} className="flex items-start gap-3 bg-surface px-3 py-2.5">
+              <HealthIcon status={status} />
+              <div className="grid min-w-0 flex-1 gap-0.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-[13px] font-medium">{label}</span>
+                  <StatusBadge status={status} />
+                </div>
+                <span className="text-xs text-muted-foreground">{detail}</span>
+              </div>
+            </li>
           ))}
-        </Stack>
-      </Stack>
-    </Paper>
+        </ul>
+      )}
+    </SectionCard>
   );
 }

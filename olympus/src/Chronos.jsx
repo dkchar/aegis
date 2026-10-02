@@ -1,11 +1,22 @@
-import { Badge, Group, Paper, Select, SimpleGrid, Stack, Text, ThemeIcon, Title } from "@mantine/core";
 import { Background, Controls, MiniMap, ReactFlow, ReactFlowProvider } from "@xyflow/react";
-import { Clock3, GitMerge } from "lucide-react";
+import { Clock3, GitMerge, Waypoints } from "lucide-react";
 import { useMemo, useState } from "react";
+import { EmptyState } from "./components/aegis.jsx";
+import { Screen } from "./Shell.jsx";
+import { Badge, Card, CardTitle, Select } from "./components/ui/index.js";
 import { buildChronosMergeTree, buildChronosTimeline } from "./state.js";
-import { buildMergeFlow, buildTimelineFlow, chronosNodeTypes, laneMeta } from "./chronosGraph.js";
+import { buildMergeFlow, buildTimelineFlow, chronosColors, chronosNodeTypes, laneMeta } from "./chronosGraph.js";
 
-export default function Chronos({ state }) {
+const mergeLegend = [
+  ["parent link", chronosColors.blue],
+  ["ticket order", chronosColors.gray],
+  ["done", chronosColors.green],
+  ["active", chronosColors.yellow],
+  ["blocked", chronosColors.red],
+];
+
+/** Chronos Flight Recorder (every truth-plane event in order) beside the Agora merge tree. */
+export default function Chronos({ state, theme = "dark" }) {
   const timeline = useMemo(() => buildChronosTimeline(state), [state]);
   const mergeTree = useMemo(() => buildChronosMergeTree(state), [state]);
   const [filter, setFilter] = useState("All");
@@ -25,94 +36,86 @@ export default function Chronos({ state }) {
   const mergeFlow = useMemo(() => buildMergeFlow(mergeTree.roots, selectedMergeId), [mergeTree.roots, selectedMergeId]);
 
   return (
-    <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="sm">
+    <Screen className="xl:grid-cols-2">
       <ChronosPanel
         icon={Clock3}
         title="Chronos Flight Recorder"
         meta={`${visibleTimeline.length} events`}
-        legend={<TimelineLegend />}
-        controls={<Select aria-label="Lane" data={laneOptions} value={filter} onChange={(value) => setFilter(value ?? "All")} w={140} size="xs" />}
+        legend={Object.values(laneMeta).map((meta) => [meta.label, meta.color])}
+        controls={<Select aria-label="Lane" options={laneOptions} value={filter} onValueChange={(value) => setFilter(value || "All")} size="sm" className="w-36" />}
       >
         <FlowCanvas
           emptyTitle="No Chronos events"
           emptyDetail="Select an initialized Aegis workspace or start the daemon from terminal."
           edges={timelineFlow.edges}
-          fitView={false}
           nodes={timelineFlow.nodes}
+          fitView={false}
           onSelect={setSelectedTimelineId}
           showMiniMap={false}
+          theme={theme}
         />
       </ChronosPanel>
-      <ChronosPanel icon={GitMerge} title="Merge Tree" meta={`${mergeTree.stats.tickets} nodes`} legend={<MergeLegend />}>
+      <ChronosPanel icon={GitMerge} title="Merge Tree" meta={`${mergeTree.stats.tickets} nodes`} legend={mergeLegend}>
         <FlowCanvas
           emptyTitle="No graph records"
           emptyDetail="Agora tickets appear here once the workspace has work loaded."
           edges={mergeFlow.edges}
-          fitView={false}
           nodes={mergeFlow.nodes}
+          fitView
           onSelect={setSelectedMergeId}
           showMiniMap={mergeFlow.nodes.length > 18}
+          theme={theme}
         />
       </ChronosPanel>
-    </SimpleGrid>
+    </Screen>
   );
 }
 
-function ChronosPanel({ icon: Icon, title, meta, controls, legend, children }) {
+function ChronosPanel({ icon, title, meta, controls = null, legend, children }) {
   return (
-    <Paper withBorder bg="dark.9" style={{ minWidth: 0, overflow: "hidden" }}>
-      <Stack gap={0}>
-        <Group justify="space-between" px="md" py="sm" bg="dark.8" wrap="nowrap">
-          <Group gap="xs" wrap="nowrap">
-            <ThemeIcon color="aegis" variant="light" radius="xl" size="sm"><Icon size={14} /></ThemeIcon>
-            <Title order={2} size="sm">{title}</Title>
-            <Badge color="gray" variant="light" size="xs">{meta}</Badge>
-          </Group>
-          {controls}
-        </Group>
-        {legend}
-        {children}
-      </Stack>
-    </Paper>
+    <Card className="flex flex-col overflow-hidden">
+      <div className="flex min-h-14 items-center justify-between gap-3 border-b border-border px-4 py-2.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <CardTitle icon={icon}>{title}</CardTitle>
+          <Badge className="font-mono">{meta}</Badge>
+        </div>
+        {controls}
+      </div>
+      <ul className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-surface-sunken/50 px-4 py-2" aria-label={`${title} legend`}>
+        {legend.map(([label, color]) => (
+          <li key={label} className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span className="size-2 rounded-full" style={{ background: color }} aria-hidden="true" />
+            {label}
+          </li>
+        ))}
+      </ul>
+      {children}
+    </Card>
   );
 }
 
-function TimelineLegend() {
-  return (
-    <Group gap="xs" px="md" py="xs" wrap="wrap">
-      {Object.values(laneMeta).map((meta) => (
-        <Badge key={meta.label} color={meta.color} variant="dot" size="xs">{meta.label}</Badge>
-      ))}
-    </Group>
-  );
-}
-
-function MergeLegend() {
-  return (
-    <Group gap="xs" px="md" py="xs" wrap="wrap">
-      <Badge color="aegis" variant="dot" size="xs">parent link</Badge>
-      <Badge color="gray" variant="dot" size="xs">ticket order</Badge>
-      <Badge color="green" variant="dot" size="xs">done</Badge>
-      <Badge color="yellow" variant="dot" size="xs">active</Badge>
-      <Badge color="red" variant="dot" size="xs">blocked</Badge>
-    </Group>
-  );
-}
-
-function FlowCanvas({ nodes, edges, onSelect, emptyTitle, emptyDetail, fitView, showMiniMap }) {
-  if (nodes.length === 0) return <EmptyGraph title={emptyTitle} detail={emptyDetail} />;
+/** The timeline opens at its start at 1:1; the merge tree fits the whole graph. */
+function FlowCanvas({ nodes, edges, onSelect, emptyTitle, emptyDetail, fitView, showMiniMap, theme }) {
+  if (nodes.length === 0) {
+    return (
+      <div className="p-4">
+        <EmptyState icon={Waypoints} title={emptyTitle} detail={emptyDetail} className="min-h-[360px]" />
+      </div>
+    );
+  }
 
   return (
     <ReactFlowProvider>
-      <div style={{ height: "calc(100dvh - 17rem)", minHeight: 560 }}>
+      <div className="h-[calc(100dvh-17rem)] min-h-[560px] bg-surface-sunken/40">
         <ReactFlow
           nodes={nodes}
           edges={edges}
           nodeTypes={chronosNodeTypes}
+          colorMode={theme}
           defaultViewport={{ x: 80, y: 36, zoom: 1 }}
           fitView={fitView}
-          fitViewOptions={{ padding: 0.16 }}
-          minZoom={0.55}
+          fitViewOptions={{ padding: 0.08, maxZoom: 1 }}
+          minZoom={0.4}
           maxZoom={1.35}
           nodesDraggable={false}
           nodesConnectable={false}
@@ -122,20 +125,11 @@ function FlowCanvas({ nodes, edges, onSelect, emptyTitle, emptyDetail, fitView, 
           onNodeClick={(_, node) => onSelect(node.data.eventId ?? node.id)}
           onPaneClick={() => onSelect("")}
         >
-          <Background color="var(--mantine-color-dark-4)" gap={28} size={1} />
+          <Background color="var(--border-strong)" gap={24} size={1} />
           <Controls showInteractive={false} position="bottom-right" />
           {showMiniMap && <MiniMap pannable zoomable nodeStrokeWidth={2} position="bottom-left" />}
         </ReactFlow>
       </div>
     </ReactFlowProvider>
-  );
-}
-
-function EmptyGraph({ title, detail }) {
-  return (
-    <Stack align="center" justify="center" mih={360} gap={4} p="xl">
-      <Title order={3} size="sm">{title}</Title>
-      <Text size="sm" c="dimmed" ta="center">{detail}</Text>
-    </Stack>
   );
 }

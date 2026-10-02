@@ -1,137 +1,207 @@
 @import "tailwindcss";
 
+/*
+ * Olympus design tokens. Components only use these semantic tokens (through
+ * the Tailwind theme below), so dark and light themes swap in one place.
+ * Dark is the default; `data-theme="light"` on <html> switches.
+ */
 :root {
   color-scheme: dark;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --olympus-surface: rgba(21, 27, 38, 0.82);
-  --olympus-surface-raised: rgba(29, 36, 50, 0.92);
-  --olympus-border: rgba(140, 151, 170, 0.18);
-  --olympus-glow: rgba(27, 193, 171, 0.18);
-  --olympus-accent: var(--mantine-color-aegis-5);
+  --background: oklch(0.155 0.006 265);
+  --foreground: oklch(0.965 0.003 265);
+  --surface: oklch(0.185 0.007 265);
+  --surface-raised: oklch(0.215 0.008 265);
+  --surface-sunken: oklch(0.13 0.006 265);
+  --muted: oklch(0.24 0.008 265);
+  --muted-foreground: oklch(0.7 0.012 265);
+  --subtle-foreground: oklch(0.56 0.012 265);
+  --border: oklch(1 0 0 / 0.085);
+  --border-strong: oklch(1 0 0 / 0.15);
+  --input: oklch(1 0 0 / 0.11);
+  --ring: oklch(0.79 0.13 182 / 0.55);
+  --primary: oklch(0.79 0.13 182);
+  --primary-foreground: oklch(0.2 0.03 182);
+  --success: oklch(0.77 0.15 158);
+  --warning: oklch(0.83 0.14 80);
+  --danger: oklch(0.7 0.18 18);
+  --info: oklch(0.76 0.12 236);
+  --violet: oklch(0.73 0.14 295);
+  --terminal: #0b0c10;
+  --terminal-foreground: #d9dce3;
+  --shadow-elevated: 0 1px 0 0 oklch(1 0 0 / 0.04) inset, 0 12px 32px -12px oklch(0 0 0 / 0.6);
+  --glow: radial-gradient(1100px 520px at 0% -20%, oklch(0.79 0.13 182 / 0.08), transparent 60%),
+    radial-gradient(900px 480px at 100% -10%, oklch(0.73 0.14 295 / 0.06), transparent 60%);
 }
 
-* {
-  box-sizing: border-box;
+:root[data-theme="light"] {
+  color-scheme: light;
+  --background: oklch(0.985 0.002 265);
+  --foreground: oklch(0.22 0.012 265);
+  --surface: oklch(1 0 0);
+  --surface-raised: oklch(0.97 0.003 265);
+  --surface-sunken: oklch(0.955 0.004 265);
+  --muted: oklch(0.94 0.004 265);
+  --muted-foreground: oklch(0.47 0.014 265);
+  --subtle-foreground: oklch(0.6 0.012 265);
+  --border: oklch(0 0 0 / 0.08);
+  --border-strong: oklch(0 0 0 / 0.14);
+  --input: oklch(0 0 0 / 0.12);
+  --ring: oklch(0.6 0.12 182 / 0.5);
+  --primary: oklch(0.6 0.12 182);
+  --primary-foreground: oklch(0.99 0.01 182);
+  --success: oklch(0.6 0.15 158);
+  --warning: oklch(0.68 0.15 70);
+  --danger: oklch(0.58 0.2 22);
+  --info: oklch(0.58 0.14 240);
+  --violet: oklch(0.56 0.18 295);
+  --shadow-elevated: 0 1px 2px oklch(0 0 0 / 0.05), 0 12px 32px -16px oklch(0 0 0 / 0.18);
+  --glow: radial-gradient(1100px 520px at 0% -20%, oklch(0.6 0.12 182 / 0.06), transparent 60%);
 }
 
-html,
-body,
-#root {
-  min-width: 320px;
-  min-height: 100%;
-}
+@theme inline {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SFMono-Regular", Consolas, monospace;
 
-body {
-  margin: 0;
-  background:
-    radial-gradient(1200px 600px at 12% -10%, rgba(27, 193, 171, 0.10), transparent 60%),
-    radial-gradient(900px 500px at 100% 0%, rgba(99, 102, 241, 0.08), transparent 55%),
-    var(--mantine-color-dark-9);
-  background-attachment: fixed;
-  -webkit-font-smoothing: antialiased;
-}
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+  --color-violet: var(--violet);
+  --color-terminal: var(--terminal);
+  --color-terminal-foreground: var(--terminal-foreground);
 
-button,
-input,
-select,
-textarea {
-  font: inherit;
-}
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
 
-button,
-select {
-  cursor: pointer;
-}
+  --shadow-elevated: var(--shadow-elevated);
 
-/* Panels share one glassy surface so every view reads as one system. */
-.mantine-Paper-root[data-with-border] {
-  background: var(--olympus-surface);
-  border-color: var(--olympus-border);
-  backdrop-filter: blur(6px);
-}
+  --animate-fade-in: fade-in 160ms ease-out;
+  --animate-fade-out: fade-out 120ms ease-in;
+  --animate-pop-in: pop-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-pop-out: pop-out 120ms ease-in;
+  --animate-pulse-ring: pulse-ring 1.8s ease-out infinite;
 
-.olympus-header {
-  background:
-    linear-gradient(135deg, rgba(27, 193, 171, 0.14), rgba(99, 102, 241, 0.08) 55%, transparent),
-    var(--olympus-surface-raised) !important;
-}
-
-.olympus-stat {
-  transition: border-color 160ms ease, transform 160ms ease;
-}
-
-.olympus-stat:hover {
-  border-color: var(--olympus-accent) !important;
-  transform: translateY(-1px);
-}
-
-.olympus-nav {
-  position: sticky;
-  top: 0.5rem;
-  z-index: 20;
-}
-
-.olympus-kbd {
-  font-family: var(--mantine-font-family-monospace);
-  font-size: 10px;
-  padding: 0 4px;
-  border-radius: 4px;
-  border: 1px solid var(--olympus-border);
-  color: var(--mantine-color-dimmed);
-}
-
-.live-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: currentColor;
-}
-
-.live-dot[data-live="true"] {
-  box-shadow: 0 0 0 0 currentColor;
-  animation: olympus-pulse 1.8s ease-out infinite;
-}
-
-@keyframes olympus-pulse {
-  0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent);
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
-  70% {
-    box-shadow: 0 0 0 7px transparent;
+  @keyframes fade-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
   }
-  100% {
-    box-shadow: 0 0 0 0 transparent;
+  @keyframes pop-in {
+    from { opacity: 0; transform: translateY(4px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes pop-out {
+    from { opacity: 1; transform: scale(1); }
+    to { opacity: 0; transform: scale(0.98); }
+  }
+  @keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 color-mix(in oklab, currentColor 55%, transparent); }
+    70% { box-shadow: 0 0 0 6px transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
   }
 }
 
-:focus-visible {
-  outline: 2px solid var(--olympus-accent);
-  outline-offset: 2px;
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100%;
+    min-width: 320px;
+  }
+
+  body {
+    margin: 0;
+    background: var(--glow), var(--background);
+    background-attachment: fixed;
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 30%, transparent);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
 }
 
-.terminal-scroll,
+@layer utilities {
+  /* Thin, theme-aware scrollbars for dense panes and terminals. */
+  .scroll-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+
+  .scroll-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scroll-thin::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 999px;
+  }
+
+  .scroll-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* xterm and React Flow render their own DOM; align them with the tokens. */
 .terminal-host .xterm-viewport {
-  scrollbar-color: var(--mantine-color-aegis-7) var(--mantine-color-dark-9);
   scrollbar-width: thin;
+  scrollbar-color: oklch(1 0 0 / 0.16) transparent;
+  background-color: var(--terminal) !important;
 }
 
-.terminal-scroll::-webkit-scrollbar,
-.terminal-host .xterm-viewport::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+.react-flow {
+  --xy-background-color: transparent;
+  --xy-controls-button-background-color: var(--surface);
+  --xy-controls-button-background-color-hover: var(--surface-raised);
+  --xy-controls-button-color: var(--muted-foreground);
+  --xy-controls-button-border-color: var(--border);
+  --xy-minimap-background-color: var(--surface-sunken);
+  --xy-edge-label-background-color: var(--surface);
 }
 
-.terminal-scroll::-webkit-scrollbar-track,
-.terminal-host .xterm-viewport::-webkit-scrollbar-track {
-  background: var(--mantine-color-dark-9);
-}
-
-.terminal-scroll::-webkit-scrollbar-thumb,
-.terminal-host .xterm-viewport::-webkit-scrollbar-thumb {
-  background: var(--mantine-color-aegis-7);
-  border: 2px solid var(--mantine-color-dark-9);
-  border-radius: 999px;
+.react-flow__controls {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-elevated);
 }
 
 @media (prefers-reduced-motion: reduce) {

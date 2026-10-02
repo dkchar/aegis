@@ -1,9 +1,9 @@
-import { Button, Group, Paper, SimpleGrid, Stack, Text, TextInput } from "@mantine/core";
-import { Boxes, FolderOpen, LayoutDashboard } from "lucide-react";
+import { ArrowRightCircle, Boxes, FolderOpen, FolderSearch, LayoutDashboard } from "lucide-react";
 import { useEffect, useState } from "react";
 import { browseOlympusWorkspace, openOlympusWorkspaceFolder, switchOlympusWorkspace } from "../api.js";
 import { hydrateOlympusState } from "../state.js";
-import { StatusBadge } from "../ui.jsx";
+import { StatusBadge } from "../components/aegis.jsx";
+import { Button, Card, Field, Input } from "../components/ui/index.js";
 
 export default function WorkspacePanel({ state, mutate }) {
   const [workspaceRoot, setWorkspaceRoot] = useState(state.workspace.root || "");
@@ -49,41 +49,29 @@ export default function WorkspacePanel({ state, mutate }) {
   }
 
   return (
-    <Paper component="section" withBorder p="sm">
-      <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="sm" verticalSpacing="sm">
-        <Stack gap="xs">
-          <TextInput label="Workspace" value={workspaceRoot} onChange={(event) => setWorkspaceRoot(event.target.value)} placeholder="Absolute path to an initialized Aegis project" />
-          <Group gap="xs" wrap="wrap">
-            <Button variant="default" leftSection={<Boxes size={16} />} onClick={browseWorkspace} loading={browsing}>Browse Folder</Button>
-            <Button variant="default" leftSection={<FolderOpen size={16} />} onClick={openWorkspaceFolder}>Open Folder</Button>
-            <Button color="aegis" leftSection={<Boxes size={16} />} onClick={() => selectWorkspace(workspaceRoot)}>Select Workspace</Button>
-            <Button variant="subtle" leftSection={<LayoutDashboard size={16} />} onClick={() => selectWorkspace("")}>Use Current Project</Button>
-          </Group>
-        </Stack>
-        <Stack gap="xs" justify="flex-end">
-          <Group gap="xs" wrap="wrap">
-            <StatusBadge status={nextAction.status}>{nextAction.status}</StatusBadge>
-            <Text size="sm" fw={700}>{nextAction.title}</Text>
-            <Text size="xs" c="dimmed">{nextAction.detail}</Text>
-          </Group>
-          <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="xs">
-            <SupervisionFact label="Workspace" value={state.workspace.root || "current project"} />
-            <SupervisionFact label="Adapter" value={state.daemon.adapter} />
-            <SupervisionFact label="Events" value={state.apiStatus === "connected" ? "connected" : state.daemon.stream} />
-            <SupervisionFact label="Branch" value={state.daemon.branch} />
-          </SimpleGrid>
-        </Stack>
-      </SimpleGrid>
-    </Paper>
-  );
-}
-
-function SupervisionFact({ label, value }) {
-  return (
-    <Stack gap={0} style={{ minWidth: 0 }}>
-      <Text size="xs" fw={700} tt="uppercase" c="dimmed">{label}</Text>
-      <Text size="xs" fw={700} ff="monospace" truncate>{value}</Text>
-    </Stack>
+    <Card className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] xl:items-end">
+      <div className="grid min-w-0 gap-2">
+        <Field label="Workspace">
+          <Input value={workspaceRoot} onChange={(event) => setWorkspaceRoot(event.target.value)} placeholder="Absolute path to an initialized Aegis project" className="font-mono text-xs" />
+        </Field>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="primary" size="sm" onClick={() => selectWorkspace(workspaceRoot)}><Boxes />Select Workspace</Button>
+          <Button size="sm" onClick={browseWorkspace} loading={browsing}>{!browsing && <FolderSearch />}Browse Folder</Button>
+          <Button size="sm" onClick={openWorkspaceFolder}><FolderOpen />Open Folder</Button>
+          <Button variant="ghost" size="sm" onClick={() => selectWorkspace("")}><LayoutDashboard />Use Current Project</Button>
+        </div>
+      </div>
+      <div className="flex min-w-0 items-start gap-3 rounded-md border border-border bg-surface-sunken px-3 py-2.5">
+        <ArrowRightCircle className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
+        <div className="grid min-w-0 gap-0.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[13px] font-medium">{nextAction.title}</span>
+            <StatusBadge status={nextAction.status} />
+          </div>
+          <span className="text-xs leading-snug text-muted-foreground">{nextAction.detail}</span>
+        </div>
+      </div>
+    </Card>
   );
 }
 

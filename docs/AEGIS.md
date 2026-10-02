@@ -132,6 +132,7 @@ Scope:
 - logs/artifacts links
 - controls that route through deterministic orchestrator commands
 - editable `.aegis/config.json` settings through deterministic config writes
+- one in-repo design system (semantic tokens, headless accessible primitives, light and dark themes) with a living gallery, so every view shares status, caste, and layout language
 
 Non-goal:
 
@@ -164,7 +165,7 @@ Every real adapter must provide:
 
 - `spawn` session with caste, model, thinking level, issue id, prompt, working directory, and branch context.
 - `abort` session.
-- session status and terminal/transcript events where available.
+- session status and terminal/transcript events where available, including live activity lines streamed to `.aegis/logs/session-streams/` while the session runs.
 - final result with success/failure, usage stats if available, and transcript/artifact refs.
 
 Every real adapter must enforce or allow Aegis to enforce:
@@ -213,7 +214,7 @@ Codex adapter must implement the same contract. It must not receive privileged s
 
 ### Claude Code Adapter
 
-Claude Code (`runtime: "claude"`) is an approved adapter alongside Pi and Codex. It runs each caste assignment as a headless `claude -p --output-format stream-json` session in the caste's working directory and returns the artifact as final JSON text.
+Claude Code (`runtime: "claude"`) is an approved adapter alongside Pi and Codex. It runs each caste assignment as a headless `claude -p --output-format stream-json` session in the caste's working directory. The final artifact is constrained with `--json-schema` using the same caste artifact schema Pi uses for its `emit_*` tools (off on Windows, where the launcher cannot pass JSON arguments); the caste parsers still gate it. Configured thinking maps to Claude Code effort.
 
 It must implement the same contract with no privileged shortcuts:
 
@@ -221,7 +222,7 @@ It must implement the same contract with no privileged shortcuts:
 - user MCP servers are not loaded (`--strict-mcp-config`).
 - forbidden long-running dev/watch processes are killed and fail the session.
 - abort kills the whole adapter process tree.
-- transcripts record the stream (messages, tool calls, usage) for audit.
+- transcripts record the stream (messages, tool calls, policy-denied tool calls, usage) for audit.
 - Aegis post-session validation (git proof, file scope, root cleanliness, artifact parsing) applies unchanged.
 
 Model refs use `anthropic:<model-id>`; the default is `anthropic:claude-opus-5-5`.
@@ -344,6 +345,7 @@ Janus is only after merge/integration failure.
 Runtime session ownership:
 
 - Long-running caste work must be represented as adapter-owned sessions in dispatch state.
+- Stuck detection measures idle time since the session's last adapter activity, not session age: a long session that keeps working is not killed, a silent one is.
 - Oracle, Titan, and Sentinel review work use durable `runningAgent` records and advance only through monitor/reaper or explicit caste command completion.
 - The daemon dispatch loop may launch sessions, but must not synchronously wait on live model work as an inline side effect.
 - If Titan fails operationally after Oracle context exists, retry stays at Titan with the existing Oracle artifact instead of restarting scouting.

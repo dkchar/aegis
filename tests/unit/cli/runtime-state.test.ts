@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { spawn } from "node:child_process";
+
 import {
+  isProcessRunning,
   readRuntimeState,
   resolveRuntimeStatePath,
   writeRuntimeState,
@@ -58,5 +61,23 @@ describe("runtime-state contract", () => {
     );
 
     expect(() => readRuntimeState(root)).toThrow("Invalid runtime state file");
+  });
+
+  it.runIf(process.platform === "linux")("treats an exited, unreaped (zombie) process as stopped", async () => {
+    // `sleep 0` exits in the background; the shell then execs `sleep 5`, which
+    // never reaps it, leaving a zombie whose pid still answers signal 0.
+    const parent = spawn("sh", ["-c", "sleep 0 & echo $!; exec sleep 5"], { stdio: ["ignore", "pipe", "ignore"] });
+    try {
+      const zombiePid = await new Promise<number>((resolve) => {
+        parent.stdout!.once("data", (chunk: Buffer) => resolve(Number(chunk.toString().trim())));
+      });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      expect(() => process.kill(zombiePid, 0)).not.toThrow();
+      expect(isProcessRunning(zombiePid)).toBe(false);
+      expect(isProcessRunning(parent.pid!)).toBe(true);
+    } finally {
+      parent.kill("SIGKILL");
+    }
   });
 });

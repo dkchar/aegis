@@ -14,8 +14,8 @@ export const DEFAULT_AEGIS_CONFIG: AegisConfig = {
   },
   thresholds: {
     poll_interval_seconds: 5,
-    stuck_warning_seconds: 90,
-    stuck_kill_seconds: 150,
+    stuck_warning_seconds: 300,
+    stuck_kill_seconds: 900,
     allow_complex_auto_dispatch: false,
     scope_overlap_threshold: 0,
     janus_retry_threshold: 2,

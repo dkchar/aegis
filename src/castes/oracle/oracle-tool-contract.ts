@@ -5,30 +5,33 @@ import { createStructuredToolContract } from "../tool-contract.js";
 
 export const ORACLE_EMIT_ASSESSMENT_TOOL_NAME = "emit_oracle_assessment";
 
+/** Artifact schema shared by the Pi emit tool and CLI adapters with native structured output. */
+export const ORACLE_ARTIFACT_SCHEMA = Type.Object(
+  {
+    files_affected: Type.Array(Type.String()),
+    estimated_complexity: Type.Union([
+      Type.Literal("trivial"),
+      Type.Literal("moderate"),
+      Type.Literal("complex"),
+      Type.Literal("\"trivial\""),
+      Type.Literal("\"moderate\""),
+      Type.Literal("\"complex\""),
+    ]),
+    risks: Type.Array(Type.String()),
+    suggested_checks: Type.Array(Type.String()),
+    scope_notes: Type.Array(Type.String()),
+  },
+  {
+    additionalProperties: false,
+  },
+);
+
 const oracleStructuredContract = createStructuredToolContract<OracleAssessment>({
   toolName: ORACLE_EMIT_ASSESSMENT_TOOL_NAME,
   label: "Emit Oracle Assessment",
   description:
     "Finalize scout assessment by returning contract JSON with keys files_affected, estimated_complexity, risks, suggested_checks, scope_notes.",
-  parameters: Type.Object(
-    {
-      files_affected: Type.Array(Type.String()),
-      estimated_complexity: Type.Union([
-        Type.Literal("trivial"),
-        Type.Literal("moderate"),
-        Type.Literal("complex"),
-        Type.Literal("\"trivial\""),
-        Type.Literal("\"moderate\""),
-        Type.Literal("\"complex\""),
-      ]),
-      risks: Type.Array(Type.String()),
-      suggested_checks: Type.Array(Type.String()),
-      scope_notes: Type.Array(Type.String()),
-    },
-    {
-      additionalProperties: false,
-    },
-  ),
+  parameters: ORACLE_ARTIFACT_SCHEMA,
   detailsKey: "assessment",
   successText: "Oracle assessment captured.",
   invalidPayloadError: "Oracle assessment tool received invalid payload.",

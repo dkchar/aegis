@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { loadConfig } from "../config/load-config.js";
 import { runDaemonCycle as defaultRunDaemonCycle, runLoopPhase } from "../core/loop-runner.js";
+import { createCycleSummaryWriter } from "../core/phase-log.js";
 import {
   listRunningRecords,
   loadDispatchState,
@@ -49,7 +50,7 @@ import {
 import { recoverStaleRuntimeState } from "./runtime-recovery.js";
 
 const STOP_REQUEST_POLL_MS = 150;
-const HEARTBEAT_LOG_INTERVAL_MS = 5_000;
+const HEARTBEAT_LOG_INTERVAL_MS = 60_000;
 
 export type DaemonStopReason = "manual" | "signal" | "shutdown" | "provider_usage_limit";
 
@@ -69,6 +70,8 @@ export interface StartRuntimeController {
 export interface StartResult {
   root: string;
   mode: "auto";
+  /** Configured runtime adapter name. */
+  adapter: string;
   runtime: StartRuntimeController;
 }
 
@@ -248,9 +251,12 @@ export async function startAegis(
   let hasStopped = false;
   let cycleInFlight = false;
   const timers: NodeJS.Timeout[] = [];
+  // Idle cycles repeat the same summaries; log each one only when it changes.
+  const summaryLog = createCycleSummaryWriter();
   const runDaemonCycle = options.runDaemonCycle ?? ((candidateRoot: string) =>
     defaultRunDaemonCycle(candidateRoot, {
       sessionProvenanceId: String(process.pid),
+      summaryLog,
     }));
   const runCasteCommand = options.runCasteCommand ?? runLocalCasteCommand;
   const runMergeCommand = options.runMergeCommand ?? ((candidateRoot: string, action: RuntimeMergeAction) =>
@@ -267,6 +273,12 @@ export async function startAegis(
     repoRoot,
     `[daemon][start] runtime=${resolvedConfig.runtime} poll_interval_seconds=${resolvedConfig.thresholds.poll_interval_seconds}`,
   );
+  if (resolvedConfig.runtime === "scripted") {
+    const warning = "runtime=scripted is the deterministic test runtime: it fakes agent work and merges. "
+      + "Set a live adapter (claude, codex, pi) in .aegis/config.json for real work.";
+    appendDaemonLog(repoRoot, `[daemon][warning] ${warning}`);
+    console.warn(`Aegis: ${warning}`);
+  }
 
   const runtime: StartRuntimeController = {
     async stop(reason = "shutdown") {
@@ -403,6 +415,7 @@ export async function startAegis(
   return {
     root: repoRoot,
     mode: "auto",
+    adapter: resolvedConfig.runtime,
     runtime,
   };
 }

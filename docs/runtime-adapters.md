@@ -6,8 +6,10 @@
 
 Aegis owns the contract; adapters are replaceable. Two interfaces exist in `src/runtime/`:
 
-- `CasteRuntime.run(input)` (`caste-runtime.ts`): one caste session to completion. Returns a `CasteSessionResult` with status, final output text, tools used, message log, and optionally a terminal log and usage.
-- `AgentRuntime` (`agent-runtime.ts`): the daemon view. `launch` returns a session id immediately and runs the caste command in the background; `readSession` returns the durable session report under `.aegis/logs/sessions/`; `terminate` aborts it. `dispatch-runtime.ts` implements this once for every adapter.
+- `CasteRuntime.run(input)` (`caste-runtime.ts`): one caste session to completion. Returns a `CasteSessionResult` with status, final output text, tools used, message log, and optionally a terminal log and usage. While the session runs, the adapter reports human-readable activity (`[tool] Bash npm test`, `[assistant] ...`) through `input.onActivity`.
+- `AgentRuntime` (`agent-runtime.ts`): the daemon view. `launch` returns a session id immediately and runs the caste command in the background; `readSession` returns the durable session report under `.aegis/logs/sessions/` plus `lastActivityAt`; `terminate` aborts it. `dispatch-runtime.ts` implements this once for every adapter.
+
+Live activity is appended to `.aegis/logs/session-streams/<session>.log` as timestamped lines. `aegis stream`, `aegis status`, and Olympus session terminals read it, and the monitor measures stuck time from the last line: a session is killed for being idle, not for running long. Activity is observability only; nothing routes on it.
 
 Whatever the adapter reports, Aegis validates afterwards:
 
@@ -25,10 +27,11 @@ Implementation: `src/runtime/claude-caste-runtime.ts`.
 Each caste session runs:
 
 ```text
-claude -p --output-format stream-json --verbose \
+CLAUDE_CODE_EFFORT_LEVEL=<effort> claude -p --output-format stream-json --verbose \
   --model <model-id> --permission-mode default \
   --allowedTools <caste allow list> --disallowedTools <caste deny list> \
-  --strict-mcp-config --append-system-prompt <Aegis guard> [--max-turns N] [extra args]
+  --strict-mcp-config --append-system-prompt <Aegis guard> \
+  [--json-schema <caste artifact schema>] [--max-turns N] [extra args]
 ```
 
 The prompt is sent on stdin and the working directory is the caste's workspace (project root for Oracle and Janus, the labor worktree for Titan, the candidate worktree for Sentinel).
@@ -44,7 +47,9 @@ Tool policy per caste:
 
 Headless sessions cannot prompt for approval, so anything outside the allow list is refused.
 
-The `stream-json` events are folded into the transcript: assistant text becomes the message log, tool calls and tool errors become the terminal log, and the final `result` event supplies the artifact text plus usage (tokens, cost, turns, duration). A session fails when the result is an error, the turn limit is hit, the CLI exits non-zero, or no result arrives.
+The `stream-json` events are parsed as they arrive: assistant text becomes the message log; tool calls, tool errors, API retries, and tool calls the policy denied (`[denied]`) become the terminal log and the live session stream; the final `result` event supplies the artifact plus usage (tokens, cost, turns, duration). A session fails when the result is an error, the turn or structured-output retry limit is hit, the CLI exits non-zero, or no result arrives.
+
+Structured output: the caste's artifact schema (`src/castes/artifact-schemas.ts`, the same schema Pi uses for its `emit_*` tools) is passed as `--json-schema`, so Claude Code validates the final artifact and re-prompts on mismatch. The validated `structured_output` is used in preference to the final prose, and the caste parsers still gate it. It is off on Windows, where the PowerShell launcher cannot pass JSON arguments intact; there the final JSON text is parsed as before.
 
 Supervision (`src/runtime/workspace-processes.ts`):
 
@@ -52,7 +57,7 @@ Supervision (`src/runtime/workspace-processes.ts`):
 - dev servers, previews, and watchers started inside the workspace are killed and fail the session (Playwright-managed test servers are allowed)
 - the CLI is spawned as a process-group leader and tracked in-process, so abort kills the whole tree
 
-Models: `anthropic:<model-id>` (for example `anthropic:claude-opus-5-5`, `anthropic:claude-sonnet-5-5`, `anthropic:claude-haiku-4-5`). A bare model id is also accepted. The configured thinking level is recorded for provenance; Claude Code manages its own reasoning budget.
+Models: `anthropic:<model-id>` (for example `anthropic:claude-opus-5-5`, `anthropic:claude-sonnet-5-5`, `anthropic:claude-haiku-4-5`). A bare model id is also accepted. The configured thinking level sets Claude Code effort through `CLAUDE_CODE_EFFORT_LEVEL`: `off` and `low` run at `low`, `medium` at `medium`, `high` at `high`. Effort applies only to models that support it.
 
 Environment overrides:
 
@@ -62,10 +67,13 @@ Environment overrides:
 | `AEGIS_CLAUDE_SESSION_TIMEOUT_MS` | inactivity timeout (default 1,800,000) |
 | `AEGIS_CLAUDE_MAX_TURNS` | adds `--max-turns` |
 | `AEGIS_CLAUDE_EXTRA_ARGS` | extra CLI args, as a JSON array or whitespace-separated |
+| `AEGIS_CLAUDE_STRUCTURED_OUTPUT` | `on` or `off`; overrides the `--json-schema` default (on, off on Windows) |
+
+Isolation: without `--bare`, a headless session still loads the operator's and the repository's Claude Code hooks, skills, plugins, and `CLAUDE.md` (MCP servers are already excluded). For fully isolated sessions set `AEGIS_CLAUDE_EXTRA_ARGS=--bare` and `ANTHROPIC_API_KEY`; bare mode does not use a subscription login.
 
 ## Codex (`codex`)
 
-Implementation: `src/runtime/codex-caste-runtime.ts`. Runs `codex exec` with `--json`, the configured model and reasoning effort, `workspace-write` sandbox (`danger-full-access` on Windows, where workspace-write shell execution is broken), and `--output-last-message` for the artifact. It shares the same process supervision as Claude Code.
+Implementation: `src/runtime/codex-caste-runtime.ts`. Runs `codex exec` with `--json`, the configured model and reasoning effort, `workspace-write` sandbox (`danger-full-access` on Windows, where workspace-write shell execution is broken), and `--output-last-message` for the artifact. The `--json` events are parsed as they arrive into the terminal log and live session stream (shell commands, failed commands, file changes, agent messages) and token usage per turn. It shares the same process supervision as Claude Code.
 
 ## Pi (`pi`)
 
@@ -74,6 +82,7 @@ Implementation: `src/runtime/pi-caste-runtime.ts`. Runs the Pi coding agent in-p
 - file tools resolve paths inside the working directory and reject escapes and control-plane paths (`.aegis`, `.agora`, `.git`)
 - Titan writes are limited to the allowed file scope; shell commands are checked for directory escapes, branch-changing git commands, GUI launchers, long-running servers, and out-of-scope package installs
 - each caste gets a typed `emit_*` tool, and a repair prompt forces the tool call if the session ends without it
+- tool calls and assistant messages are reported as live session activity
 
 Environment overrides: `AEGIS_PI_SESSION_TIMEOUT_MS`, `AEGIS_PI_<CASTE>_TIMEOUT_MS`, `AEGIS_PI_TIMEOUT_RETRY_COUNT`, `AEGIS_PI_TIMEOUT_RETRY_DELAY_MS`.
 
@@ -83,7 +92,7 @@ Implementation: `src/runtime/scripted-caste-runtime.ts`. Deterministic responses
 
 ## Adding An Adapter
 
-1. Implement `CasteRuntime` in `src/runtime/<name>-caste-runtime.ts`.
+1. Implement `CasteRuntime` in `src/runtime/<name>-caste-runtime.ts`. Report activity through `input.onActivity` (see `activity-log.ts`) so sessions are observable and the idle monitor works.
 2. Add the name to `RUNTIME_ADAPTER_NAMES` in `runtime-registry.ts` and decide its artifact emission mode.
 3. Construct it in `create-caste-runtime.ts` and register its session-process terminator in `dispatch-runtime.ts`.
 4. Add preflight probes in `src/cli/startup-probes.ts`.

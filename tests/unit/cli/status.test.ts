@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { getAegisStatus } from "../../../src/cli/status.js";
+import { writeRuntimeState } from "../../../src/cli/runtime-state.js";
+import { appendSessionStream, writeSessionReport } from "../../../src/runtime/session-report.js";
 import type { TrackerClient } from "../../../src/tracker/tracker.js";
 
 const tempRoots: string[] = [];
@@ -52,6 +54,9 @@ describe("getAegisStatus", () => {
       queue_depth: 2,
       uptime_ms: 0,
       terminal_operational_failures: [],
+      sessions: [],
+      stages: {},
+      merge_queue: { queued: 0, merging: 0, merged: 0, failed: 0 },
     });
   });
 
@@ -118,6 +123,9 @@ describe("getAegisStatus", () => {
       queue_depth: 0,
       uptime_ms: 0,
       terminal_operational_failures: [],
+      sessions: [],
+      stages: { scouting: 1 },
+      merge_queue: { queued: 0, merging: 0, merged: 0, failed: 0 },
     });
   });
 
@@ -257,6 +265,67 @@ describe("getAegisStatus", () => {
     });
 
     expect(status.active_agents).toBe(1);
+  });
+
+  it("lists live sessions with idle time and their latest activity", async () => {
+    const root = createTempRoot();
+    mkdirSync(path.join(root, ".aegis", "logs", "session-streams"), { recursive: true });
+    writeFileSync(
+      path.join(root, ".aegis", "dispatch-state.json"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        records: {
+          "issue-live": {
+            issueId: "issue-live",
+            stage: "implementing",
+            runningAgent: { caste: "titan", sessionId: "session-live", startedAt: "2026-04-21T00:00:00.000Z" },
+            oracleAssessmentRef: ".aegis/oracle/issue-live.json",
+            sentinelVerdictRef: null,
+            fileScope: null,
+            failureCount: 0,
+            consecutiveFailures: 0,
+            failureWindowStartMs: null,
+            cooldownUntil: null,
+            sessionProvenanceId: String(process.pid),
+            updatedAt: "2026-04-21T00:00:00.000Z",
+          },
+        },
+      }, null, 2)}\n`,
+      "utf8",
+    );
+    writeFileSync(
+      path.join(root, ".aegis", "merge-queue.json"),
+      `${JSON.stringify({ schemaVersion: 1, items: [] })}\n`,
+      "utf8",
+    );
+    writeRuntimeState({
+      schema_version: 1,
+      pid: process.pid,
+      server_state: "running",
+      mode: "auto",
+      started_at: "2026-04-21T00:00:00.000Z",
+    }, root);
+    writeSessionReport(root, { sessionId: "session-live", status: "running" });
+    appendSessionStream(root, "session-live", "[session] start issue=issue-live caste=titan", "2026-04-21T00:00:00.000Z");
+    appendSessionStream(root, "session-live", "[tool] Bash npm test", "2026-04-21T00:00:05.000Z");
+
+    const status = await getAegisStatus(root, {
+      tracker: { async listReadyIssues() { return []; } },
+    });
+
+    expect(status.stages).toEqual({ implementing: 1 });
+    expect(status.sessions).toEqual([{
+      issue_id: "issue-live",
+      caste: "titan",
+      stage: "implementing",
+      session_id: "session-live",
+      started_at: "2026-04-21T00:00:00.000Z",
+      last_activity_at: expect.stringMatching(/Z$/),
+      idle_seconds: expect.any(Number),
+      last_activity: "[tool] Bash npm test",
+    }]);
+    // The stream was just written, so the session is not idle.
+    expect(status.sessions[0]!.idle_seconds).toBeLessThan(60);
   });
 
   it("reports terminal operational failures separately from raw queue depth", async () => {

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildClaudeArgs,
+  buildClaudeEnvironment,
   buildClaudeSpawnInvocation,
   ClaudeCasteRuntime,
   CLAUDE_CASTE_TOOL_POLICIES,
@@ -14,6 +15,7 @@ import {
   resolveClaudeRuntimeOptionsFromEnv,
   type ClaudeRunRequest,
 } from "../../../src/runtime/claude-caste-runtime.js";
+import { buildCasteArtifactJsonSchema } from "../../../src/castes/artifact-schemas.js";
 import { runCasteCommand } from "../../../src/core/caste-runner.js";
 import { loadDispatchState } from "../../../src/core/dispatch-state.js";
 import type { AegisIssue } from "../../../src/tracker/issue-model.js";
@@ -93,6 +95,7 @@ function baseRequest(overrides: Partial<ClaudeRunRequest> = {}): ClaudeRunReques
     timeoutMs: 1_000,
     maxTurns: null,
     extraArgs: [],
+    jsonSchema: null,
     ...overrides,
   };
 }
@@ -106,6 +109,20 @@ describe("buildClaudeArgs", () => {
     expect(args[args.indexOf("--permission-mode") + 1]).toBe("default");
     expect(args[args.indexOf("--allowedTools") + 1]).toBe(CLAUDE_CASTE_TOOL_POLICIES.titan.allowedTools.join(","));
     expect(args).not.toContain("--max-turns");
+    expect(args).not.toContain("--json-schema");
+  });
+
+  it("passes the caste artifact schema for structured output", () => {
+    const schema = buildCasteArtifactJsonSchema("sentinel");
+    const args = buildClaudeArgs(baseRequest({ caste: "sentinel", jsonSchema: schema }));
+
+    expect(args[args.indexOf("--json-schema") + 1]).toBe(schema);
+    expect(JSON.parse(schema)).toMatchObject({
+      type: "object",
+      required: expect.arrayContaining(["verdict", "blockingFindings"]),
+      properties: { verdict: { type: "string", enum: ["pass", "fail_blocking"] } },
+    });
+    expect(schema).not.toContain("\\\"pass\\\"");
   });
 
   it("keeps Oracle read-only and limits Janus shell access to read-only git", () => {
@@ -125,6 +142,13 @@ describe("buildClaudeArgs", () => {
     const args = buildClaudeArgs(baseRequest({ maxTurns: 40, extraArgs: ["--effort", "high"] }));
 
     expect(args.slice(-4)).toEqual(["--max-turns", "40", "--effort", "high"]);
+  });
+
+  it("maps Aegis thinking levels onto Claude Code effort", () => {
+    expect(buildClaudeEnvironment({ thinkingLevel: "off" }, { PATH: "/bin" }))
+      .toEqual({ PATH: "/bin", CLAUDE_CODE_EFFORT_LEVEL: "low" });
+    expect(buildClaudeEnvironment({ thinkingLevel: "medium" }, {}).CLAUDE_CODE_EFFORT_LEVEL).toBe("medium");
+    expect(buildClaudeEnvironment({ thinkingLevel: "high" }, {}).CLAUDE_CODE_EFFORT_LEVEL).toBe("high");
   });
 
   it("wraps the claude launcher with PowerShell on Windows", () => {
@@ -176,9 +200,36 @@ describe("parseClaudeStreamOutput", () => {
   });
 });
 
+describe("parseClaudeStreamOutput results", () => {
+  it("captures structured output and permission denials from the result event", () => {
+    const summary = parseClaudeStreamOutput(streamLines([
+      {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "Done. Here is the verdict.",
+        structured_output: { verdict: "pass" },
+        permission_denials: [{ tool_name: "Write", tool_use_id: "t-9", tool_input: { file_path: "../escape.txt" } }],
+        session_id: "s-5",
+      },
+    ]), "prompt");
+
+    expect(summary.structuredOutput).toEqual({ verdict: "pass" });
+    expect(parseClaudeStreamOutput(streamLines([
+      { type: "system", subtype: "api_retry", attempt: 2, max_retries: 10, error: "rate_limit", session_id: "s-5" },
+    ]), "prompt").terminalLog).toEqual(["[api_retry] rate_limit attempt 2/10"]);
+    expect(summary.permissionDenials).toEqual(["Write ../escape.txt"]);
+    expect(summary.terminalLog).toEqual(["[denied] Write ../escape.txt", "[result] success"]);
+  });
+});
+
 describe("ClaudeCasteRuntime", () => {
   it("returns the final result text with session metadata", async () => {
-    const runner = vi.fn(async () => ({ exitCode: 0, stdout: successStream("{\"outcome\":\"success\"}"), stderr: "" }));
+    const runner = vi.fn(async (_request: ClaudeRunRequest) => ({
+      exitCode: 0,
+      stdout: successStream("{\"outcome\":\"success\"}"),
+      stderr: "",
+    }));
     const runtime = new ClaudeCasteRuntime({}, { runner, maxTurns: 25 });
 
     const result = await runtime.run({
@@ -196,6 +247,8 @@ describe("ClaudeCasteRuntime", () => {
       modelId: "claude-opus-5-5",
       maxTurns: 25,
     }));
+    expect(runner.mock.calls[0]![0].jsonSchema)
+      .toBe(process.platform === "win32" ? null : buildCasteArtifactJsonSchema("titan"));
     expect(result).toMatchObject({
       sessionId: "claude-session-1",
       provider: "anthropic",
@@ -207,6 +260,91 @@ describe("ClaudeCasteRuntime", () => {
     });
     expect(result.error).toBeUndefined();
     expect(result.terminalLog?.length).toBeGreaterThan(0);
+  });
+
+  it("prefers the schema-validated structured output over the final prose", async () => {
+    const artifact = { outcome: "success", summary: "done", files_changed: ["a.ts"] };
+    const runner = vi.fn(async (request: ClaudeRunRequest) => {
+      expect(request.jsonSchema).toBe(buildCasteArtifactJsonSchema("titan"));
+      return {
+        exitCode: 0,
+        stdout: streamLines([
+          { type: "result", subtype: "success", is_error: false, result: "All set!", structured_output: artifact, session_id: "s-6" },
+        ]),
+        stderr: "",
+      };
+    });
+
+    const result = await new ClaudeCasteRuntime({}, { runner, structuredOutput: true }).run({
+      caste: "titan",
+      issueId: "AG-6",
+      root: "/repo",
+      workingDirectory: "/repo",
+      prompt: "Implement.",
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(JSON.parse(result.outputText)).toEqual(artifact);
+  });
+
+  it("omits the schema when structured output is disabled", async () => {
+    const runner = vi.fn(async () => ({ exitCode: 0, stdout: successStream("{}"), stderr: "" }));
+    await new ClaudeCasteRuntime({}, { runner, structuredOutput: false }).run({
+      caste: "oracle",
+      issueId: "AG-7",
+      root: "/repo",
+      workingDirectory: "/repo",
+      prompt: "Scout.",
+    });
+
+    expect(runner).toHaveBeenCalledWith(expect.objectContaining({ jsonSchema: null }));
+  });
+
+  it("fails when the session cannot satisfy the artifact schema", async () => {
+    const runner = vi.fn(async () => ({
+      exitCode: 1,
+      stdout: streamLines([{ type: "result", subtype: "error_max_structured_output_retries", is_error: true, session_id: "s-8" }]),
+      stderr: "",
+    }));
+    const result = await new ClaudeCasteRuntime({}, { runner }).run({
+      caste: "sentinel",
+      issueId: "AG-8",
+      root: "/repo",
+      workingDirectory: "/repo",
+      prompt: "Review.",
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.error).toContain("error_max_structured_output_retries");
+  });
+
+  it("streams activity lines live while stdout arrives", async () => {
+    const activity: string[] = [];
+    const runner = vi.fn(async (request: ClaudeRunRequest) => {
+      const stdout = successStream("{}");
+      for (const line of stdout.split("\n")) {
+        request.onStdoutLine?.(line);
+        if (line.includes("\"tool-1\"") && line.includes("tool_use")) {
+          expect(activity).toContain("[tool] Read src/App.tsx");
+        }
+      }
+      return { exitCode: 0, stdout, stderr: "" };
+    });
+
+    const result = await new ClaudeCasteRuntime({}, { runner }).run({
+      caste: "titan",
+      issueId: "AG-9",
+      root: "/repo",
+      workingDirectory: "/repo",
+      prompt: "Implement.",
+      onActivity: (line) => activity.push(line),
+    });
+
+    expect(activity).toEqual(result.terminalLog);
+    expect(activity).toContain("[result] success");
+    // Streamed lines are parsed once, not again from the returned stdout.
+    expect(result.toolsUsed).toEqual(["Read", "Grep"]);
+    expect(result.messageLog.filter((message) => message.role === "assistant")).toHaveLength(1);
   });
 
   it("fails sessions whose result is an error so provider limits are classified", async () => {
@@ -312,6 +450,12 @@ describe("createClaudeModelConfigs", () => {
 });
 
 describe("resolveClaudeRuntimeOptionsFromEnv", () => {
+  it("reads the structured output switch", () => {
+    expect(resolveClaudeRuntimeOptionsFromEnv({ AEGIS_CLAUDE_STRUCTURED_OUTPUT: "off" })).toEqual({ structuredOutput: false });
+    expect(resolveClaudeRuntimeOptionsFromEnv({ AEGIS_CLAUDE_STRUCTURED_OUTPUT: "1" })).toEqual({ structuredOutput: true });
+    expect(resolveClaudeRuntimeOptionsFromEnv({ AEGIS_CLAUDE_STRUCTURED_OUTPUT: "maybe" })).toEqual({});
+  });
+
   it("reads binary, timeout, max turns, and extra args", () => {
     expect(resolveClaudeRuntimeOptionsFromEnv({
       AEGIS_CLAUDE_BIN: "/opt/claude/bin/claude",

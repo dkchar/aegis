@@ -89,8 +89,42 @@ describe("monitorActiveWork", () => {
     expect(terminate).toHaveBeenCalledWith(
       root,
       "session-1",
-      "Exceeded stuck kill threshold.",
+      "Exceeded stuck kill threshold: no session activity for 300s.",
     );
+  });
+
+  it("keeps long sessions alive while they report activity", async () => {
+    const root = createTempRoot();
+    const terminate = vi.fn();
+    const runtime: AgentRuntime = {
+      async launch() {
+        throw new Error("unused");
+      },
+      async readSession() {
+        return {
+          sessionId: "session-1",
+          status: "running",
+          lastActivityAt: "2026-04-14T11:59:30.000Z",
+        };
+      },
+      terminate,
+    };
+
+    const result = await monitorActiveWork({
+      dispatchState: runningState,
+      runtime,
+      thresholds: {
+        stuck_warning_seconds: 20,
+        stuck_kill_seconds: 150,
+      },
+      root,
+      now: "2026-04-14T12:00:00.000Z",
+    });
+
+    // Five minutes old but active 30s ago: warned, not killed.
+    expect(terminate).not.toHaveBeenCalled();
+    expect(result.killList).toEqual([]);
+    expect(result.warnings).toEqual(["ISSUE-1"]);
   });
 
   it("marks succeeded sessions as ready for reap", async () => {

@@ -10,10 +10,11 @@ import { formatPhaseCommandResult, runDirectPhaseCommand } from "./cli/phase-com
 import { parseStartOverrides, startAegis } from "./cli/start.js";
 import { stopAegis } from "./cli/stop.js";
 import { streamDaemonView } from "./cli/stream.js";
-import { initProject } from "./config/init-project.js";
+import { loadConfig } from "./config/load-config.js";
+import { initProject, type InitProjectOptions } from "./config/init-project.js";
 import type { LoopPhase } from "./core/loop-runner.js";
 import type { RuntimeCasteAction } from "./cli/runtime-command.js";
-import { RUNTIME_ADAPTER_NAMES } from "./runtime/runtime-registry.js";
+import { assertRuntimeAdapterName, RUNTIME_ADAPTER_NAMES } from "./runtime/runtime-registry.js";
 import { resolveProjectPaths, type ProjectPaths } from "./shared/paths.js";
 
 export interface BootstrapManifest {
@@ -28,7 +29,7 @@ export const CLI_USAGE = [
   "Usage: aegis <command> [args]",
   "",
   "Project",
-  "  init                    Create .aegis/ state files and ignore rules",
+  "  init [--runtime <name>]  Create .aegis/ state files and ignore rules",
   "  start                   Run the daemon (poll -> triage -> dispatch -> monitor -> reap)",
   "  stop                    Stop the running daemon and release active sessions",
   "  status                  Print daemon, queue, and operational-failure status as JSON",
@@ -69,6 +70,32 @@ function fail(message: string) {
   process.exitCode = 1;
 }
 
+export function parseInitOptions(args: readonly string[]): InitProjectOptions {
+  const [flag, value, ...rest] = args;
+  if (flag === undefined) {
+    return {};
+  }
+
+  const inline = flag.startsWith("--runtime=") ? flag.slice("--runtime=".length) : null;
+  const runtime = inline ?? (flag === "--runtime" ? value : undefined);
+  const extra = inline !== null ? [value, ...rest] : rest;
+  if (!runtime || extra.some((entry) => entry !== undefined)) {
+    throw new Error(`Usage: aegis init [--runtime <${RUNTIME_ADAPTER_NAMES.join("|")}>]`);
+  }
+  return { runtime: assertRuntimeAdapterName(runtime) };
+}
+
+function describeInitRuntime(root: string, seededConfig: boolean) {
+  if (!seededConfig) {
+    return "existing .aegis/config.json kept";
+  }
+
+  const { runtime } = loadConfig(root);
+  return runtime === "scripted"
+    ? "runtime=scripted, the deterministic test runtime that fakes agent work; run `aegis init --runtime claude|codex|pi` in a fresh repo or edit .aegis/config.json for real work"
+    : `runtime=${runtime}`;
+}
+
 export async function runCli(
   root = process.cwd(),
   argv = process.argv.slice(2),
@@ -82,18 +109,18 @@ export async function runCli(
   }
 
   if (command === "init") {
-    const result = initProject(root);
+    const result = initProject(root, parseInitOptions(args));
     const createdPathCount = result.createdDirectories.length + result.createdFiles.length;
     const gitIgnoreNote = result.updatedGitIgnore ? "; .gitignore updated" : "";
     console.log(
-      `Aegis project initialized at ${manifest.paths.repoRoot} (${createdPathCount} paths created${gitIgnoreNote})`,
+      `Aegis project initialized at ${manifest.paths.repoRoot} (${createdPathCount} paths created${gitIgnoreNote}; ${describeInitRuntime(root, result.seededConfig)})`,
     );
     return manifest;
   }
 
   if (command === "start") {
     const result = await startAegis(root, parseStartOverrides(args));
-    console.log(`Aegis started in ${result.mode} mode (pid ${process.pid})`);
+    console.log(`Aegis started in ${result.mode} mode with runtime=${result.adapter} (pid ${process.pid})`);
     return manifest;
   }
 

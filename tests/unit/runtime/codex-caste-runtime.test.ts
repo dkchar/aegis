@@ -9,6 +9,7 @@ import {
   buildCodexSpawnInvocation,
   buildTerminateCodexSessionProcessesScript,
   CodexCasteRuntime,
+  CodexEventParser,
   createCodexModelConfigs,
 } from "../../../src/runtime/codex-caste-runtime.js";
 import {
@@ -31,6 +32,62 @@ afterEach(() => {
   for (const root of tempRoots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+describe("CodexEventParser", () => {
+  const events = [
+    { type: "thread.started", thread_id: "thread-1" },
+    { type: "turn.started" },
+    { type: "item.started", item: { id: "i1", type: "command_execution", command: "npm test", status: "in_progress" } },
+    { type: "item.completed", item: { id: "i1", type: "command_execution", command: "npm test", exit_code: 1 } },
+    { type: "item.completed", item: { id: "i2", type: "file_change", changes: [{ path: "src/App.tsx", kind: "update" }] } },
+    { type: "item.completed", item: { id: "i3", type: "reasoning", text: "thinking" } },
+    { type: "item.completed", item: { id: "i4", type: "agent_message", text: "Fixed the failing test." } },
+    { type: "turn.completed", usage: { input_tokens: 900, cached_input_tokens: 300, output_tokens: 120 } },
+    { type: "some.future.event" },
+  ].map((event) => JSON.stringify(event));
+
+  it("turns --json events into activity lines, tools, and usage", () => {
+    const live: string[] = [];
+    const parser = new CodexEventParser((line) => live.push(line));
+    parser.pushText(["not json", ...events].join("\n"));
+
+    expect(parser.terminalLog).toEqual([
+      "[session] thread thread-1",
+      "[tool] shell npm test",
+      "[tool_error] exit 1 npm test",
+      "[edit] src/App.tsx",
+      "[assistant] Fixed the failing test.",
+    ]);
+    expect(live).toEqual(parser.terminalLog);
+    expect([...parser.toolsUsed]).toEqual(["codex exec", "shell", "file_change"]);
+    expect(parser.usage).toEqual({ inputTokens: 900, cacheReadInputTokens: 300, outputTokens: 120, turns: 1 });
+  });
+
+  it("streams activity through the runtime and records it in the session result", async () => {
+    const root = createTempRoot();
+    const activity: string[] = [];
+    const runner = vi.fn(async (request) => {
+      for (const line of events) {
+        request.onStdoutLine?.(line);
+      }
+      writeFileSync(request.outputPath, "{}", "utf8");
+      return { exitCode: 0, stdout: events.join("\n"), stderr: "" };
+    });
+
+    const result = await new CodexCasteRuntime({}, { runner }).run({
+      caste: "titan",
+      issueId: "aegis-2",
+      root,
+      workingDirectory: root,
+      prompt: "Implement.",
+      onActivity: (line) => activity.push(line),
+    });
+
+    expect(activity).toContain("[tool] shell npm test");
+    expect(result.terminalLog).toEqual(activity);
+    expect(result.usage).toMatchObject({ outputTokens: 120 });
+  });
 });
 
 describe("CodexCasteRuntime", () => {

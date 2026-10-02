@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -6,6 +6,13 @@ const root = process.cwd();
 
 function readOlympusFile(fileName: string): string {
   return readFileSync(path.join(root, "olympus", fileName), "utf8");
+}
+
+function listSourceFiles(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = path.join(directory, entry.name);
+    return entry.isDirectory() ? listSourceFiles(entryPath) : [entryPath];
+  });
 }
 
 describe("Olympus React UI", () => {
@@ -39,12 +46,12 @@ describe("Olympus React UI", () => {
     expect(terminalPane).toContain("Terminal");
     expect(ticketCard).toContain("motion.");
     expect(ticketBoard).toContain("AddTicketDialog");
-    expect(ticketBoard).toContain("<Modal opened={open}");
+    expect(ticketBoard).toContain("<Dialog open={open}");
     expect(app).toContain("showDialog");
     expect(app).toContain("alert");
     expect(app).not.toContain("className=\"drag-handle\"");
     expect(css).toContain('@import "tailwindcss";');
-    expect(liveOps).toContain("CompactSummary");
+    expect(liveOps).toContain("CollapsibleSection");
     expect(ticketBoard).toContain("overflow-x-auto");
     expect(ticketCard).toContain("max-w-[calc(100vw-2rem)]");
     expect(ticketForms).toContain("w-full min-w-0");
@@ -134,9 +141,9 @@ describe("Olympus React UI", () => {
     }
     expect(app).not.toContain("function Chronos");
     expect(app).not.toContain("function AgentSessions");
-    expect(main).toContain('@mantine/core/styles.css');
+    expect(main).toContain("@fontsource-variable/geist");
     expect(main).toContain('@xyflow/react/dist/style.css');
-    expect(main).toContain("MantineProvider");
+    expect(main).toContain("TooltipProvider");
     expect(chronos).toContain("ReactFlow");
     expect(chronosGraph).toContain("@dagrejs/dagre");
     expect(chronosNodes).toContain("Handle");
@@ -166,6 +173,52 @@ describe("Olympus React UI", () => {
     expect(state).not.toContain("setDaemonStatus");
     expect(uiSurface).not.toContain("function DispatchLoop");
     expect(uiSurface).not.toContain("Dead controls");
+  });
+
+  test("builds every view on the Olympus design system", () => {
+    const packageJson = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
+    const sources = listSourceFiles(path.join(root, "olympus", "src"));
+    const uiIndex = readOlympusFile(path.join("src", "components", "ui", "index.js"));
+    const css = readOlympusFile(path.join("src", "styles.css"));
+    const viteConfig = readOlympusFile("vite.config.js");
+
+    for (const file of sources) {
+      expect(readFileSync(file, "utf8"), file).not.toContain("@mantine");
+    }
+    expect(packageJson.dependencies).not.toHaveProperty("@mantine/core");
+    expect(packageJson.dependencies).toHaveProperty("radix-ui");
+    expect(packageJson.dependencies).toHaveProperty("cmdk");
+    expect(packageJson.dependencies).toHaveProperty("class-variance-authority");
+    for (const primitive of ["Button", "Badge", "Card", "Dialog", "Select", "Combobox", "Segmented", "Tabs", "Tooltip", "Alert", "Toast", "NumberInput", "Field"]) {
+      expect(uiIndex).toContain(primitive);
+    }
+    expect(css).toContain("@theme inline");
+    expect(css).toContain('[data-theme="light"]');
+    expect(existsSync(path.join(root, "olympus", "design.html"))).toBe(true);
+    expect(viteConfig).toContain("design.html");
+    expect(readOlympusFile(path.join("src", "design", "DesignSystem.jsx"))).toContain("Design system");
+    expect(packageJson.scripts["olympus:screenshots"]).toBe("node olympus/scripts/screenshots.mjs");
+  });
+
+  test("labels dispatch records by what the operator should do next", async () => {
+    const model = await import(path.join(root, "olympus", "src", "supervisionModel.js"));
+    const base = { issueId: "AG-1", stage: "pending", runningAgent: null, cooldownUntil: null };
+    const sentinel = { caste: "sentinel", sessionId: "sentinel-AG-1" };
+    const titan = { caste: "titan", sessionId: "titan-AG-1" };
+    const now = Date.parse("2026-10-02T12:00:00.000Z");
+
+    expect(model.dispatchStatus(base, now)).toBe("pending");
+    expect(model.dispatchStatus({ ...base, stage: "complete", reviewFeedbackRef: "old.json" }, now)).toBe("succeeded");
+    expect(model.dispatchStatus({ ...base, stage: "reviewing", runningAgent: sentinel, reviewFeedbackRef: "old.json" }, now)).toBe("running");
+    expect(model.dispatchStatus({ ...base, stage: "implementing", runningAgent: titan, reviewFeedbackRef: "verdict.json" }, now)).toBe("reworking");
+    expect(model.dispatchStatus({ ...base, stage: "rework_required" }, now)).toBe("reworking");
+    expect(model.dispatchStatus({ ...base, stage: "scouted", cooldownUntil: "2026-10-02T12:05:00.000Z" }, now)).toBe("cooldown");
+    expect(model.dispatchStatus({ ...base, stage: "scouted", cooldownUntil: "2026-10-02T11:55:00.000Z" }, now)).toBe("active");
+    expect(model.dispatchStatus({ ...base, stage: "queued_for_merge" }, now)).toBe("queued");
+    expect(model.dispatchStatus({ ...base, stage: "failed_operational", operationalFailureKind: "provider_usage_limit", failureCount: 3 }, now)).toBe("failed");
+    expect(model.dispatchNote({ ...base, stage: "failed_operational", operationalFailureKind: "provider_usage_limit", failureCount: 3 }, now)).toBe("Provider usage limit reached - 3 failures");
+    expect(model.dispatchStatus({ ...base, stage: "blocked_on_child" }, now)).toBe("blocked");
+    expect(model.dispatchRefs({ ...base, oracleAssessmentRef: "a.json", titanHandoffRef: "b.json" })).toEqual(["a.json", "b.json"]);
   });
 
   test("orders blocked work before ready work in the Agora board", async () => {

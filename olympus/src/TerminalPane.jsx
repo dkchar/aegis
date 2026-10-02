@@ -1,28 +1,54 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
-import { Group, Paper, Text, UnstyledButton } from "@mantine/core";
 import { useEffect, useRef } from "react";
-import { StatusBadge } from "./ui.jsx";
+import { formatClock } from "./components/aegis.jsx";
 
-export default function TerminalPane({ session, title, selected = false, compact = false, framed = true, onSelect }) {
+const ESC = "\u001b[";
+const reset = `${ESC}0m`;
+const tagColors = {
+  tool: `${ESC}36m`,
+  tool_error: `${ESC}31m`,
+  error: `${ESC}31m`,
+  denied: `${ESC}33m`,
+  api_retry: `${ESC}33m`,
+  assistant: `${ESC}0m`,
+  result: `${ESC}32m`,
+  final: `${ESC}32m`,
+  session: `${ESC}90m`,
+  status: `${ESC}90m`,
+  scripted: `${ESC}90m`,
+};
+
+/** Dims timestamps (shown as local clock time) and colors `[tag]` prefixes. */
+export function colorizeTerminalLine(line) {
+  if (line.startsWith("$ ")) return `${ESC}96m$${reset} ${line.slice(2)}`;
+  const match = /^(\d{4}-\d\d-\d\dT[\d:.]+Z )?\[([a-z_]+)\](.*)$/.exec(line);
+  if (!match) return line;
+  const [, timestamp = "", tag, rest] = match;
+  const clock = timestamp ? `${ESC}90m${formatClock(timestamp.trim())}${reset} ` : "";
+  const color = tagColors[tag] ?? `${ESC}35m`;
+  return `${clock}${color}[${tag}]${reset}${tag === "tool_error" || tag === "error" ? `${ESC}31m${rest}${reset}` : rest}`;
+}
+
+export default function TerminalPane({ session }) {
   const containerRef = useRef(null);
   const terminalRef = useRef(null);
   const fitRef = useRef(null);
   const lastTextRef = useRef("");
-  const terminalText = renderTerminal(session);
+  const lines = Array.isArray(session.lines) && session.lines.length > 0
+    ? session.lines
+    : [`$ aegis session inspect ${session.id}`, "[session] waiting for transcript"];
+  const plainText = lines.join("\n");
+  const terminalText = lines.map(colorizeTerminalLine).join("\r\n");
 
   function fitAndScroll() {
     const terminal = terminalRef.current;
     if (!terminal) return;
     try {
       fitRef.current?.fit();
-    } catch {
-      return;
-    }
-    try {
       terminal.scrollToBottom();
     } catch {
-      // xterm can expose scroll APIs before its viewport dimensions are ready.
+      // xterm can expose fit and scroll APIs before its viewport has dimensions.
     }
   }
 
@@ -31,12 +57,26 @@ export default function TerminalPane({ session, title, selected = false, compact
     const terminal = new Terminal({
       convertEol: true,
       cursorBlink: false,
-      rows: compact ? 14 : 16,
       disableStdin: true,
-      fontFamily: "JetBrains Mono, ui-monospace, SFMono-Regular, Consolas, monospace",
-      fontSize: 13,
-      lineHeight: 1.25,
-      theme: { background: "#0a0e15", foreground: "#d5dbe5", cursor: "#35c9b6", green: "#4ade80", red: "#f87171", cyan: "#35c9b6", yellow: "#facc15" },
+      fontFamily: '"Geist Mono Variable", ui-monospace, SFMono-Regular, Consolas, monospace',
+      fontSize: 12.5,
+      lineHeight: 1.35,
+      theme: {
+        background: "#0b0c10",
+        foreground: "#d9dce3",
+        cursor: "#0b0c10",
+        selectionBackground: "#2ed3bd44",
+        black: "#0b0c10",
+        brightBlack: "#6b7080",
+        red: "#f87171",
+        green: "#4ade80",
+        yellow: "#fbbf24",
+        blue: "#60a5fa",
+        magenta: "#c4b5fd",
+        cyan: "#2ed3bd",
+        brightCyan: "#5eead4",
+        white: "#d9dce3",
+      },
     });
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
@@ -44,9 +84,7 @@ export default function TerminalPane({ session, title, selected = false, compact
     terminalRef.current = terminal;
     fitRef.current = fitAddon;
     requestAnimationFrame(fitAndScroll);
-    const observer = new ResizeObserver(() => {
-      requestAnimationFrame(fitAndScroll);
-    });
+    const observer = new ResizeObserver(() => requestAnimationFrame(fitAndScroll));
     observer.observe(containerRef.current);
     lastTextRef.current = "";
     return () => {
@@ -56,7 +94,7 @@ export default function TerminalPane({ session, title, selected = false, compact
       fitRef.current = null;
       lastTextRef.current = "";
     };
-  }, [compact]);
+  }, []);
 
   useEffect(() => {
     const terminal = terminalRef.current;
@@ -74,30 +112,9 @@ export default function TerminalPane({ session, title, selected = false, compact
   }, [terminalText]);
 
   return (
-    <Paper
-      component="article"
-      withBorder={framed}
-      radius={framed ? "sm" : 0}
-      p="sm"
-      h="100%"
-      className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-2"
-      style={{ borderColor: selected ? "var(--mantine-color-aegis-5)" : undefined }}
-    >
-      <UnstyledButton onClick={onSelect} w="100%">
-        <Group gap="xs" justify="space-between" wrap="nowrap">
-          <Text truncate size="sm" fw={700}>{title}</Text>
-          <StatusBadge status={session.status}>{session.status}</StatusBadge>
-        </Group>
-      </UnstyledButton>
-      <pre className="sr-only">{terminalText}</pre>
-      <div ref={containerRef} className={`terminal-host min-h-0 ${compact ? "h-80" : framed ? "h-96" : "h-full"} overflow-auto rounded-lg bg-[var(--mantine-color-dark-9)] p-2`} />
-    </Paper>
+    <div className="relative min-h-0 min-w-0 bg-terminal p-3">
+      <pre className="sr-only">{plainText}</pre>
+      <div ref={containerRef} className="terminal-host h-full min-h-[20rem]" aria-hidden="true" />
+    </div>
   );
-}
-
-function renderTerminal(session) {
-  const lines = Array.isArray(session.lines) && session.lines.length > 0
-    ? session.lines
-    : [`$ aegis session inspect ${session.id}`, "[adapter] waiting for transcript"];
-  return lines.join("\r\n");
 }

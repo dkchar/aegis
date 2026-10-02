@@ -17,7 +17,7 @@ import { triageReadyWork } from "./triage.js";
 import { createTrackerClient } from "../tracker/create-tracker.js";
 import type { AgentRuntime } from "../runtime/agent-runtime.js";
 import { createAgentRuntime } from "../runtime/dispatch-runtime.js";
-import { writePhaseLog } from "./phase-log.js";
+import { writePhaseLog, writePhaseLogEntry, type PhaseLogWriter } from "./phase-log.js";
 import { autoEnqueueImplementedIssuesForMerge } from "../merge/auto-enqueue.js";
 import {
   recoverDispatchStateAfterPoll,
@@ -42,6 +42,12 @@ export interface LoopPhaseResult {
 export interface RunLoopPhaseOptions {
   runtime?: AgentRuntime;
   sessionProvenanceId?: string;
+  /**
+   * Writer for `_all` phase summaries. The daemon passes a
+   * `createCycleSummaryWriter()` so repeated identical summaries are skipped;
+   * direct phase commands always write.
+   */
+  summaryLog?: PhaseLogWriter;
   launchPreMergeReview?: (input: {
     root: string;
     issueId: string;
@@ -58,6 +64,7 @@ interface CycleContext {
   runtime: AgentRuntime;
   sessionProvenanceId: string;
   timestamp: string;
+  writeSummaryLog: PhaseLogWriter;
 }
 
 function createCycleContext(root: string, options: RunLoopPhaseOptions, defaultProvenance: string): CycleContext {
@@ -68,6 +75,7 @@ function createCycleContext(root: string, options: RunLoopPhaseOptions, defaultP
     runtime: options.runtime ?? createAgentRuntime(config.runtime),
     sessionProvenanceId: options.sessionProvenanceId ?? defaultProvenance,
     timestamp: new Date().toISOString(),
+    writeSummaryLog: options.summaryLog ?? writePhaseLogEntry,
   };
 }
 
@@ -79,9 +87,9 @@ interface DispatchPipelineResult {
   failed: string[];
 }
 
-function logPoll(root: string, timestamp: string, readyIssueIds: string[]) {
-  writePhaseLog(root, {
-    timestamp,
+function logPoll(context: CycleContext, readyIssueIds: string[]) {
+  context.writeSummaryLog(context.root, {
+    timestamp: context.timestamp,
     phase: "poll",
     issueId: "_all",
     action: "poll_ready_work",
@@ -100,7 +108,7 @@ async function runDispatchPipeline(context: CycleContext): Promise<DispatchPipel
     root,
   });
   const readyIssueIds = snapshot.readyIssues.map((issue) => issue.id);
-  logPoll(root, timestamp, readyIssueIds);
+  logPoll(context, readyIssueIds);
 
   dispatchState = await recoverDispatchStateAfterPoll({
     root,
@@ -117,7 +125,7 @@ async function runDispatchPipeline(context: CycleContext): Promise<DispatchPipel
     now: timestamp,
   });
 
-  writePhaseLog(root, {
+  context.writeSummaryLog(root, {
     timestamp,
     phase: "triage",
     issueId: "_all",
@@ -133,6 +141,7 @@ async function runDispatchPipeline(context: CycleContext): Promise<DispatchPipel
     root,
     sessionProvenanceId: context.sessionProvenanceId,
     now: timestamp,
+    writeSummaryLog: context.writeSummaryLog,
   });
   saveDispatchState(root, dispatchResult.state);
 
@@ -155,6 +164,7 @@ function runMonitorPipeline(context: CycleContext, dispatchState = loadDispatchS
     },
     root: context.root,
     now: context.timestamp,
+    writeSummaryLog: context.writeSummaryLog,
   });
 }
 
@@ -169,6 +179,7 @@ async function runReapPipeline(
     issueIds,
     root: context.root,
     now: context.timestamp,
+    writeSummaryLog: context.writeSummaryLog,
   });
   saveDispatchState(context.root, reapResult.state);
   return reapResult;
@@ -378,7 +389,7 @@ export async function runLoopPhase(
       root,
     });
     const readyIssueIds = snapshot.readyIssues.map((issue) => issue.id);
-    logPoll(root, context.timestamp, readyIssueIds);
+    logPoll(context, readyIssueIds);
     return {
       phase,
       readyIssueIds,

@@ -60,8 +60,8 @@ export const configMeta = {
   "concurrency.max_sentinels": { section: "Concurrency", control: "number", min: 1, max: 32, required: true },
   "concurrency.max_janus": { section: "Concurrency", control: "number", min: 1, max: 8, required: true },
   "thresholds.poll_interval_seconds": { section: "Thresholds", control: "number", min: 1, max: 3600, required: true, description: "Daemon loop interval." },
-  "thresholds.stuck_warning_seconds": { section: "Thresholds", control: "number", min: 1, max: 86400, required: true },
-  "thresholds.stuck_kill_seconds": { section: "Thresholds", control: "number", min: 1, max: 172800, required: true, description: "Sessions older than this are terminated." },
+  "thresholds.stuck_warning_seconds": { section: "Thresholds", control: "number", min: 1, max: 86400, required: true, description: "Session idle time (no adapter activity) that logs a stuck warning." },
+  "thresholds.stuck_kill_seconds": { section: "Thresholds", control: "number", min: 1, max: 172800, required: true, description: "Sessions idle this long are terminated." },
   "thresholds.allow_complex_auto_dispatch": { section: "Thresholds", control: "boolean", required: true, description: "Let Sentinel create_blocker findings spawn child tickets." },
   "thresholds.scope_overlap_threshold": { section: "Thresholds", control: "number", min: 0, max: 32, required: true, description: "Shared files tolerated between parallel Titans." },
   "thresholds.janus_retry_threshold": { section: "Thresholds", control: "number", min: 1, max: 10, required: true, description: "Merge retries before Janus is invoked." },
@@ -78,6 +78,7 @@ export const configMeta = {
   AEGIS_PI_TIMEOUT_RETRY_DELAY_MS: { section: "Adapter", adapter: "pi", control: "number", min: 0, max: 3600000, required: false },
   AEGIS_CLAUDE_SESSION_TIMEOUT_MS: { section: "Adapter", adapter: "claude", control: "number", min: 1000, max: 86400000, required: false, description: "Inactivity timeout for one Claude Code session." },
   AEGIS_CLAUDE_MAX_TURNS: { section: "Adapter", adapter: "claude", control: "number", min: 1, max: 1000, required: false, description: "Optional --max-turns cap per session." },
+  AEGIS_CLAUDE_STRUCTURED_OUTPUT: { section: "Adapter", adapter: "claude", control: "select", options: ["on", "off"], required: false, description: "Validate final artifacts with --json-schema. Default on (off on Windows)." },
 };
 
 // Defaults mirror src/config/defaults.ts; the workspace config replaces them on load.
@@ -97,8 +98,8 @@ export const settings = Object.entries({
   "concurrency.max_sentinels": "1",
   "concurrency.max_janus": "1",
   "thresholds.poll_interval_seconds": "5",
-  "thresholds.stuck_warning_seconds": "90",
-  "thresholds.stuck_kill_seconds": "150",
+  "thresholds.stuck_warning_seconds": "300",
+  "thresholds.stuck_kill_seconds": "900",
   "thresholds.allow_complex_auto_dispatch": "false",
   "thresholds.scope_overlap_threshold": "0",
   "thresholds.janus_retry_threshold": "2",
@@ -115,6 +116,7 @@ export const settings = Object.entries({
   AEGIS_PI_TIMEOUT_RETRY_DELAY_MS: "",
   AEGIS_CLAUDE_SESSION_TIMEOUT_MS: "",
   AEGIS_CLAUDE_MAX_TURNS: "",
+  AEGIS_CLAUDE_STRUCTURED_OUTPUT: "",
 });
 
 export function createOlympusState() {

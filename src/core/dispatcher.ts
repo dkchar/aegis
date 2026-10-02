@@ -1,7 +1,7 @@
 import { createDispatchRecord, type DispatchState } from "./dispatch-state.js";
 import type { DispatchDecision } from "./triage.js";
 import type { AgentRuntime } from "../runtime/agent-runtime.js";
-import { writePhaseLog } from "./phase-log.js";
+import { writePhaseLog, writePhaseLogEntry, type PhaseLogWriter } from "./phase-log.js";
 import { applyOperationalFailure } from "./failure-policy.js";
 
 export interface DispatchInput {
@@ -11,6 +11,8 @@ export interface DispatchInput {
   root: string;
   sessionProvenanceId: string;
   now?: string;
+  /** Writer for the `_all` pass summary; defaults to always writing. */
+  writeSummaryLog?: PhaseLogWriter;
 }
 
 export interface DispatchResult {
@@ -91,7 +93,7 @@ export async function dispatchReadyWork(input: DispatchInput): Promise<DispatchR
     }
   }
 
-  writePhaseLog(input.root, {
+  (input.writeSummaryLog ?? writePhaseLogEntry)(input.root, {
     timestamp,
     phase: "dispatch",
     issueId: "_all",

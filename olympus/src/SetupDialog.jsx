@@ -1,18 +1,28 @@
-import { Button, Modal, Paper, Stack, Text } from "@mantine/core";
 import { Settings2 } from "lucide-react";
+import { Button, Code, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/index.js";
 import { dismissConfigDialog, openConfigForMissing } from "./state.js";
 
 export default function SetupDialog({ state, mutate }) {
-  if (!state.showConfigDialog || state.configIssues.length === 0) return null;
+  const open = state.showConfigDialog && state.configIssues.length > 0;
   return (
-    <Modal opened onClose={() => mutate(dismissConfigDialog(state))} title="Finish Config" centered closeButtonProps={{ "aria-label": "Close dialog" }}>
-      <Text size="sm" c="dimmed" mb="md">Some runtime selections are not set. Complete them before starting long-running work.</Text>
-      <Stack gap="xs" mb="md">
-        {state.configIssues.map((key) => (
-          <Paper key={key} withBorder p="sm"><Text ff="monospace" size="sm">{key}</Text></Paper>
-        ))}
-      </Stack>
-      <Button color="aegis" leftSection={<Settings2 size={16} />} onClick={() => mutate(openConfigForMissing(state))}>Open Config</Button>
-    </Modal>
+    <Dialog open={open} onOpenChange={(next) => !next && mutate(dismissConfigDialog(state))}>
+      <DialogContent size="sm">
+        <DialogHeader>
+          <DialogTitle>Finish Config</DialogTitle>
+          <DialogDescription>Some runtime selections are not set. Complete them before starting long-running work.</DialogDescription>
+        </DialogHeader>
+        <ul className="grid gap-1.5">
+          {state.configIssues.map((key) => (
+            <li key={key}><Code>{key}</Code></li>
+          ))}
+        </ul>
+        <DialogFooter>
+          <Button variant="primary" onClick={() => mutate(openConfigForMissing(state))}>
+            <Settings2 />
+            Open Config
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

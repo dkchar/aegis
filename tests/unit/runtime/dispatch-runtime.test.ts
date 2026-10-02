@@ -160,6 +160,17 @@ describe("createAgentRuntime(scripted)", () => {
     };
 
     expect(state.records["ISSUE-1"]?.oracleAssessmentRef).toBeTruthy();
+
+    const stream = readFileSync(
+      path.join(root, ".aegis", "logs", "session-streams", `${launched.sessionId}.log`),
+      "utf8",
+    ).trim().split("\n");
+    expect(stream[0]).toMatch(/^\S+Z \[session\] start issue=ISSUE-1 caste=oracle stage=scouting runtime=scripted$/);
+    expect(stream).toEqual(expect.arrayContaining([
+      expect.stringMatching(/\[scripted\] oracle deterministic session$/),
+      expect.stringMatching(/\[session\] succeeded stage=scouted$/),
+    ]));
+    expect(snapshot).toMatchObject({ lastActivityAt: expect.stringMatching(/Z$/) });
   });
 });
 
@@ -196,6 +207,10 @@ describe("createAgentRuntime(codex)", () => {
       status: "failed",
       error: "test kill",
     });
+    expect(readFileSync(
+      path.join(root, ".aegis", "logs", "session-streams", `${launched.sessionId}.log`),
+      "utf8",
+    )).toMatch(/\[session\] terminated test kill\n$/);
   });
 
   it("terminates Oracle sessions rooted at the repository", async () => {

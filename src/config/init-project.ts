@@ -8,15 +8,17 @@ import path from "node:path";
 
 import { formatJson, writeTextAtomic } from "../shared/atomic-write.js";
 
+import { createCasteConfig } from "./caste-config.js";
 import { DEFAULT_AEGIS_CONFIG } from "./defaults.js";
 import {
   AEGIS_CONFIG_PATH,
   resolveProjectRelativePath,
 } from "./load-config.js";
-import { ensureAegisPackageJsonAliases } from "./package-json-aliases.js";
 import { AEGIS_DIRECTORY, RUNTIME_STATE_FILES } from "./schema.js";
 import { emptyDispatchState } from "../core/dispatch-state.js";
 import { emptyMergeQueueState } from "../merge/merge-state.js";
+import { CLAUDE_DEFAULT_MODEL, CLAUDE_PROVIDER } from "../runtime/claude-caste-runtime.js";
+import type { RuntimeAdapterName } from "../runtime/runtime-registry.js";
 
 export const REQUIRED_PROJECT_DIRECTORIES = [
   AEGIS_DIRECTORY,
@@ -56,11 +58,30 @@ export interface InitProjectPlan {
   gitIgnoreEntries: readonly string[];
 }
 
+export interface InitProjectOptions {
+  /** Adapter for a newly seeded config; an existing config is never rewritten. */
+  runtime?: RuntimeAdapterName;
+}
+
 export interface InitProjectResult {
   repoRoot: string;
   createdDirectories: string[];
   createdFiles: string[];
   updatedGitIgnore: boolean;
+  /** Whether `.aegis/config.json` was created by this run. */
+  seededConfig: boolean;
+}
+
+/** Starter config for an adapter: defaults plus that adapter's default model refs. */
+export function buildInitialConfig(runtime: RuntimeAdapterName = DEFAULT_AEGIS_CONFIG.runtime as RuntimeAdapterName) {
+  if (runtime === "claude") {
+    return {
+      ...DEFAULT_AEGIS_CONFIG,
+      runtime,
+      models: createCasteConfig(() => `${CLAUDE_PROVIDER}:${CLAUDE_DEFAULT_MODEL}`),
+    };
+  }
+  return { ...DEFAULT_AEGIS_CONFIG, runtime };
 }
 
 export function buildInitProjectPlan(root = process.cwd()): InitProjectPlan {
@@ -122,33 +143,7 @@ function updateGitIgnore(
   return true;
 }
 
-function updatePackageJsonAliases(repoRoot: string): void {
-  const packageJsonPath = path.join(repoRoot, "package.json");
-  if (!existsSync(packageJsonPath)) {
-    return;
-  }
-
-  let packageJsonText: string;
-
-  try {
-    packageJsonText = readFileSync(packageJsonPath, "utf8");
-  } catch {
-    return;
-  }
-
-  const result = ensureAegisPackageJsonAliases(packageJsonText);
-  if (!result.changed) {
-    return;
-  }
-
-  try {
-    writeTextAtomic(packageJsonPath, result.packageJsonText);
-  } catch {
-    return;
-  }
-}
-
-export function initProject(root = process.cwd()): InitProjectResult {
+export function initProject(root = process.cwd(), options: InitProjectOptions = {}): InitProjectResult {
   const plan = buildInitProjectPlan(root);
   const createdDirectories: string[] = [];
   const createdFiles: string[] = [];
@@ -161,7 +156,7 @@ export function initProject(root = process.cwd()): InitProjectResult {
   }
 
   const seededFiles: Array<[string, unknown]> = [
-    [AEGIS_CONFIG_PATH, DEFAULT_AEGIS_CONFIG],
+    [AEGIS_CONFIG_PATH, buildInitialConfig(options.runtime)],
     [".aegis/dispatch-state.json", emptyDispatchState()],
     [".aegis/merge-queue.json", emptyMergeQueueState()],
   ];
@@ -171,12 +166,12 @@ export function initProject(root = process.cwd()): InitProjectResult {
       createdFiles.push(targetPath);
     }
   }
-  updatePackageJsonAliases(plan.repoRoot);
 
   return {
     repoRoot: plan.repoRoot,
     createdDirectories,
     createdFiles,
     updatedGitIgnore: updateGitIgnore(plan.repoRoot, plan.gitIgnoreEntries),
+    seededConfig: createdFiles.includes(resolveProjectRelativePath(plan.repoRoot, AEGIS_CONFIG_PATH)),
   };
 }

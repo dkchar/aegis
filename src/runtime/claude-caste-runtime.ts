@@ -10,8 +10,11 @@ import type {
 import type { AdapterUsage } from "./adapter-contract.js";
 import type { AegisThinkingLevel } from "../config/schema.js";
 import { createCasteConfig, type CasteConfigRecord } from "../config/caste-config.js";
+import { buildCasteArtifactJsonSchema } from "../castes/artifact-schemas.js";
+import { ActivityLog, compactActivityText as compact } from "./activity-log.js";
 import { parseModelReference, tailText, type ParsedModelConfig } from "./model-reference.js";
 import {
+  buildAgentShellEnvironment,
   buildCliSpawnInvocation,
   runSupervisedProcess,
   terminateRegisteredSessionProcesses,
@@ -33,14 +36,17 @@ import {
  *   edit tools, Janus shell access is limited to read-only git commands.
  * - MCP servers from user config are ignored (`--strict-mcp-config`).
  * - forbidden dev/watch servers are killed and fail the session.
- * - artifacts arrive as final JSON text (`artifactEmissionMode: "json"`).
+ * - artifacts arrive as JSON (`artifactEmissionMode: "json"`). With structured
+ *   output on, `--json-schema` makes Claude Code validate the final artifact
+ *   against the caste schema and re-prompt on mismatch; Aegis still parses it.
+ * - thinking level maps to Claude Code effort (`CLAUDE_CODE_EFFORT_LEVEL`).
+ * - tool calls the policy denied are recorded in the terminal log.
  */
 
 export const CLAUDE_PROVIDER = "anthropic";
 export const CLAUDE_DEFAULT_MODEL = "claude-opus-5-5";
 const CLAUDE_PROVIDER_ALIASES = new Set(["anthropic", "claude", "claude-code"]);
 const DEFAULT_CLAUDE_SESSION_TIMEOUT_MS = 1_800_000;
-const MAX_TERMINAL_LOG_LINES = 400;
 
 export type ClaudeModelConfig = ParsedModelConfig;
 
@@ -96,6 +102,10 @@ export interface ClaudeRunRequest {
   timeoutMs: number;
   maxTurns: number | null;
   extraArgs: string[];
+  /** Caste artifact JSON Schema passed as `--json-schema`, or null for text JSON. */
+  jsonSchema: string | null;
+  /** Called with each stdout line as it arrives so activity streams live. */
+  onStdoutLine?: (line: string) => void;
 }
 
 export interface ClaudeRunResult {
@@ -109,7 +119,29 @@ export interface ClaudeCasteRuntimeOptions {
   sessionTimeoutMs?: number;
   maxTurns?: number | null;
   extraArgs?: string[];
+  /**
+   * Validate the final artifact with `--json-schema`. Defaults on, except on
+   * Windows where the PowerShell launcher cannot pass JSON arguments intact.
+   */
+  structuredOutput?: boolean;
   runner?: (request: ClaudeRunRequest) => Promise<ClaudeRunResult>;
+}
+
+type ClaudeEffortLevel = "low" | "medium" | "high";
+
+/** Aegis thinking levels map onto Claude Code effort; `off` runs at the lowest effort. */
+export function resolveClaudeEffortLevel(thinkingLevel: AegisThinkingLevel): ClaudeEffortLevel {
+  return thinkingLevel === "off" ? "low" : thinkingLevel;
+}
+
+export function buildClaudeEnvironment(
+  request: Pick<ClaudeRunRequest, "thinkingLevel">,
+  baseEnv: NodeJS.ProcessEnv = buildAgentShellEnvironment(),
+): NodeJS.ProcessEnv {
+  return {
+    ...baseEnv,
+    CLAUDE_CODE_EFFORT_LEVEL: resolveClaudeEffortLevel(request.thinkingLevel),
+  };
 }
 
 export function buildClaudeArgs(request: ClaudeRunRequest): string[] {
@@ -130,6 +162,7 @@ export function buildClaudeArgs(request: ClaudeRunRequest): string[] {
     "--strict-mcp-config",
     "--append-system-prompt",
     CLAUDE_SYSTEM_PROMPT_APPEND,
+    ...(request.jsonSchema !== null ? ["--json-schema", request.jsonSchema] : []),
     ...(request.maxTurns !== null ? ["--max-turns", String(request.maxTurns)] : []),
     ...request.extraArgs,
   ];
@@ -151,7 +184,9 @@ function runClaudeCli(request: ClaudeRunRequest): Promise<ClaudeRunResult> {
     args: invocation.args,
     cwd: request.cwd,
     stdin: request.prompt,
+    env: buildClaudeEnvironment(request),
     inactivityTimeoutMs: request.timeoutMs,
+    onStdoutLine: request.onStdoutLine,
   });
 }
 
@@ -161,7 +196,7 @@ export function terminateClaudeSessionProcesses(workingDirectory: string) {
   terminateWorkspaceProcesses(workingDirectory, "forbidden");
 }
 
-interface ClaudeStreamSummary {
+export interface ClaudeStreamSummary {
   sessionId: string | null;
   resolvedModel: string | null;
   messageLog: CasteSessionMessage[];
@@ -169,6 +204,9 @@ interface ClaudeStreamSummary {
   terminalLog: string[];
   resultText: string | null;
   resultSubtype: string | null;
+  /** Schema-validated artifact from `--json-schema`, when the session produced one. */
+  structuredOutput: unknown;
+  permissionDenials: string[];
   isError: boolean;
   usage: AdapterUsage | undefined;
 }
@@ -177,11 +215,6 @@ type StreamRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is StreamRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function compact(text: string, maxChars = 240) {
-  const single = text.replace(/\s+/g, " ").trim();
-  return single.length > maxChars ? `${single.slice(0, maxChars - 3)}...` : single;
 }
 
 function summarizeToolInput(input: unknown) {
@@ -211,109 +244,165 @@ function parseUsage(event: StreamRecord): AdapterUsage | undefined {
   return Object.keys(defined).length > 0 ? defined as AdapterUsage : undefined;
 }
 
-function pushLog(summary: ClaudeStreamSummary, line: string) {
-  summary.terminalLog.push(line);
-  if (summary.terminalLog.length > MAX_TERMINAL_LOG_LINES) {
-    summary.terminalLog.splice(0, summary.terminalLog.length - MAX_TERMINAL_LOG_LINES);
-  }
+function parsePermissionDenials(event: StreamRecord) {
+  const denials = Array.isArray(event["permission_denials"]) ? event["permission_denials"] : [];
+  return denials.flatMap((denial) => {
+    if (!isRecord(denial) || typeof denial["tool_name"] !== "string") {
+      return [];
+    }
+    const detail = summarizeToolInput(denial["tool_input"]);
+    return [`${denial["tool_name"]}${detail ? ` ${detail}` : ""}`];
+  });
 }
 
-function applyAssistantEvent(summary: ClaudeStreamSummary, event: StreamRecord) {
-  const message = isRecord(event["message"]) ? event["message"] : null;
-  const content = Array.isArray(message?.["content"]) ? message["content"] : [];
-  const texts: string[] = [];
+/**
+ * Folds Claude Code `stream-json` lines into an Aegis session summary as they
+ * arrive. Each new operator-facing log line is also handed to `onLogLine`, so
+ * the same parse feeds the durable transcript and live session activity.
+ */
+export class ClaudeStreamParser {
+  readonly summary: ClaudeStreamSummary;
+  private readonly activity: ActivityLog;
+  private linesSeen = 0;
 
-  for (const block of content) {
-    if (!isRecord(block)) {
-      continue;
-    }
-    if (block["type"] === "text" && typeof block["text"] === "string" && block["text"].trim()) {
-      texts.push(block["text"]);
-      pushLog(summary, `[assistant] ${compact(block["text"])}`);
-    } else if (block["type"] === "tool_use" && typeof block["name"] === "string") {
-      summary.toolsUsed.push(block["name"]);
-      const detail = summarizeToolInput(block["input"]);
-      pushLog(summary, `[tool] ${block["name"]}${detail ? ` ${detail}` : ""}`);
-    }
+  constructor(prompt: string, onLogLine?: (line: string) => void) {
+    this.activity = new ActivityLog(onLogLine);
+    this.summary = {
+      sessionId: null,
+      resolvedModel: null,
+      messageLog: [{ role: "user", content: prompt }],
+      toolsUsed: [],
+      terminalLog: this.activity.lines,
+      resultText: null,
+      resultSubtype: null,
+      structuredOutput: undefined,
+      permissionDenials: [],
+      isError: false,
+      usage: undefined,
+    };
   }
 
-  if (texts.length > 0) {
-    summary.messageLog.push({ role: "assistant", content: texts.join("\n") });
+  /** True once any stdout line has been pushed. */
+  get hasInput() {
+    return this.linesSeen > 0;
   }
-}
 
-function applyUserEvent(summary: ClaudeStreamSummary, event: StreamRecord) {
-  const message = isRecord(event["message"]) ? event["message"] : null;
-  const content = Array.isArray(message?.["content"]) ? message["content"] : [];
-  for (const block of content) {
-    if (isRecord(block) && block["type"] === "tool_result" && block["is_error"] === true) {
-      const detail = typeof block["content"] === "string" ? compact(block["content"]) : "tool error";
-      pushLog(summary, `[tool_error] ${detail}`);
-    }
-  }
-}
-
-/** Folds Claude Code `stream-json` output into an Aegis session summary. */
-export function parseClaudeStreamOutput(stdout: string, prompt: string): ClaudeStreamSummary {
-  const summary: ClaudeStreamSummary = {
-    sessionId: null,
-    resolvedModel: null,
-    messageLog: [{ role: "user", content: prompt }],
-    toolsUsed: [],
-    terminalLog: [],
-    resultText: null,
-    resultSubtype: null,
-    isError: false,
-    usage: undefined,
-  };
-
-  for (const line of stdout.split(/\r?\n/)) {
+  push(line: string) {
+    this.linesSeen += 1;
     const trimmed = line.trim();
     if (!trimmed.startsWith("{")) {
-      continue;
+      return;
     }
 
     let event: unknown;
     try {
       event = JSON.parse(trimmed);
     } catch {
-      continue;
+      return;
     }
     if (!isRecord(event)) {
-      continue;
+      return;
     }
 
-    if (typeof event["session_id"] === "string" && !summary.sessionId) {
-      summary.sessionId = event["session_id"];
+    if (typeof event["session_id"] === "string" && !this.summary.sessionId) {
+      this.summary.sessionId = event["session_id"];
     }
 
     switch (event["type"]) {
       case "system":
         if (event["subtype"] === "init") {
-          summary.resolvedModel = typeof event["model"] === "string" ? event["model"] : null;
-          pushLog(summary, `[session] init model=${summary.resolvedModel ?? "unknown"}`);
+          this.summary.resolvedModel = typeof event["model"] === "string" ? event["model"] : null;
+          this.log(`[session] init model=${this.summary.resolvedModel ?? "unknown"}`);
+        } else if (event["subtype"] === "api_retry") {
+          // Backoff is visible activity, not a stuck session.
+          const error = typeof event["error"] === "string" ? event["error"] : "unknown";
+          this.log(`[api_retry] ${error} attempt ${String(event["attempt"] ?? "?")}/${String(event["max_retries"] ?? "?")}`);
         }
         break;
       case "assistant":
-        applyAssistantEvent(summary, event);
+        this.applyAssistantEvent(event);
         break;
       case "user":
-        applyUserEvent(summary, event);
+        this.applyUserEvent(event);
         break;
       case "result":
-        summary.resultSubtype = typeof event["subtype"] === "string" ? event["subtype"] : null;
-        summary.isError = event["is_error"] === true;
-        summary.resultText = typeof event["result"] === "string" ? event["result"] : null;
-        summary.usage = parseUsage(event);
-        pushLog(summary, `[result] ${summary.resultSubtype ?? "unknown"}${summary.isError ? " (error)" : ""}`);
+        this.applyResultEvent(event);
         break;
       default:
         break;
     }
   }
 
-  summary.toolsUsed = [...new Set(summary.toolsUsed)];
-  return summary;
+  pushText(stdout: string) {
+    for (const line of stdout.split(/\r?\n/)) {
+      this.push(line);
+    }
+  }
+
+  finish(): ClaudeStreamSummary {
+    this.summary.toolsUsed = [...new Set(this.summary.toolsUsed)];
+    return this.summary;
+  }
+
+  private log(line: string) {
+    this.activity.push(line);
+  }
+
+  private applyAssistantEvent(event: StreamRecord) {
+    const message = isRecord(event["message"]) ? event["message"] : null;
+    const content = Array.isArray(message?.["content"]) ? message["content"] : [];
+    const texts: string[] = [];
+
+    for (const block of content) {
+      if (!isRecord(block)) {
+        continue;
+      }
+      if (block["type"] === "text" && typeof block["text"] === "string" && block["text"].trim()) {
+        texts.push(block["text"]);
+        this.log(`[assistant] ${compact(block["text"])}`);
+      } else if (block["type"] === "tool_use" && typeof block["name"] === "string") {
+        this.summary.toolsUsed.push(block["name"]);
+        const detail = summarizeToolInput(block["input"]);
+        this.log(`[tool] ${block["name"]}${detail ? ` ${detail}` : ""}`);
+      }
+    }
+
+    if (texts.length > 0) {
+      this.summary.messageLog.push({ role: "assistant", content: texts.join("\n") });
+    }
+  }
+
+  private applyUserEvent(event: StreamRecord) {
+    const message = isRecord(event["message"]) ? event["message"] : null;
+    const content = Array.isArray(message?.["content"]) ? message["content"] : [];
+    for (const block of content) {
+      if (isRecord(block) && block["type"] === "tool_result" && block["is_error"] === true) {
+        const detail = typeof block["content"] === "string" ? compact(block["content"]) : "tool error";
+        this.log(`[tool_error] ${detail}`);
+      }
+    }
+  }
+
+  private applyResultEvent(event: StreamRecord) {
+    const summary = this.summary;
+    summary.resultSubtype = typeof event["subtype"] === "string" ? event["subtype"] : null;
+    summary.isError = event["is_error"] === true;
+    summary.resultText = typeof event["result"] === "string" ? event["result"] : null;
+    summary.structuredOutput = event["structured_output"] ?? undefined;
+    summary.usage = parseUsage(event);
+    summary.permissionDenials = parsePermissionDenials(event);
+    for (const denial of summary.permissionDenials) {
+      this.log(`[denied] ${denial}`);
+    }
+    this.log(`[result] ${summary.resultSubtype ?? "unknown"}${summary.isError ? " (error)" : ""}`);
+  }
+}
+
+/** Folds complete Claude Code `stream-json` output into an Aegis session summary. */
+export function parseClaudeStreamOutput(stdout: string, prompt: string): ClaudeStreamSummary {
+  const parser = new ClaudeStreamParser(prompt);
+  parser.pushText(stdout);
+  return parser.finish();
 }
 
 function resolveClaudeError(result: ClaudeRunResult, summary: ClaudeStreamSummary) {
@@ -356,6 +445,17 @@ function parseExtraArgs(value: string | undefined) {
   return trimmed.split(/\s+/);
 }
 
+function parseOptionalBoolean(value: string | undefined) {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === "1" || normalized === "true" || normalized === "on") {
+    return true;
+  }
+  if (normalized === "0" || normalized === "false" || normalized === "off") {
+    return false;
+  }
+  return undefined;
+}
+
 /** Reads `AEGIS_CLAUDE_*` overrides for the Claude Code adapter. */
 export function resolveClaudeRuntimeOptionsFromEnv(
   env: NodeJS.ProcessEnv = process.env,
@@ -364,12 +464,22 @@ export function resolveClaudeRuntimeOptionsFromEnv(
   const sessionTimeoutMs = parseOptionalPositiveInteger(env.AEGIS_CLAUDE_SESSION_TIMEOUT_MS);
   const maxTurns = parseOptionalPositiveInteger(env.AEGIS_CLAUDE_MAX_TURNS);
   const extraArgs = parseExtraArgs(env.AEGIS_CLAUDE_EXTRA_ARGS);
+  const structuredOutput = parseOptionalBoolean(env.AEGIS_CLAUDE_STRUCTURED_OUTPUT);
   return {
     ...(command ? { command } : {}),
     ...(sessionTimeoutMs !== undefined ? { sessionTimeoutMs } : {}),
     ...(maxTurns !== undefined ? { maxTurns } : {}),
     ...(extraArgs ? { extraArgs } : {}),
+    ...(structuredOutput !== undefined ? { structuredOutput } : {}),
   };
+}
+
+/** Structured output renders as compact JSON so the caste parsers see one object. */
+function resolveOutputText(summary: ClaudeStreamSummary) {
+  if (summary.structuredOutput !== undefined && summary.structuredOutput !== null) {
+    return JSON.stringify(summary.structuredOutput);
+  }
+  return (summary.resultText ?? summary.messageLog.at(-1)?.content ?? "").trim();
 }
 
 export function parseClaudeModelReference(reference: string, thinkingLevel: AegisThinkingLevel): ClaudeModelConfig {
@@ -392,6 +502,7 @@ export class ClaudeCasteRuntime implements CasteRuntime {
   private readonly sessionTimeoutMs: number;
   private readonly maxTurns: number | null;
   private readonly extraArgs: string[];
+  private readonly structuredOutput: boolean;
   private readonly runner: (request: ClaudeRunRequest) => Promise<ClaudeRunResult>;
 
   constructor(
@@ -406,6 +517,7 @@ export class ClaudeCasteRuntime implements CasteRuntime {
     this.sessionTimeoutMs = options.sessionTimeoutMs ?? DEFAULT_CLAUDE_SESSION_TIMEOUT_MS;
     this.maxTurns = options.maxTurns ?? null;
     this.extraArgs = options.extraArgs ?? [];
+    this.structuredOutput = options.structuredOutput ?? process.platform !== "win32";
     this.runner = options.runner ?? runClaudeCli;
   }
 
@@ -418,6 +530,7 @@ export class ClaudeCasteRuntime implements CasteRuntime {
       );
     }
 
+    const parser = new ClaudeStreamParser(input.prompt, input.onActivity);
     const result = await this.runner({
       cwd: input.workingDirectory,
       caste: input.caste,
@@ -428,10 +541,16 @@ export class ClaudeCasteRuntime implements CasteRuntime {
       timeoutMs: this.sessionTimeoutMs,
       maxTurns: this.maxTurns,
       extraArgs: this.extraArgs,
+      jsonSchema: this.structuredOutput ? buildCasteArtifactJsonSchema(input.caste) : null,
+      onStdoutLine: (line) => parser.push(line),
     });
-    const summary = parseClaudeStreamOutput(result.stdout, input.prompt);
+    // Runners that do not stream (tests, custom runners) hand back stdout only.
+    if (!parser.hasInput) {
+      parser.pushText(result.stdout);
+    }
+    const summary = parser.finish();
     const error = resolveClaudeError(result, summary);
-    const outputText = (summary.resultText ?? summary.messageLog.at(-1)?.content ?? "").trim();
+    const outputText = resolveOutputText(summary);
 
     return {
       sessionId: summary.sessionId ?? randomUUID(),

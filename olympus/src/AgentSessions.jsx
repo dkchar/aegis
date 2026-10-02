@@ -1,9 +1,10 @@
-import { Braces, TerminalSquare } from "lucide-react";
-import { Badge, Button, Grid, Group, Paper, ScrollArea, SegmentedControl, SimpleGrid, Stack, Text, UnstyledButton } from "@mantine/core";
+import { ExternalLink, TerminalSquare } from "lucide-react";
 import { Suspense, lazy } from "react";
 import { selectAgent, setSessionFilter } from "./state.js";
 import { deriveSessionView } from "./supervisionModel.js";
-import { CompactSummary, EmptyState, InfoRow, SectionHead, formatTokens, formatUsd, statusColor } from "./ui.jsx";
+import { CasteIcon, EmptyState, FactList, LiveDot, StatusBadge, formatTokens, formatUsd, resolveCaste, statusTone } from "./components/aegis.jsx";
+import { Badge, Button, Card, Segmented, Skeleton, cn } from "./components/ui/index.js";
+import { Screen } from "./Shell.jsx";
 
 const TerminalPane = lazy(() => import("./TerminalPane.jsx"));
 const sessionFilters = ["All", "Oracle", "Titan", "Sentinel", "Janus"];
@@ -30,87 +31,83 @@ export default function AgentSessions({ state, mutate }) {
     mutate(selectAgent(state, agentId));
   };
   const totalCost = formatUsd(state.agents.reduce((sum, agent) => sum + (Number(agent.usage?.costUsd) || 0), 0));
+  const running = state.agents.filter((agent) => ["running", "streaming"].includes(agent.status)).length;
 
   return (
-    <Stack gap="sm">
-      <CompactSummary
-        icon={TerminalSquare}
-        title="Agent Sessions"
-        items={[
-          ["Visible", filteredAgents.length],
-          ["Total", state.agents.length],
-          ["Selected", selected?.id ?? "none"],
-          ["Status", selected?.status ?? "waiting"],
-          ...(totalCost ? [["Spend", totalCost]] : []),
-        ]}
-      />
-      <Paper withBorder p="xs">
-        <SegmentedControl value={state.sessionFilter} data={activeFilters} onChange={(filter) => mutate(setSessionFilter(state, filter))} />
-      </Paper>
-      <Paper component="section" withBorder mih="68vh" style={{ overflow: "hidden" }}>
-        {filteredAgents.length === 0 ? (
-          <EmptyState title="No sessions yet" detail="Sessions appear here after Aegis dispatches adapter work." />
-        ) : (
-          <Grid gutter={0}>
-            <Grid.Col span={{ base: 12, lg: 3 }}>
-              <SessionList agents={filteredAgents} groupedAgents={groupedAgents} selected={selected} openSession={openSession} />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, lg: 9 }} className="grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] border-t border-[var(--mantine-color-dark-4)] lg:border-l lg:border-t-0">
-              <Suspense fallback={<Text p="md" size="sm" c="dimmed">Preparing terminal renderer.</Text>}>
-                <TerminalPane
-                  key={selected.id}
-                  session={selected}
-                  selected
-                  title={`${selected.caste} ${selected.issue} ${selected.stage}`}
-                  onSelect={() => openSession(selected.id)}
-                  framed={false}
-                />
+    <Screen>
+      <Card className="grid min-h-[calc(100dvh-13rem)] overflow-hidden lg:grid-cols-[20rem_minmax(0,1fr)]">
+        <aside className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] border-b border-border lg:border-b-0 lg:border-r" aria-label="Agent Sessions">
+          <div className="grid gap-3 border-b border-border p-3">
+            <div className="flex items-center gap-2">
+              <TerminalSquare className="size-4 text-muted-foreground" aria-hidden="true" />
+              <h2 className="text-sm font-semibold tracking-tight">Agent Sessions</h2>
+              <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+                {running > 0 && <LiveDot live />}
+                {running} live · {state.agents.length} total{totalCost && ` · ${totalCost}`}
+              </span>
+            </div>
+            <Segmented size="sm" value={state.sessionFilter} options={activeFilters} onValueChange={(filter) => mutate(setSessionFilter(state, filter))} aria-label="Filter sessions by caste" />
+          </div>
+          <SessionList groupedAgents={groupedAgents} selected={selected} openSession={openSession} empty={filteredAgents.length === 0} />
+        </aside>
+        <section className="grid min-h-0 min-w-0 grid-rows-[minmax(22rem,1fr)_auto]">
+          {selected ? (
+            <>
+              <Suspense fallback={<Skeleton className="m-4" />}>
+                <TerminalPane key={selected.id} session={selected} />
               </Suspense>
               <SessionInspector agent={selected} />
-            </Grid.Col>
-          </Grid>
-        )}
-      </Paper>
-    </Stack>
+            </>
+          ) : (
+            <div className="p-4">
+              <EmptyState icon={TerminalSquare} title="No sessions yet" detail="Sessions appear here after Aegis dispatches adapter work." />
+            </div>
+          )}
+        </section>
+      </Card>
+    </Screen>
   );
 }
 
-function SessionList({ agents, groupedAgents, selected, openSession }) {
+function SessionList({ groupedAgents, selected, openSession, empty }) {
+  if (empty) {
+    return <p className="p-4 text-[13px] text-muted-foreground">No sessions match this filter.</p>;
+  }
   return (
-    <ScrollArea component="aside" h={{ base: "34vh", lg: "68vh" }} type="auto" offsetScrollbars scrollbarSize={8}>
-      <Stack gap={3} p="xs">
-        <Group justify="space-between" px={4} py={4}>
-          <Text size="xs" fw={700} tt="uppercase" c="dimmed">Session Stream</Text>
-          <Badge color="aegis" variant="light">{agents.length}</Badge>
-        </Group>
-        {groupedAgents.map(([caste, casteAgents]) => casteAgents.length > 0 && (
-          <Stack key={caste} gap={2}>
-            <Text mt="xs" px={4} size="xs" fw={700} tt="uppercase" c="dimmed">{caste}</Text>
-            {casteAgents.map((agent) => (
-              <UnstyledButton
+    <nav className="scroll-thin grid content-start gap-3 overflow-y-auto p-2 lg:max-h-[calc(100dvh-19rem)]">
+      {groupedAgents.map(([caste, casteAgents]) => casteAgents.length > 0 && (
+        <div key={caste} className="grid gap-0.5">
+          <div className="flex items-center gap-1.5 px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-subtle-foreground">
+            <CasteIcon caste={caste} />
+            {caste}
+            <span className="ml-auto font-mono normal-case">{casteAgents.length}</span>
+          </div>
+          {casteAgents.map((agent) => {
+            const active = agent.id === selected?.id;
+            const live = ["running", "streaming"].includes(agent.status);
+            return (
+              <button
                 key={agent.id}
+                type="button"
                 onClick={() => openSession(agent.id)}
-                px="xs"
-                py={6}
-                aria-current={agent.id === selected?.id ? "true" : undefined}
-                style={{
-                  borderRadius: "var(--mantine-radius-md)",
-                  background: agent.id === selected?.id ? "var(--mantine-color-aegis-light)" : undefined,
-                }}
+                aria-current={active ? "true" : undefined}
+                className={cn(
+                  "grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-raised",
+                  active && "bg-surface-raised shadow-[inset_0_0_0_1px_var(--border-strong)]",
+                )}
               >
-                <Group gap="xs" justify="space-between" wrap="nowrap">
-                  <Stack gap={0} style={{ minWidth: 0 }}>
-                    <Text size="sm" fw={700} truncate>{agent.issue}</Text>
-                    <Text size="xs" ff="monospace" c="dimmed" truncate>{agent.model || agent.id}</Text>
-                  </Stack>
-                  <Badge color={statusColor(agent.status)} variant="light" size="xs">{agent.status}</Badge>
-                </Group>
-              </UnstyledButton>
-            ))}
-          </Stack>
-        ))}
-      </Stack>
-    </ScrollArea>
+                <LiveDot tone={statusTone(agent.status) === "accent" ? "accent" : statusTone(agent.status)} live={live} />
+                <span className="grid min-w-0">
+                  <span className="truncate text-[13px] font-medium">{agent.issue}</span>
+                  <span className="truncate font-mono text-[11px] text-subtle-foreground">{agent.model || agent.id}</span>
+                </span>
+                <span className="font-mono text-[11px] text-muted-foreground">{formatUsd(agent.usage?.costUsd) || agent.status}</span>
+              </button>
+            );
+          })}
+        </div>
+      ))}
+    </nav>
   );
 }
 
@@ -127,26 +124,30 @@ function formatUsage(usage) {
 
 function SessionInspector({ agent }) {
   const sessionHref = `#agents/${encodeURIComponent(agent.id)}`;
+  const caste = resolveCaste(agent.caste);
   return (
-    <Paper component="section" radius={0} p="sm" withBorder>
-      <Stack gap="sm">
-        <Group justify="space-between" wrap="wrap">
-          <SectionHead icon={Braces} title="Selected Session" detail="Transcript, status, issue, adapter, and usage." />
-          <Button component="a" href={sessionHref} variant="default" leftSection={<TerminalSquare size={16} />}>Open View</Button>
-        </Group>
-        <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="xs">
-          <InfoRow label="Session" value={agent.id} />
-          <InfoRow label="Caste" value={agent.caste} />
-          <InfoRow label="Issue" value={agent.issue} />
-          <InfoRow label="Stage" value={agent.stage} />
-          <InfoRow label="Status" value={agent.status} />
-          <InfoRow label="Adapter" value={agent.model ? `${agent.adapter} · ${agent.model}` : agent.adapter} />
-          <InfoRow label="Usage" value={formatUsage(agent.usage)} />
-          <InfoRow label="CWD Jail" value={agent.cwd} />
-          <InfoRow label="Transcript" value={agent.activity} />
-        </SimpleGrid>
-      </Stack>
-    </Paper>
+    <div className="grid gap-3 border-t border-border p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <CasteIcon caste={agent.caste} className="size-4" />
+        <h3 className="text-sm font-semibold tracking-tight">{caste?.label ?? agent.caste} · {agent.issue}</h3>
+        <StatusBadge status={agent.status} />
+        <Badge>{agent.stage}</Badge>
+        <Button asChild size="sm" variant="ghost" className="ml-auto">
+          <a href={sessionHref}><ExternalLink />Open View</a>
+        </Button>
+      </div>
+      <FactList
+        columns={4}
+        items={[
+          ["Session", agent.id],
+          ["Adapter", agent.model ? `${agent.adapter} · ${agent.model}` : agent.adapter],
+          ["Usage", formatUsage(agent.usage)],
+          ["Working directory", agent.cwd],
+          ["Transcript", agent.activity],
+          ...(agent.scope?.length ? [["File scope", agent.scope.join(", ")]] : []),
+        ]}
+      />
+    </div>
   );
 }
 
