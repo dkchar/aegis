@@ -1,9 +1,9 @@
-import { Alert, Badge, Button, Grid, Group, NavLink, NumberInput, Paper, Select, SimpleGrid, Stack, Text, TextInput } from "@mantine/core";
 import { Cpu, Gauge, GitBranch, Layers, Save, Settings2, ShieldHalf, TimerReset, Workflow } from "lucide-react";
 import { useEffect } from "react";
 import { loadModelOptions, loadOlympusState, saveOlympusConfig } from "./api.js";
+import { CasteIcon, SectionCard, casteMeta } from "./components/aegis.jsx";
+import { Alert, Badge, Button, Card, Combobox, CountBadge, Field, Input, NumberInput, Segmented, Select, cn } from "./components/ui/index.js";
 import { Screen } from "./Shell.jsx";
-import { Panel } from "./ui.jsx";
 import {
   configMeta,
   getConfigIssues,
@@ -11,6 +11,7 @@ import {
   saveConfigSucceeded,
   setConfigSection,
   settings,
+  thinkingOptions,
   updateConfig,
   updateModelOptions,
 } from "./state.js";
@@ -29,6 +30,8 @@ const adapterNotes = {
   codex: "Codex runs each caste through `codex exec`. Run Codex once so its model cache exists.",
   pi: "Pi runs in-process with typed artifact tools and needs Pi provider settings.",
 };
+
+const castes = Object.keys(casteMeta);
 
 export default function Config({ state, mutate }) {
   const runtime = state.config.runtime;
@@ -78,86 +81,119 @@ export default function Config({ state, mutate }) {
       .catch((error) => mutate({ ...state, toast: error.message, toastKind: "error" }));
   }
 
+  const fieldProps = { state, mutate, errors };
+
   return (
     <Screen>
-      <Panel
-        icon={Settings2}
-        title="Config"
-        detail="Edits are validated here and again on save; the daemon reads .aegis/config.json on start."
-        actions={(
-          <Group gap="xs" wrap="wrap">
-            {issues.length > 0 && <Badge color="red" variant="light">{issues.length} required</Badge>}
-            {errorCount > 0 && <Badge color="red" variant="light">{errorCount} invalid</Badge>}
-            {state.configDirty && <Badge color="yellow" variant="light">unsaved</Badge>}
-            <Button leftSection={<Save size={16} />} onClick={saveConfig} disabled={!state.configDirty || errorCount > 0}>Save</Button>
-            <Button variant="default" leftSection={<TimerReset size={16} />} onClick={resetConfig}>Reset</Button>
-          </Group>
-        )}
-      />
-      <Grid gutter="sm">
-        <Grid.Col span={{ base: 12, md: 3 }}>
-          <Paper component="aside" withBorder p="xs">
-            <Stack gap={2}>
-              {configSections.map(([section, Icon]) => {
-                const sectionErrors = Object.keys(errors).filter((key) => configMeta[key]?.section === section).length
-                  + issues.filter((key) => configMeta[key]?.section === section).length;
-                return (
-                  <NavLink
-                    key={section}
-                    label={section}
-                    leftSection={<Icon size={16} />}
-                    rightSection={sectionErrors > 0 ? <Badge size="xs" color="red" circle>{sectionErrors}</Badge> : null}
-                    active={state.activeConfigSection === section}
-                    onClick={() => mutate(setConfigSection(state, section))}
-                    variant="light"
-                    style={{ borderRadius: "var(--mantine-radius-md)" }}
-                  />
-                );
-              })}
-            </Stack>
-          </Paper>
-        </Grid.Col>
-        <Grid.Col span={{ base: 12, md: 9 }}>
-          <Stack gap="sm">
-            <Text size="sm" c="dimmed">{activeSection[2]}</Text>
-            {state.activeConfigSection === "Adapter" && runtime && (
-              <Alert color="aegis" variant="light" title={`${runtime} adapter`}>{adapterNotes[runtime] ?? "No adapter-specific settings."}</Alert>
-            )}
-            {visibleSettings.length === 0 && <Text size="sm" c="dimmed">No settings for this adapter.</Text>}
-            <SimpleGrid component="section" cols={{ base: 1, md: 2 }} spacing="sm">
+      <Card className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+        <div className="min-w-0">
+          <h2 className="flex items-center gap-2 text-sm font-semibold tracking-tight">
+            <Settings2 className="size-4 text-muted-foreground" aria-hidden="true" />
+            Config
+            <span className="font-mono text-xs font-normal text-subtle-foreground">.aegis/config.json</span>
+          </h2>
+          <p className="mt-1 text-[13px] text-muted-foreground">Edits are validated here and again on save; the daemon reads the file on start.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {issues.length > 0 && <Badge tone="danger">{issues.length} required</Badge>}
+          {errorCount > 0 && <Badge tone="danger">{errorCount} invalid</Badge>}
+          {state.configDirty ? <Badge tone="warning" variant="dot">unsaved changes</Badge> : <Badge tone="success" variant="dot">saved</Badge>}
+          <Button variant="outline" size="sm" onClick={resetConfig}><TimerReset />Reset</Button>
+          <Button variant="primary" size="sm" onClick={saveConfig} disabled={!state.configDirty || errorCount > 0}><Save />Save</Button>
+        </div>
+      </Card>
+
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-[13rem_minmax(0,1fr)]">
+        <nav aria-label="Config sections" className="flex gap-1 overflow-x-auto md:flex-col md:overflow-visible">
+          {configSections.map(([section, Icon]) => {
+            const sectionErrors = Object.keys(errors).filter((key) => configMeta[key]?.section === section).length
+              + issues.filter((key) => configMeta[key]?.section === section).length;
+            const active = state.activeConfigSection === section;
+            return (
+              <button
+                key={section}
+                type="button"
+                aria-current={active ? "true" : undefined}
+                onClick={() => mutate(setConfigSection(state, section))}
+                className={cn(
+                  "flex h-8 shrink-0 items-center gap-2 rounded-md px-2.5 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-surface-raised/60 hover:text-foreground [&>svg]:size-4",
+                  active && "bg-surface-raised text-foreground shadow-[inset_0_0_0_1px_var(--border)]",
+                )}
+              >
+                <Icon aria-hidden="true" />
+                <span className="flex-1">{section}</span>
+                <CountBadge value={sectionErrors} tone="danger" />
+              </button>
+            );
+          })}
+        </nav>
+
+        <SectionCard icon={activeSection[1]} title={activeSection[0]} description={activeSection[2]} bodyClassName="grid gap-4">
+          {state.activeConfigSection === "Adapter" && runtime && (
+            <Alert tone="info" title={`${runtime} adapter`}>{adapterNotes[runtime] ?? "No adapter-specific settings."}</Alert>
+          )}
+          {state.activeConfigSection === "Runtime" ? (
+            <RuntimeSection {...fieldProps} />
+          ) : visibleSettings.length === 0 ? (
+            <p className="text-[13px] text-muted-foreground">No settings for this adapter.</p>
+          ) : (
+            <div className="grid gap-x-4 gap-y-5 md:grid-cols-2">
               {visibleSettings.map(([key]) => (
-                <ConfigField key={key} configKey={key} value={state.config[key]} error={errors[key]} state={state} mutate={mutate} />
+                <ConfigField key={key} configKey={key} {...fieldProps} />
               ))}
-            </SimpleGrid>
-          </Stack>
-        </Grid.Col>
-      </Grid>
-      <Alert color="gray" variant="light" title="Runtime source">{state.apiMessage}. Choices mirror supported adapters and typed Aegis config fields.</Alert>
+            </div>
+          )}
+        </SectionCard>
+      </div>
+
+      <Alert tone="neutral" title="Runtime source">{state.apiMessage}. Choices mirror supported adapters and typed Aegis config fields.</Alert>
     </Screen>
   );
 }
 
-function ConfigField({ configKey, value, error, state, mutate }) {
-  const meta = configMeta[configKey];
-  const isMissing = meta.required && !String(value ?? "").trim();
-  const message = isMissing ? "Required before start" : error;
-
+/** Adapter choice, then one row per caste pairing its model with its thinking level. */
+function RuntimeSection(props) {
   return (
-    <Paper component="label" withBorder p="sm" style={{ borderColor: message ? "var(--mantine-color-red-6)" : undefined }}>
-      <Stack gap={6}>
-        <Text size="xs" fw={700} ff="monospace" c="dimmed" style={{ overflowWrap: "anywhere" }}>{configKey}</Text>
-        {renderConfigControl(configKey, meta, value, state, (nextValue) => mutate(updateConfig(state, configKey, nextValue)))}
-        {meta.description && <Text size="xs" c="dimmed">{meta.description}</Text>}
-        {message && <Text size="xs" fw={700} c="red">{message}</Text>}
-      </Stack>
-    </Paper>
+    <>
+      <ConfigField configKey="runtime" className="max-w-sm" {...props} />
+      <div className="grid gap-px overflow-hidden rounded-lg border border-border bg-border">
+        {castes.map((caste) => (
+          <div key={caste} className="grid items-start gap-4 bg-surface px-4 py-3 lg:grid-cols-[11rem_minmax(0,1fr)_auto]">
+            <div className="grid gap-0.5 pt-1">
+              <span className="inline-flex items-center gap-2 text-[13px] font-medium"><CasteIcon caste={caste} className="size-4" />{casteMeta[caste].label}</span>
+              <span className="text-xs text-subtle-foreground">{configMeta[`models.${caste}`]?.description}</span>
+            </div>
+            <ConfigField configKey={`models.${caste}`} hideDescription {...props} />
+            <ConfigField configKey={`thinking.${caste}`} hideDescription {...props} />
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
-function renderConfigControl(configKey, meta, value, state, onChange) {
+function ConfigField({ configKey, state, mutate, errors, className, hideDescription = false }) {
+  const meta = configMeta[configKey];
+  const value = state.config[configKey];
+  const isMissing = meta.required && !String(value ?? "").trim();
+  const message = isMissing ? "Required before start" : errors[configKey];
+  const segmented = configKey.startsWith("thinking.") || meta.control === "boolean";
+
+  return (
+    <Field as={segmented ? "div" : "label"} label={configKey} mono hint={hideDescription ? undefined : meta.description} error={message} className={className}>
+      {renderConfigControl(configKey, meta, value, state, Boolean(message), (nextValue) => mutate(updateConfig(state, configKey, nextValue)))}
+    </Field>
+  );
+}
+
+function renderConfigControl(configKey, meta, value, state, invalid, onChange) {
+  const common = { "aria-invalid": invalid || undefined, "aria-label": configKey };
+  if (configKey.startsWith("thinking.")) {
+    return <Segmented size="sm" options={thinkingOptions} value={value} onValueChange={onChange} {...common} />;
+  }
   if (meta.control === "select") {
     const options = configKey === "runtime" ? state.adapterOptions : meta.options;
-    return <Select value={value} data={options} onChange={(nextValue) => onChange(nextValue ?? "")} allowDeselect={false} />;
+    return <Select value={value} options={options} onValueChange={(nextValue) => onChange(nextValue ?? "")} {...common} />;
   }
   if (meta.control === "model") {
     const runtime = state.config.runtime;
@@ -165,21 +201,22 @@ function renderConfigControl(configKey, meta, value, state, onChange) {
     const options = modelSet?.options ?? [];
     const hasCurrentValue = value && !options.some((option) => option.value === value);
     return (
-      <Select
+      <Combobox
         value={value}
         placeholder={modelSet?.message || "Select authenticated model"}
-        data={[...(hasCurrentValue ? [{ value, label: value }] : []), ...options]}
-        onChange={(nextValue) => onChange(nextValue ?? "")}
-        searchable
+        searchPlaceholder="Search models…"
+        options={[...(hasCurrentValue ? [{ value, label: value }] : []), ...options]}
+        onValueChange={onChange}
         clearable
+        {...common}
       />
     );
   }
   if (meta.control === "boolean") {
-    return <Select value={String(value)} data={["true", "false"]} onChange={(nextValue) => onChange(nextValue ?? "false")} allowDeselect={false} />;
+    return <Segmented size="sm" options={["true", "false"]} value={String(value)} onValueChange={onChange} {...common} />;
   }
   if (meta.control === "number") {
-    return <NumberInput min={meta.min} max={meta.max} value={value} onChange={(nextValue) => onChange(String(nextValue ?? ""))} />;
+    return <NumberInput min={meta.min} max={meta.max} value={value} onChange={onChange} {...common} />;
   }
-  return <TextInput value={value} onChange={(event) => onChange(event.target.value)} />;
+  return <Input value={value} onChange={(event) => onChange(event.target.value)} className="font-mono" {...common} />;
 }

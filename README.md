@@ -132,7 +132,11 @@ Direct commands are routed to a running daemon so they never race it over `.aegi
 npm run olympus:dev    # http://127.0.0.1:4173/
 ```
 
-Olympus shows the Agora board, live session terminals, the Chronos flight recorder and merge tree, records and artifacts, and validated config editing. Keys `1`-`5` switch views. See [Olympus](docs/olympus.md).
+Olympus shows the Agora board, live session terminals, the Chronos flight recorder and merge tree, records and artifacts, and validated config editing, in light and dark themes. Keys `1`-`5` switch views. Its design system (semantic tokens, Radix-based primitives, and Aegis compositions such as status and caste badges) has a living gallery at `/design.html`. See [Olympus](docs/olympus.md).
+
+| Sessions | Records |
+| --- | --- |
+| ![Olympus Sessions](docs/screenshots/olympus-sessions.png) | ![Olympus Records](docs/screenshots/olympus-records-light.png) |
 
 ## Seeded Proof
 
@@ -152,6 +156,7 @@ npm test              # deterministic seam tests (unit + integration)
 npm run test:acceptance
 npm run build
 npm run olympus:build
+npm run olympus:screenshots   # regenerate docs/screenshots (after npm run build)
 ```
 
 Project layout:
@@ -169,7 +174,7 @@ src/
   labor/        git worktree labors
   shared/       atomic writes, JSON, git, file scope helpers
   mock-run/     seeded React todo proof
-olympus/        operator console (Vite + React) and its local API
+olympus/        operator console: React views, design system (src/components/), local API (server/), screenshot script
 packages/agora/ embedded Agora ticket board
 ```
 

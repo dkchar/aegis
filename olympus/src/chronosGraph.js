@@ -2,14 +2,29 @@ import dagre from "@dagrejs/dagre";
 import { MarkerType, Position } from "@xyflow/react";
 import { ArtifactNode, MergeNode, TimelineNode } from "./chronosNodes.jsx";
 
+// Mid-tone hues stay legible on both the dark and light canvas.
+export const chronosColors = {
+  cyan: "#06b6d4",
+  green: "#10b981",
+  violet: "#8b5cf6",
+  orange: "#f97316",
+  yellow: "#eab308",
+  teal: "#14b8a6",
+  blue: "#3b82f6",
+  red: "#f43f5e",
+  gray: "#64748b",
+};
+
+const colors = chronosColors;
+
 export const laneMeta = {
-  agora: { color: "cyan", label: "Ticket" },
-  dispatch: { color: "green", label: "Dispatch" },
-  session: { color: "violet", label: "Session" },
-  artifact: { color: "orange", label: "Artifact" },
-  merge: { color: "yellow", label: "Merge" },
-  phase: { color: "teal", label: "Loop" },
-  log: { color: "blue", label: "Log" },
+  agora: { color: colors.cyan, label: "Ticket" },
+  dispatch: { color: colors.green, label: "Dispatch" },
+  session: { color: colors.violet, label: "Session" },
+  artifact: { color: colors.orange, label: "Artifact" },
+  merge: { color: colors.yellow, label: "Merge" },
+  phase: { color: colors.teal, label: "Loop" },
+  log: { color: colors.blue, label: "Log" },
 };
 
 export const chronosNodeTypes = {
@@ -18,19 +33,7 @@ export const chronosNodeTypes = {
   timeline: TimelineNode,
 };
 
-const colors = {
-  cyan: "#22d3ee",
-  green: "#22c55e",
-  violet: "#a78bfa",
-  orange: "#fb923c",
-  yellow: "#facc15",
-  teal: "#2dd4bf",
-  blue: "#38bdf8",
-  red: "#fb7185",
-  gray: "#64748b",
-};
-
-const statusColors = {
+export const statusColors = {
   blocked: colors.red,
   failed: colors.red,
   in_progress: colors.yellow,
@@ -46,7 +49,7 @@ export function buildTimelineFlow(events, selectedId) {
       id: event.id,
       type: "timeline",
       data: {
-        color: colors[meta.color] ?? colors.gray,
+        color: meta.color,
         event,
         eventId: event.id,
         orientation: "vertical",
@@ -65,7 +68,7 @@ export function buildTimelineFlow(events, selectedId) {
     source: nodes[index].id,
     target: node.id,
     type: "smoothstep",
-    style: { stroke: node.data.color, strokeWidth: 2 },
+    style: { stroke: node.data.color, strokeWidth: 1.5 },
     markerEnd: { type: MarkerType.ArrowClosed, color: node.data.color, width: 14, height: 14 },
   }));
 
@@ -101,8 +104,8 @@ export function buildMergeFlow(roots, selectedId) {
         source: ticket.id,
         target: child.id,
         type: "smoothstep",
-        style: { stroke: "#38bdf8", strokeWidth: 2.25 },
-        markerEnd: { type: MarkerType.ArrowClosed, color: "#38bdf8", width: 14, height: 14 },
+        style: { stroke: colors.blue, strokeWidth: 2 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: colors.blue, width: 14, height: 14 },
       });
       visit(child, depth + 1);
     }
@@ -115,7 +118,7 @@ export function buildMergeFlow(roots, selectedId) {
         source: rootIds[index - 1],
         target: rootIds[index],
         type: "smoothstep",
-        style: { stroke: "#64748b", strokeDasharray: "4 5", strokeWidth: 1.8 },
+        style: { stroke: colors.gray, strokeDasharray: "4 5", strokeWidth: 1.5 },
       });
     }
   }

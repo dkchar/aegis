@@ -106,7 +106,11 @@ node dist/index.js merge next
 npm run olympus:dev
 ```
 
-Open `http://127.0.0.1:4173/`. See [Olympus](olympus.md).
+Open `http://127.0.0.1:4173/` (design system gallery at `/design.html`). See [Olympus](olympus.md).
+
+```bash
+npm run olympus:screenshots   # regenerate docs/screenshots after npm run build
+```
 
 ## Seeded Mock Proof Commands
 

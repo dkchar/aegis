@@ -69,3 +69,4 @@
 | `logs/phases/` | one JSON file per loop event (`<timestamp>-<phase>-<issue>.json`); the daemon writes a per-cycle `_all` summary only when it differs from the previous cycle's, so an idle daemon adds no files |
 | `logs/sessions/` | session status reports |
 | `logs/session-streams/` | live, timestamped adapter activity per session |
+| `olympus-state.json` | in the checkout running Olympus: the workspace it last opened |

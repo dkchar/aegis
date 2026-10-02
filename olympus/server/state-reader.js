@@ -321,11 +321,11 @@ export async function readOlympusState(root, workspace = { root: "", seeded: fal
   const mergeQueue = readMergeQueue(root);
   const artifacts = readArtifacts(root);
   const phaseEntries = readRecentPhaseEntries(root, SESSION_PHASE_FILES);
-  const agents = readSessions(root, dispatchRecords, phaseEntries);
+  const runtime = config?.runtime || LIVE_ADAPTERS[0];
+  const agents = readSessions(root, dispatchRecords, phaseEntries, { runtime, models: config?.models ?? {} });
   const daemonLogs = tailLines(path.join(root, ".aegis", "logs", "daemon.log"))
     .filter((line) => !line.toLowerCase().includes("scripted"));
   const loopEvents = buildLoopEvents(phaseEntries);
-  const runtime = config?.runtime || LIVE_ADAPTERS[0];
   const daemon = readDaemon(root, config, loopEvents);
   return {
     generatedAt: new Date().toISOString(),

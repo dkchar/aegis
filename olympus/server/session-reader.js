@@ -222,6 +222,7 @@ function sessionFromTranscript(transcript, existing = null) {
     status,
     adapter: transcript.provider ?? existing?.adapter ?? "adapter",
     cwd: transcript.workingDirectory ?? existing?.cwd ?? "workspace",
+    scope: existing?.scope ?? [],
     activity: transcript.transcriptPath ?? existing?.activity ?? "transcript",
     model: transcript.modelId ?? existing?.model ?? "",
     usage: transcript.usage ?? existing?.usage ?? null,
@@ -230,7 +231,12 @@ function sessionFromTranscript(transcript, existing = null) {
   };
 }
 
-export function readSessions(root, records, phaseEntries = []) {
+/**
+ * Sessions from running dispatch records, transcripts, and session reports.
+ * `runtime` and `models` come from the workspace config so live sessions
+ * show their adapter and model before the first transcript exists.
+ */
+export function readSessions(root, records, phaseEntries = [], { runtime = "", models = {} } = {}) {
   const context = createActivityContext(root, phaseEntries);
   const sessionsById = new Map();
   const transcriptsBySessionId = readSessionTranscripts(root);
@@ -249,8 +255,10 @@ export function readSessions(root, records, phaseEntries = []) {
       issue: record.issueId,
       stage: record.stage,
       status: "running",
-      adapter: "adapter",
-      cwd: record.fileScope?.files?.join(", ") || "workspace",
+      adapter: runtime || "adapter",
+      ...(models[record.runningAgent.caste] ? { model: String(models[record.runningAgent.caste]).replace(/^[\w-]+:/, "") } : {}),
+      cwd: "labor worktree",
+      scope: record.fileScope?.files ?? [],
       activity: record.updatedAt ? `state updated ${record.updatedAt}` : "state active",
       lines: [],
     };

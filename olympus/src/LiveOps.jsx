@@ -1,24 +1,22 @@
 import { KeyboardSensor, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
-import { Accordion, SimpleGrid, Stack } from "@mantine/core";
 import { Activity } from "lucide-react";
 import { Screen } from "./Shell.jsx";
 import { LogDeck } from "./LogDeck.jsx";
-import { CompactSummary } from "./ui.jsx";
-import { deriveOpsSummaryItems } from "./supervisionModel.js";
+import { CollapsibleSection } from "./components/ui/index.js";
 import WorkspacePanel from "./liveOps/WorkspacePanel.jsx";
 import { HealthDeck, PhaseEventBoard } from "./liveOps/HealthPanels.jsx";
 import { TicketBoard } from "./liveOps/TicketBoard.jsx";
 
-export default function LiveOps({ state, boardTickets, counts, flow, draft, setDraft, addDraft, showDialog, setShowDialog, mutate }) {
+export default function LiveOps({ state, boardTickets, counts, draft, setDraft, addDraft, showDialog, setShowDialog, mutate }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
+  const eventCount = Object.values(state.loopEvents ?? {}).reduce((sum, events) => sum + events.length, 0);
 
   return (
     <Screen>
-      <CompactSummary icon={Activity} title="Ops Summary" items={deriveOpsSummaryItems(state, counts, flow)} />
       <WorkspacePanel state={state} mutate={mutate} />
       <TicketBoard
         state={state}
@@ -32,20 +30,15 @@ export default function LiveOps({ state, boardTickets, counts, flow, draft, setD
         mutate={mutate}
         sensors={sensors}
       />
-      <Accordion variant="separated">
-        <Accordion.Item value="health">
-          <Accordion.Control>Health and phase detail</Accordion.Control>
-          <Accordion.Panel>
-            <Stack gap="sm">
-              <SimpleGrid cols={{ base: 1, xl: 2 }}>
-                <PhaseEventBoard state={state} />
-                <HealthDeck state={state} />
-              </SimpleGrid>
-              <LogDeck logs={state.logs} compact />
-            </Stack>
-          </Accordion.Panel>
-        </Accordion.Item>
-      </Accordion>
+      <CollapsibleSection icon={Activity} title="Daemon events, run health, and logs" meta={`${eventCount} recent events`}>
+        <div className="grid gap-4">
+          <div className="grid gap-4 2xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+            <PhaseEventBoard state={state} />
+            <HealthDeck state={state} />
+          </div>
+          <LogDeck logs={state.logs} compact />
+        </div>
+      </CollapsibleSection>
     </Screen>
   );
 }

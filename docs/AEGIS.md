@@ -132,6 +132,7 @@ Scope:
 - logs/artifacts links
 - controls that route through deterministic orchestrator commands
 - editable `.aegis/config.json` settings through deterministic config writes
+- one in-repo design system (semantic tokens, headless accessible primitives, light and dark themes) with a living gallery, so every view shares status, caste, and layout language
 
 Non-goal:
 

@@ -1,24 +1,25 @@
-import { Code, Paper, Stack } from "@mantine/core";
 import { TerminalSquare } from "lucide-react";
 import { useEffect, useRef } from "react";
-import { EmptyState, SectionHead } from "./ui.jsx";
+import { EmptyState, SectionCard } from "./components/aegis.jsx";
+import { CodeBlock, cn } from "./components/ui/index.js";
 
 export function LogDeck({ logs, compact = false }) {
   return (
-    <Paper component="section" withBorder p="md">
-      <Stack gap="sm">
-        <SectionHead icon={TerminalSquare} title={compact ? "Live Terminal Logs" : "Logs"} detail="Operational output streams through server-sent events; no manual refresh required." />
-        {logs.length === 0 ? (
-          <EmptyState title="No daemon logs" detail="Daemon output starts streaming after Aegis starts." />
-        ) : (
-          <AutoLogPre logs={logs} compact={compact} />
-        )}
-      </Stack>
-    </Paper>
+    <SectionCard
+      icon={TerminalSquare}
+      title={compact ? "Live Terminal Logs" : "Logs"}
+      description="Daemon output streams over server-sent events; no refresh required."
+    >
+      {logs.length === 0 ? (
+        <EmptyState title="No daemon logs" detail="Daemon output starts streaming after Aegis starts." />
+      ) : (
+        <AutoScrollLog logs={logs} compact={compact} />
+      )}
+    </SectionCard>
   );
 }
 
-function AutoLogPre({ logs, compact }) {
+function AutoScrollLog({ logs, compact }) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -27,13 +28,8 @@ function AutoLogPre({ logs, compact }) {
   }, [logs]);
 
   return (
-    <Code
-      component="pre"
-      ref={ref}
-      block
-      className={`terminal-scroll ${compact ? "max-h-80 min-h-44" : "max-h-[32rem] min-h-72"} overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[var(--mantine-color-dark-9)] p-4 font-mono text-xs leading-relaxed`}
-    >
+    <CodeBlock ref={ref} className={cn(compact ? "max-h-72 min-h-40" : "max-h-[30rem] min-h-64")}>
       {logs.join("\n")}
-    </Code>
+    </CodeBlock>
   );
 }
