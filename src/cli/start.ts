@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { loadConfig } from "../config/load-config.js";
 import { runDaemonCycle as defaultRunDaemonCycle, runLoopPhase } from "../core/loop-runner.js";
+import { createCycleSummaryWriter } from "../core/phase-log.js";
 import {
   listRunningRecords,
   loadDispatchState,
@@ -250,9 +251,12 @@ export async function startAegis(
   let hasStopped = false;
   let cycleInFlight = false;
   const timers: NodeJS.Timeout[] = [];
+  // Idle cycles repeat the same summaries; log each one only when it changes.
+  const summaryLog = createCycleSummaryWriter();
   const runDaemonCycle = options.runDaemonCycle ?? ((candidateRoot: string) =>
     defaultRunDaemonCycle(candidateRoot, {
       sessionProvenanceId: String(process.pid),
+      summaryLog,
     }));
   const runCasteCommand = options.runCasteCommand ?? runLocalCasteCommand;
   const runMergeCommand = options.runMergeCommand ?? ((candidateRoot: string, action: RuntimeMergeAction) =>

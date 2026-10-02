@@ -2,6 +2,7 @@ import path from "node:path";
 import {
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -110,6 +111,36 @@ describe("runDaemonCycle", () => {
     const state = loadDispatchState(root);
     expect(state.records["ISSUE-DONE"]?.stage).toBe("complete");
     expect(state.records["ISSUE-OPEN"]?.stage).toBe("rework_required");
+  });
+
+  it("adds no phase files on repeated idle daemon cycles that share a summary writer", async () => {
+    const root = createTempRoot();
+    initProject(root);
+
+    vi.doMock("../../../src/tracker/create-tracker.js", () => ({
+      createTrackerClient: () => new class {
+        async listReadyIssues() {
+          return [];
+        }
+      }(),
+    }));
+
+    const { runDaemonCycle } = await import("../../../src/core/loop-runner.js");
+    const { createCycleSummaryWriter, resolvePhaseLogDirectory } = await import("../../../src/core/phase-log.js");
+    const countPhaseFiles = () => readdirSync(resolvePhaseLogDirectory(root)).length;
+    const summaryLog = createCycleSummaryWriter();
+
+    await runDaemonCycle(root, { summaryLog });
+    const afterFirstCycle = countPhaseFiles();
+    expect(afterFirstCycle).toBeGreaterThanOrEqual(5);
+
+    await runDaemonCycle(root, { summaryLog });
+    await runDaemonCycle(root, { summaryLog });
+    expect(countPhaseFiles()).toBe(afterFirstCycle);
+
+    // Without a shared writer (direct commands), every pass is still logged.
+    await runDaemonCycle(root);
+    expect(countPhaseFiles()).toBeGreaterThan(afterFirstCycle);
   });
 
   it("recovers failed policy-created blockers by expanding scope from durable Sentinel findings", async () => {

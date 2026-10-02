@@ -1,6 +1,6 @@
 import type { DispatchState } from "./dispatch-state.js";
 import type { AgentRuntime } from "../runtime/agent-runtime.js";
-import { writePhaseLog } from "./phase-log.js";
+import { writePhaseLog, writePhaseLogEntry, type PhaseLogWriter } from "./phase-log.js";
 
 export interface MonitorInput {
   dispatchState: DispatchState;
@@ -11,6 +11,8 @@ export interface MonitorInput {
   };
   root: string;
   now?: string;
+  /** Writer for the `_all` pass summary; defaults to always writing. */
+  writeSummaryLog?: PhaseLogWriter;
 }
 
 export interface MonitorResult {
@@ -102,7 +104,7 @@ export async function monitorActiveWork(input: MonitorInput): Promise<MonitorRes
     }
   }
 
-  writePhaseLog(input.root, {
+  (input.writeSummaryLog ?? writePhaseLogEntry)(input.root, {
     timestamp,
     phase: "monitor",
     issueId: "_all",
