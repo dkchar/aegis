@@ -1,4 +1,5 @@
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
+import path from "node:path";
 
 import { normalizeScopeFile } from "./file-scope.js";
 
@@ -20,6 +21,21 @@ export function formatGitOutput(result: GitResult) {
 export function isGitWorkingTree(workingDirectory: string) {
   const probe = runGit(workingDirectory, ["rev-parse", "--is-inside-work-tree"]);
   return probe.status === 0 && probe.stdout.trim() === "true";
+}
+
+/** True when `worktreePath` is registered as a worktree of the repository at `projectRoot`. */
+export function isRegisteredWorktree(projectRoot: string, worktreePath: string) {
+  const listed = runGit(projectRoot, ["worktree", "list", "--porcelain"]);
+  if (listed.status !== 0) {
+    return false;
+  }
+
+  const normalize = (candidate: string) => path.resolve(candidate).toLowerCase();
+  const expected = normalize(worktreePath);
+  return listed.stdout
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("worktree "))
+    .some((line) => normalize(line.slice("worktree ".length)) === expected);
 }
 
 /** Extracts the (post-rename) path from one `git status --porcelain` line. */

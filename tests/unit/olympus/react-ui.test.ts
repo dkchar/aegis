@@ -95,8 +95,8 @@ describe("Olympus React UI", () => {
     expect(packageJson.dependencies).toHaveProperty("react");
     expect(packageJson.dependencies).toHaveProperty("@dnd-kit/core");
     expect(packageJson.dependencies).toHaveProperty("@xterm/xterm");
-    expect(packageJson.dependencies).toHaveProperty("@xyflow/react");
-    expect(packageJson.dependencies).toHaveProperty("@dagrejs/dagre");
+    expect(packageJson.dependencies).not.toHaveProperty("@xyflow/react");
+    expect(packageJson.dependencies).not.toHaveProperty("@dagrejs/dagre");
     expect(packageJson.dependencies).toHaveProperty("motion");
     expect(packageJson.devDependencies).toHaveProperty("vite");
     expect(packageJson.devDependencies).toHaveProperty("@vitejs/plugin-react");
@@ -107,9 +107,8 @@ describe("Olympus React UI", () => {
   test("covers Aegis truth-plane display surfaces", () => {
     const app = readOlympusFile(path.join("src", "App.jsx"));
     const agentSessions = readOlympusFile(path.join("src", "AgentSessions.jsx"));
-    const chronos = readOlympusFile(path.join("src", "Chronos.jsx"));
-    const chronosGraph = readOlympusFile(path.join("src", "chronosGraph.js"));
-    const chronosNodes = readOlympusFile(path.join("src", "chronosNodes.jsx"));
+    const aether = readOlympusFile(path.join("src", "Aether.jsx"));
+    const aetherEngine = readOlympusFile(path.join("src", "aether", "engine.js"));
     const liveOps = readOlympusFile(path.join("src", "LiveOps.jsx"));
     const records = readOlympusFile(path.join("src", "Records.jsx"));
     const shell = readOlympusFile(path.join("src", "Shell.jsx"));
@@ -119,7 +118,7 @@ describe("Olympus React UI", () => {
     const ticketBoard = readOlympusFile(path.join("src", "liveOps", "TicketBoard.jsx"));
     const main = readOlympusFile(path.join("src", "main.jsx"));
     const state = readOlympusFile(path.join("src", "state.js"));
-    const uiSurface = `${app}\n${agentSessions}\n${chronos}\n${chronosGraph}\n${chronosNodes}\n${liveOps}\n${records}\n${shell}\n${logDeck}\n${workspacePanel}\n${healthPanels}\n${ticketBoard}`;
+    const uiSurface = `${app}\n${agentSessions}\n${aether}\n${liveOps}\n${records}\n${shell}\n${logDeck}\n${workspacePanel}\n${healthPanels}\n${ticketBoard}`;
     const requiredSurfaces = [
       "Daemon",
       "Agent Sessions",
@@ -132,22 +131,24 @@ describe("Olympus React UI", () => {
       "Run Health",
       "Daemon Events",
       "Terminal",
-      "Chronos",
-      "Flight Recorder",
+      "Aether",
+      "Signals",
     ];
 
     for (const surface of requiredSurfaces) {
       expect(uiSurface).toContain(surface);
     }
-    expect(app).not.toContain("function Chronos");
+    expect(app).not.toContain("function Aether");
     expect(app).not.toContain("function AgentSessions");
     expect(main).toContain("@fontsource-variable/geist");
-    expect(main).toContain('@xyflow/react/dist/style.css');
+    expect(main).not.toContain("@xyflow");
     expect(main).toContain("TooltipProvider");
-    expect(chronos).toContain("ReactFlow");
-    expect(chronosGraph).toContain("@dagrejs/dagre");
-    expect(chronosNodes).toContain("Handle");
-    expect(chronos).not.toContain("<svg");
+    expect(aether).toContain("<canvas");
+    expect(aether).toContain('role="img"');
+    expect(aether).toContain("prefers-reduced-motion");
+    expect(aetherEngine).toContain("requestAnimationFrame");
+    expect(aetherEngine).toContain("readPalette");
+    expect(app).toContain('addEventListener("events"');
     expect(app).toContain("EventSource");
     expect(logDeck).toContain("Live Terminal Logs");
     expect(workspacePanel).toContain("Workspace");
@@ -235,98 +236,27 @@ describe("Olympus React UI", () => {
     ]);
   });
 
-  test("builds Chronos timeline and merge tree from Aegis truth planes", async () => {
+  test("merges snapshot and live loop events by log offset", async () => {
     const stateModule = await import(path.join(root, "olympus", "src", "state.js"));
-    const base = stateModule.createOlympusState();
-    const state = {
-      ...base,
-      tickets: [
-        {
-          id: "AG-1",
-          title: "Build core",
-          body: "",
-          kind: "feature",
-          column: "ready_to_merge",
-          parent: null,
-          children: ["AG-2"],
-          blockedBy: [],
-          blocks: [],
-          scope: ["src/core.ts"],
-          updatedAt: "2026-05-26T10:00:00.000Z",
-        },
-        {
-          id: "AG-2",
-          title: "Fix gate",
-          body: "",
-          kind: "blocker",
-          column: "blocked",
-          parent: "AG-1",
-          children: [],
-          blockedBy: ["AG-3"],
-          blocks: [],
-          scope: ["src/gate.ts"],
-          updatedAt: "2026-05-26T10:01:00.000Z",
-        },
-      ],
-      dispatchRecords: [
-        {
-          issueId: "AG-1",
-          stage: "queued_for_merge",
-          runningAgent: { caste: "Titan", sessionId: "S-1" },
-          oracleAssessmentRef: ".aegis/oracle/AG-1.json",
-          titanHandoffRef: ".aegis/titan/AG-1.json",
-        },
-      ],
-      mergeQueue: [
-        {
-          id: "MQ-1",
-          issue: "AG-1",
-          state: "queued",
-          priority: "tier-1",
-          note: "aegis/AG-1 -> main",
-        },
-      ],
-      artifacts: [
-        {
-          id: "artifact-1",
-          issue: "AG-1",
-          kind: "titan artifact",
-          path: ".aegis/titan/AG-1.json",
-          status: "succeeded",
-          summary: "Implemented core",
-        },
-      ],
-      agents: [
-        {
-          id: "S-1",
-          issue: "AG-1",
-          caste: "Titan",
-          status: "running",
-          stage: "implementing",
-          activity: "editing",
-        },
-      ],
-      loopEvents: {
-        poll: [["10:02:00", "scan", "system status=pass", 1]],
-        triage: [],
-        dispatch: [["10:03:00", "launch", "AG-1 session=S-1", 2]],
-        monitor: [],
-        reap: [],
-      },
-      logs: ["[daemon] AG-1 queued", "[merge] AG-1 waiting"],
-    };
+    const entry = (seq: number, action: string) => ({ seq, phase: "dispatch", issueId: "AG-1", action, outcome: "running" });
+    const base = { ...stateModule.createOlympusState(), events: [entry(10, "a"), entry(20, "b")] };
 
-    const timeline = stateModule.buildChronosTimeline(state);
-    const tree = stateModule.buildChronosMergeTree(state);
+    const appended = stateModule.appendLiveEvents(base, { entries: [entry(20, "b"), entry(30, "c")] });
+    expect(appended.events.map((event: { seq: number }) => event.seq)).toEqual([10, 20, 30]);
 
-    expect(timeline.map((event: { source: string }) => event.source)).toEqual(
-      expect.arrayContaining(["agora", "dispatch", "merge", "artifact", "session", "phase", "log"]),
-    );
-    expect(timeline.some((event: { issue: string; lane: string }) => event.issue === "AG-1" && event.lane === "Titan")).toBe(true);
-    expect(tree.roots[0].id).toBe("AG-1");
-    expect(tree.roots[0].children[0].id).toBe("AG-2");
-    expect(tree.roots[0].mergeItems[0].id).toBe("MQ-1");
-    expect(tree.stats.blocked).toBe(1);
+    const hydrated = stateModule.hydrateOlympusState(appended, { events: [entry(5, "early"), entry(30, "c")] });
+    expect(hydrated.events.map((event: { seq: number }) => event.seq)).toEqual([5, 10, 20, 30]);
+
+    const switched = stateModule.hydrateOlympusState(hydrated, { workspace: { root: "/other", seeded: true }, events: [entry(7, "other log")] });
+    expect(switched.events.map((event: { action: string }) => event.action)).toEqual(["other log"]);
+
+    expect(stateModule.appendLiveEvents(appended, { entries: [] })).toBe(appended);
+    expect(stateModule.appendLiveEvents(appended, { entries: [entry(0, "new run")], reset: true }).events).toHaveLength(1);
+
+    const many = Array.from({ length: stateModule.LIVE_EVENT_LIMIT + 5 }, (_, index) => entry(index, "x"));
+    const capped = stateModule.mergeLiveEvents([], many);
+    expect(capped).toHaveLength(stateModule.LIVE_EVENT_LIMIT);
+    expect(capped[0].seq).toBe(5);
   });
 
   test("keeps config fields and Agora ticket fields editable in source", () => {

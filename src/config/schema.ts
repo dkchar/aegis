@@ -12,6 +12,7 @@ export const CONFIG_TOP_LEVEL_KEYS = [
   "janus",
   "labor",
   "git",
+  "merge",
 ] as const;
 
 export const MODEL_KEYS = CASTE_CONFIG_KEYS;
@@ -46,6 +47,7 @@ export const THRESHOLD_KEYS = [
 export const JANUS_KEYS = ["enabled", "max_invocations_per_issue"] as const;
 export const LABOR_KEYS = ["base_path"] as const;
 export const GIT_KEYS = ["base_branch"] as const;
+export const MERGE_KEYS = ["verify_command", "verify_idle_timeout_seconds"] as const;
 
 export const RUNTIME_STATE_FILES = [
   ".aegis/dispatch-state.json",
@@ -84,5 +86,10 @@ export interface AegisConfig {
   };
   git: {
     base_branch: string;
+  };
+  merge: {
+    /** Shell command run on each merge result before the target advances; empty disables it. */
+    verify_command: string;
+    verify_idle_timeout_seconds: number;
   };
 }

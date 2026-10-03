@@ -1,5 +1,5 @@
 import { AnimatePresence } from "motion/react";
-import { Clock, FileJson, LayoutDashboard, Settings2, TerminalSquare } from "lucide-react";
+import { FileJson, LayoutDashboard, Orbit, Settings2, TerminalSquare } from "lucide-react";
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { createOlympusTicket, loadOlympusState } from "./api.js";
 import { CountBadge, Kbd, Skeleton, Toast, Tooltip, cn } from "./components/ui/index.js";
@@ -17,6 +17,7 @@ import {
   tabs,
 } from "./Shell.jsx";
 import {
+  appendLiveEvents,
   columns,
   createOlympusState,
   emptyTicketDraft,
@@ -29,7 +30,7 @@ import { deriveBoardCounts, deriveDisplayTickets, deriveFlowSummary } from "./su
 import { useTheme } from "./theme.js";
 
 const AgentSessions = lazy(() => import("./AgentSessions.jsx"));
-const Chronos = lazy(() => import("./Chronos.jsx"));
+const Aether = lazy(() => import("./Aether.jsx"));
 const Config = lazy(() => import("./ConfigView.jsx"));
 const LiveOps = lazy(() => import("./LiveOps.jsx"));
 const Records = lazy(() => import("./Records.jsx"));
@@ -37,7 +38,7 @@ const Records = lazy(() => import("./Records.jsx"));
 const tabIcons = {
   live: LayoutDashboard,
   agents: TerminalSquare,
-  chronos: Clock,
+  aether: Orbit,
   records: FileJson,
   config: Settings2,
 };
@@ -104,6 +105,9 @@ export default function App() {
     stream.addEventListener("state", (event) => {
       if (!closed) setState((current) => hydrateOlympusState(current, JSON.parse(event.data)));
     });
+    stream.addEventListener("events", (event) => {
+      if (!closed) setState((current) => appendLiveEvents(current, JSON.parse(event.data)));
+    });
     stream.addEventListener("error", () => {
       if (!closed) setState((current) => markApiError(current, "Live event stream disconnected; retrying"));
     });
@@ -138,7 +142,7 @@ export default function App() {
       <Header state={state} mutate={mutate} theme={theme} nav={<ViewNav activeTab={activeTab} badges={tabBadges} />} />
       <div className="mx-auto grid max-w-[1880px] grid-cols-[minmax(0,1fr)] gap-4 px-4 py-4">
         <KpiStrip state={state} flow={flow} />
-        {state.runSummary?.complete && activeTab !== "chronos" && <SuccessBanner summary={state.runSummary} />}
+        {state.runSummary?.complete && activeTab !== "aether" && <SuccessBanner summary={state.runSummary} />}
         <Suspense fallback={<ViewSkeleton />}>
           <AnimatePresence mode="wait" initial={false}>
             {renderView(activeTab, { state, boardTickets, counts, flow, draft, setDraft, addDraft, showDialog, setShowDialog, mutate, theme: theme.theme })}
@@ -194,7 +198,7 @@ function ViewSkeleton() {
 function renderView(activeTab, props) {
   if (activeTab === "live") return <LiveOps key="live" {...props} />;
   if (activeTab === "agents") return <AgentSessions key="agents" state={props.state} mutate={props.mutate} />;
-  if (activeTab === "chronos") return <Chronos key="chronos" state={props.state} theme={props.theme} />;
+  if (activeTab === "aether") return <Aether key="aether" state={props.state} theme={props.theme} />;
   if (activeTab === "records") return <Records key="records" state={props.state} mutate={props.mutate} />;
   return <Config key="config" state={props.state} mutate={props.mutate} />;
 }

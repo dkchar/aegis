@@ -16,7 +16,7 @@ Open `http://127.0.0.1:4173/`. Select a workspace (an initialized Aegis project)
 
 - **Top bar**: workspace and branch, view navigation, daemon status (live indicator, uptime, pid), adapter, event-stream health, config gap badges, Start/Stop, refresh, and the theme toggle. Hover the daemon chip for the latest loop event. Start stays disabled until config is complete and saved.
 - **KPI strip**: executable-ticket progress, ready work, active sessions, blocked tickets, pending merge candidates, failures, and adapter-reported spend when available.
-- **Views**: Ops, Sessions, Chronos, Records, Config. Press `1`-`5` to switch; nav items show live counts (running sessions, failures, config gaps).
+- **Views**: Ops, Sessions, Aether, Records, Config. Press `1`-`5` to switch; nav items show live counts (running sessions, failures, config gaps).
 - **Theme**: system, light, or dark, cycled from the top bar and remembered per browser (`olympus.theme` in local storage). The saved theme is applied before first paint.
 
 ## Ops
@@ -31,11 +31,20 @@ Agent sessions grouped by caste and filterable by caste. The selected session re
 
 ![Olympus Sessions](screenshots/olympus-sessions.png)
 
-## Chronos
+## Aether
 
-The flight recorder: event order across tickets, dispatch, sessions, artifacts, merges, phases, and logs, filterable by lane, beside the Agora merge tree (parent links, ticket order, and status per node). Select a node to expand its detail. Both canvases follow the active theme.
+The live swarm map. Each caste is a station on one flow: Agora, Oracle, Titan, Sentinel, Merge, and the Trunk, with Janus, Blocked, and Attention below. Every executable ticket is a mote placed from its dispatch stage (Agora column when it has no record):
 
-![Olympus Chronos](screenshots/olympus-chronos.png)
+- A ticket an agent is working orbits close to its caste's station with a pulsing halo and an orbiting satellite (the agent); adapter activity throws sparks, red for tool errors.
+- A ticket waiting for the next caste sits on the station's outer ring; rework is outlined red.
+- When a stage changes, the mote flies along the route to its next station, leaving a trail.
+- Landed tickets spiral around the Trunk, whose ring shows landed out of total. Blocked tickets are tethered to the open tickets they wait on.
+
+Typed handoffs are the message layer. As the daemon appends loop events, each handoff travels its route as a packet (Oracle to Titan, Titan to Sentinel, Sentinel to the merge queue or back to Titan, merge to the Trunk or to Janus), launches ignite their ticket, failures and stuck kills send a red shockwave, and each poll pulses Agora. The **Signals** feed beside the map lists the same events as sentences, newest first; selecting one, or clicking a mote, opens the ticket's card with its stage, caste, latest activity, open blockers, and a link to its session terminal. Hovering a mote holds it still and names it.
+
+Pause freezes the animation, and the label toggle names every ticket instead of only live and failed ones. With reduced motion, nothing drifts or flies: motes move straight to their stations. Narrow screens turn the map vertical. Colors come from the design tokens, so both themes work.
+
+![Olympus Aether](screenshots/olympus-aether.png)
 
 ## Records
 
@@ -65,7 +74,7 @@ Olympus ships its own small design system; there is no third-party component kit
 
 Rules for new UI:
 
-- Use tokens through Tailwind classes (`bg-surface`, `text-muted-foreground`, `border-border`); never hard-code colors, so both themes keep working. Chronos node colors are the one exception (`chronosColors` in `chronosGraph.js`), chosen to read on both themes.
+- Use tokens through Tailwind classes (`bg-surface`, `text-muted-foreground`, `border-border`); never hard-code colors, so both themes keep working. Canvas views read the same tokens at runtime (`readPalette` in `aether/engine.js`).
 - Geist is the interface font and Geist Mono is for ids, paths, numbers, and terminals (bundled through Fontsource; no network fonts).
 - Icon-only buttons carry an `aria-label` and a tooltip. Failures announce with `role="alert"`, successes with `role="status"`.
 - Animations respect `prefers-reduced-motion`.
@@ -84,7 +93,7 @@ npm run olympus:dev    # then open http://127.0.0.1:4173/design.html
 
 ## Efficiency
 
-The event stream rebuilds a snapshot every 1.5 s but only sends it when something changed. JSON files are re-parsed only when their size or mtime changes, directory listings are cached until the directory changes, and log tails read only the end of the file. Views load lazily, so the terminal and graph libraries download only when Sessions or Chronos opens.
+The event stream carries two kinds of message. `state` is a full snapshot, rebuilt every 1.5 s and sent only when something changed. `events` carries loop events from `.aegis/logs/phases.jsonl` within 400 ms of being written: the server tails the log by byte offset, and each event's offset is its `seq`, so the client merges snapshot and live events without duplicates. JSON files are re-parsed only when their size or mtime changes, directory listings are cached until the directory changes, and log tails read only the end of the file. Views load lazily, so the terminal library and the Aether engine download only when Sessions or Aether opens.
 
 ## Control Boundaries
 

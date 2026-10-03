@@ -4,12 +4,13 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { LIVE_ADAPTERS } from "./adapters.js";
 import { flattenConfig, unflattenAndValidateConfig } from "./config-schema.js";
-import { readJson, readJsonBody, sendJson, writeJsonAtomic } from "./io.js";
-import { listModelOptions, readOlympusState } from "./state-reader.js";
+import { readJson, readJsonBody, readJsonLinesFrom, sendJson, writeJsonAtomic } from "./io.js";
+import { listModelOptions, readOlympusState, resolvePhaseLogPath } from "./state-reader.js";
 
 const COLUMNS = ["backlog", "ready", "in_progress", "in_review", "blocked", "ready_to_merge", "done", "halted"];
 const START_TIMEOUT_MS = 10_000;
 const EVENT_PUSH_MS = 1_500;
+const EVENT_TAIL_MS = 400;
 const EVENT_HEARTBEAT_MS = 15_000;
 const START_POLL_MS = 100;
 const OLYMPUS_STATE_FILE = path.join(".aegis", "olympus-state.json");
@@ -418,6 +419,11 @@ async function handleControl(projectRoot, runtimeState, req, res) {
   sendJson(res, 400, { error: `Unsupported control action: ${action}` });
 }
 
+/**
+ * Server-sent events: `state` carries a full snapshot when anything changed
+ * (checked every 1.5 s); `events` carries loop events as they are appended to
+ * `.aegis/logs/phases.jsonl`, tailed by byte offset every 400 ms.
+ */
 async function sendEvents(getRoot, projectRoot, req, res) {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
@@ -427,6 +433,13 @@ async function sendEvents(getRoot, projectRoot, req, res) {
   let closed = false;
   let lastPayload = "";
   let pushing = false;
+  const tail = { root: getRoot(), offset: currentLogSize(getRoot()) };
+
+  const send = (event, data) => {
+    if (closed) return;
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
 
   // Snapshots are rebuilt every tick but only sent when something changed.
   const push = async () => {
@@ -438,28 +451,51 @@ async function sendEvents(getRoot, projectRoot, req, res) {
       const payload = JSON.stringify(state);
       if (payload === lastPayload || closed) return;
       lastPayload = payload;
-      res.write("event: state\n");
-      res.write(`data: ${JSON.stringify({ ...state, generatedAt })}\n\n`);
+      send("state", { ...state, generatedAt });
     } catch (error) {
-      if (!closed) {
-        res.write("event: error\n");
-        res.write(`data: ${JSON.stringify({ message: error instanceof Error ? error.message : String(error) })}\n\n`);
-      }
+      send("error", { message: error instanceof Error ? error.message : String(error) });
     } finally {
       pushing = false;
     }
   };
 
+  const pushAppendedEvents = () => {
+    const root = getRoot();
+    if (root !== tail.root) {
+      // A workspace switch starts a different log; its snapshot replaces the client's events.
+      tail.root = root;
+      tail.offset = currentLogSize(root);
+      return;
+    }
+    try {
+      const { entries, offset, reset } = readJsonLinesFrom(resolvePhaseLogPath(root), tail.offset);
+      tail.offset = offset;
+      if (entries.length > 0 || reset) send("events", { entries, reset });
+    } catch (error) {
+      send("error", { message: error instanceof Error ? error.message : String(error) });
+    }
+  };
+
   const timer = setInterval(() => void push(), EVENT_PUSH_MS);
+  const eventTimer = setInterval(pushAppendedEvents, EVENT_TAIL_MS);
   const heartbeat = setInterval(() => {
     if (!closed) res.write(": keep-alive\n\n");
   }, EVENT_HEARTBEAT_MS);
   req.on("close", () => {
     closed = true;
     clearInterval(timer);
+    clearInterval(eventTimer);
     clearInterval(heartbeat);
   });
   await push();
+}
+
+function currentLogSize(root) {
+  try {
+    return statSync(resolvePhaseLogPath(root)).size;
+  } catch {
+    return 0;
+  }
 }
 
 export function olympusApiPlugin({ root = process.cwd() } = {}) {

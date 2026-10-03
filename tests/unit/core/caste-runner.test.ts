@@ -12,6 +12,7 @@ import { ScriptedCasteRuntime } from "../../../src/runtime/scripted-caste-runtim
 import type { CasteSessionResult } from "../../../src/runtime/caste-runtime.js";
 import type { AegisIssue } from "../../../src/tracker/issue-model.js";
 import { DEFAULT_AEGIS_CONFIG } from "../../../src/config/defaults.js";
+import { readPhaseLog } from "../../../src/core/phase-log.js";
 
 const tempRoots: string[] = [];
 
@@ -3233,15 +3234,7 @@ describe("runCasteCommand", () => {
       ],
     });
 
-    const phaseLogDirectory = path.join(root, ".aegis", "logs", "phases");
-    const phaseActions = readdirSync(phaseLogDirectory)
-      .map((fileName) =>
-        JSON.parse(readFileSync(path.join(phaseLogDirectory, fileName), "utf8")) as {
-          issueId: string;
-          action: string;
-          outcome: string;
-          detail?: string;
-        })
+    const phaseActions = readPhaseLog(root).entries
       .filter((entry) => entry.issueId === "aegis-1001");
 
     expect(phaseActions.some((entry) => entry.action === "sentinel_review_started")).toBe(true);
@@ -3818,15 +3811,7 @@ describe("runCasteCommand", () => {
       stage: "rework_required",
     });
 
-    const phaseLogDirectory = path.join(root, ".aegis", "logs", "phases");
-    const phaseActions = readdirSync(phaseLogDirectory)
-      .map((fileName) =>
-        JSON.parse(readFileSync(path.join(phaseLogDirectory, fileName), "utf8")) as {
-          issueId: string;
-          action: string;
-          outcome: string;
-          detail?: string;
-        })
+    const phaseActions = readPhaseLog(root).entries
       .filter((entry) => entry.issueId === "aegis-janus-1");
     const started = phaseActions.find((entry) => entry.action === "janus_resolution_started");
     const completed = phaseActions.find((entry) => entry.action === "janus_resolution_completed");

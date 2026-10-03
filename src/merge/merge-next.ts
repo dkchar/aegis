@@ -9,6 +9,7 @@ import {
 } from "../core/dispatch-state.js";
 import { validateDispatchRecordStage } from "../core/stage-invariants.js";
 import { applyOperationalFailure } from "../core/failure-policy.js";
+import { writePhaseLog } from "../core/phase-log.js";
 import type { AegisIssue } from "../tracker/issue-model.js";
 import type { TrackerClient } from "../tracker/tracker.js";
 import { createTrackerClient } from "../tracker/create-tracker.js";
@@ -24,6 +25,11 @@ import {
   classifyMergeTier,
   type MergeExecutionOutcome,
 } from "./tier-policy.js";
+import {
+  prepareIntegrationWorktree,
+  runMergeVerification,
+  type MergeVerification,
+} from "./integration-worktree.js";
 import { normalizeScopeFile } from "../shared/file-scope.js";
 import { formatGitOutput, runGit } from "../shared/git.js";
 
@@ -108,7 +114,8 @@ function parseScriptedMergePlan(raw: string): ScriptedMergePlan | null {
         if (
           (candidateOutcome.outcome !== "merged"
             && candidateOutcome.outcome !== "stale_branch"
-            && candidateOutcome.outcome !== "conflict")
+            && candidateOutcome.outcome !== "conflict"
+            && candidateOutcome.outcome !== "verification_failed")
           || typeof candidateOutcome.detail !== "string"
         ) {
           return [];
@@ -185,7 +192,13 @@ class ScriptedMergeExecutor implements MergeExecutor {
   }
 }
 
+/**
+ * Merges in the integration worktree, runs the configured verification on the
+ * result, and only then fast-forwards the target branch in the project root.
+ */
 class GitMergeExecutor implements MergeExecutor {
+  constructor(private readonly verification: MergeVerification | null) {}
+
   async execute(root: string, item: MergeQueueItem): Promise<MergeExecutorResult> {
     const rootWorkspace = captureGitProofPair(root).before;
     const dirtyWorkspaceDetail = summarizeOperationalDirtyFiles(rootWorkspace);
@@ -228,19 +241,51 @@ class GitMergeExecutor implements MergeExecutor {
       };
     }
 
-    const merge = runGit(root, ["merge", "--no-ff", "--no-edit", item.candidateBranch]);
-    if (merge.status === 0) {
+    let worktreePath: string;
+    try {
+      worktreePath = prepareIntegrationWorktree(root, targetProbe.stdout.trim());
+    } catch (error) {
+      return { outcome: "stale_branch", detail: toErrorMessage(error) };
+    }
+
+    const merge = runGit(worktreePath, [
+      "merge",
+      "--no-ff",
+      "-m",
+      `Merge branch '${item.candidateBranch}' into ${item.targetBranch}`,
+      item.candidateBranch,
+    ]);
+    if (merge.status !== 0) {
+      void runGit(worktreePath, ["merge", "--abort"]);
+      const detail = formatGitOutput(merge) || "Merge failed.";
       return {
-        outcome: "merged",
-        detail: formatGitOutput(merge) || "Merged cleanly.",
+        outcome: /CONFLICT/i.test(detail) ? "conflict" : "stale_branch",
+        detail,
+      };
+    }
+    const mergeDetail = formatGitOutput(merge) || "Merged cleanly.";
+
+    let verificationDetail = "";
+    if (this.verification) {
+      const verified = await runMergeVerification(worktreePath, this.verification);
+      if (!verified.passed) {
+        return { outcome: "verification_failed", detail: verified.detail };
+      }
+      verificationDetail = `\n${verified.detail.split("\n")[0]}`;
+    }
+
+    const mergedCommit = runGit(worktreePath, ["rev-parse", "HEAD"]).stdout.trim();
+    const advance = runGit(root, ["merge", "--ff-only", mergedCommit]);
+    if (advance.status !== 0) {
+      return {
+        outcome: "stale_branch",
+        detail: `Could not fast-forward ${item.targetBranch} to the merge result: ${formatGitOutput(advance) || "target moved"}.`,
       };
     }
 
-    void runGit(root, ["merge", "--abort"]);
-    const detail = formatGitOutput(merge) || "Merge failed.";
     return {
-      outcome: /CONFLICT/i.test(detail) ? "conflict" : "stale_branch",
-      detail,
+      outcome: "merged",
+      detail: `${mergeDetail}${verificationDetail}`,
     };
   }
 }
@@ -250,7 +295,12 @@ function createDefaultExecutor(config: AegisConfig): MergeExecutor {
   return config.runtime === "scripted"
     || scriptedPlanOverride
     ? new ScriptedMergeExecutor()
-    : new GitMergeExecutor();
+    : new GitMergeExecutor(config.merge.verify_command.trim()
+      ? {
+        command: config.merge.verify_command.trim(),
+        idleTimeoutSeconds: config.merge.verify_idle_timeout_seconds,
+      }
+      : null);
 }
 
 function createDefaultTracker(): TrackerLike {
@@ -286,7 +336,7 @@ function toErrorMessage(error: unknown) {
 }
 
 function toFailureOutcome(outcome: MergeExecutionOutcome): MergeFailureOutcome {
-  return outcome === "conflict" ? "conflict" : "stale_branch";
+  return outcome === "conflict" || outcome === "verification_failed" ? outcome : "stale_branch";
 }
 
 function findActiveTitanDirtyOwners(
@@ -341,11 +391,38 @@ function failInvalidQueueItem(
   };
 }
 
+/**
+ * Attempts the next queued candidate and records each attempt that settles
+ * in the loop event log. Waiting on active scoped work is not an attempt.
+ */
 export async function runMergeNext(
   root: string,
   options: RunMergeNextOptions = {},
 ): Promise<MergeNextResult> {
   const now = options.now ?? new Date().toISOString();
+  const result = await attemptMergeNext(root, now, options);
+  if (result.issueId && (result.tier || result.status === "failed" || result.status === "merged")) {
+    writePhaseLog(root, {
+      timestamp: now,
+      phase: "merge",
+      issueId: result.issueId,
+      action: "merge_candidate",
+      outcome: result.status,
+      detail: JSON.stringify({
+        queueItemId: result.queueItemId,
+        tier: result.tier ?? null,
+        stage: result.stage ?? null,
+      }),
+    });
+  }
+  return result;
+}
+
+async function attemptMergeNext(
+  root: string,
+  now: string,
+  options: RunMergeNextOptions,
+): Promise<MergeNextResult> {
   const queueState = loadMergeQueueState(root);
   const queueItem = findNextQueuedItem(queueState, options.skipQueueItemIds);
 

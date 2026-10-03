@@ -81,6 +81,8 @@ Merge decisions are mechanical:
 - merge queue item is valid
 - integration succeeds or routes to Janus
 
+Verify, then advance: each candidate merges in the integration worktree (`.aegis/integration/`, detached at the target tip), never in the project root. When `merge.verify_command` is set it runs on that merge result. The root only fast-forwards the target branch to a result that merged cleanly and passed verification, so it never holds a half-merged or unverified tree. A failed verification is a `verification_failed` outcome: it requeues like a conflict (another candidate landing may fix it) and escalates to Janus at T3 with the command's output in `lastError`. The worktree keeps ignored files such as installed dependencies between merges.
+
 Each daemon cycle drains the merge queue: every queued item is attempted at most once per pass, fewest attempts first, so a requeued candidate never blocks fresh ones. A merge executor error marks the queue item failed and the issue `failed_operational` with retry accounting; nothing is left stranded in `merging`. A queue item whose dispatch record is missing or out of stage fails closed instead of stalling the queue. Candidates that pass Sentinel again are re-queued automatically.
 
 T3 escalation never runs model work inside the merge step. The issue moves to `resolving_integration` and the queue item settles as failed with `lastOutcome` and `lastError`. The daemon then launches Janus as an adapter session within `max_janus`; Janus reads its merge context from the queue item, and the reaper settles its outcome (rework, blocker, or `failed_operational` on session failure). Without a daemon, `aegis process <issue>` runs the escalated Janus directly.

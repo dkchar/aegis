@@ -14,11 +14,11 @@
 
 ![Olympus Sessions, light theme](screenshots/olympus-sessions-light.png)
 
-## Chronos
+## Aether
 
-![Olympus Chronos](screenshots/olympus-chronos.png)
+![Olympus Aether](screenshots/olympus-aether.png)
 
-![Olympus Chronos, light theme](screenshots/olympus-chronos-light.png)
+![Olympus Aether, light theme](screenshots/olympus-aether-light.png)
 
 ## Records
 

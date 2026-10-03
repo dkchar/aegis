@@ -9,8 +9,6 @@ export const columns = [
   "halted",
 ];
 
-export { buildChronosMergeTree, buildChronosTimeline } from "./chronosModel.js";
-
 export const columnLabels = {
   backlog: "Backlog",
   ready: "Ready",
@@ -24,7 +22,7 @@ export const columnLabels = {
 
 export const kinds = ["feature", "bug", "task", "blocker", "gate", "review_fix"];
 export const actors = ["human", "agent", "system", "aegis"];
-export const phases = ["poll", "triage", "dispatch", "monitor", "reap"];
+export const phases = ["poll", "triage", "dispatch", "monitor", "reap", "merge"];
 export const adapterOptions = ["claude", "codex", "pi"];
 export const thinkingOptions = ["off", "low", "medium", "high"];
 
@@ -67,6 +65,8 @@ export const configMeta = {
   "thresholds.janus_retry_threshold": { section: "Thresholds", control: "number", min: 1, max: 10, required: true, description: "Merge retries before Janus is invoked." },
   "janus.enabled": { section: "Janus", control: "boolean", required: true },
   "janus.max_invocations_per_issue": { section: "Janus", control: "number", min: 1, max: 10, required: true },
+  "merge.verify_command": { section: "Merge", control: "text", required: false, description: "Shell command run in the integration worktree on each merge result, for example `npm ci && npm run build`. Empty skips verification." },
+  "merge.verify_idle_timeout_seconds": { section: "Merge", control: "number", min: 1, max: 86400, required: true, description: "Verification is stopped after this long without output." },
   "labor.base_path": { section: "Paths", control: "text", required: true, description: "Where labor worktrees are created." },
   "git.base_branch": { section: "Paths", control: "text", required: true },
   AEGIS_PI_SESSION_TIMEOUT_MS: { section: "Adapter", adapter: "pi", control: "number", min: 1000, max: 86400000, required: false },
@@ -105,6 +105,8 @@ export const settings = Object.entries({
   "thresholds.janus_retry_threshold": "2",
   "janus.enabled": "true",
   "janus.max_invocations_per_issue": "1",
+  "merge.verify_command": "",
+  "merge.verify_idle_timeout_seconds": "600",
   "labor.base_path": ".aegis/labors",
   "git.base_branch": "main",
   AEGIS_PI_SESSION_TIMEOUT_MS: "",
@@ -153,6 +155,7 @@ export function createOlympusState() {
     artifacts: [],
     healthChecks: [],
     loopEvents: Object.fromEntries(phases.map((phase) => [phase, []])),
+    events: [],
     logs: [],
     agents: [],
     mergeQueue: [],
@@ -180,6 +183,7 @@ export function hydrateOlympusState(state, payload) {
     ...(payload.dispatchRecords ? { dispatchRecords: payload.dispatchRecords } : {}),
     ...(payload.logs ? { logs: payload.logs } : {}),
     ...(payload.loopEvents ? { loopEvents: payload.loopEvents } : {}),
+    ...(payload.events ? { events: mergeLiveEvents(isSameWorkspace(state, payload) ? state.events : [], payload.events) } : {}),
     ...(payload.healthChecks ? { healthChecks: payload.healthChecks } : {}),
     ...(payload.workspace ? { workspace: payload.workspace } : {}),
     ...(payload.runSummary ? { runSummary: payload.runSummary } : {}),
@@ -193,6 +197,28 @@ export function hydrateOlympusState(state, payload) {
     apiMessage: payload.configFilePresent === false ? "Configuration file not found" : "Live event stream connected",
     lastRefreshAt: payload.generatedAt ?? new Date().toISOString(),
   };
+}
+
+export const LIVE_EVENT_LIMIT = 160;
+
+// Event `seq` values are offsets into one workspace's log, so they only merge within it.
+function isSameWorkspace(state, payload) {
+  return !payload.workspace || (payload.workspace.root ?? "") === (state.workspace?.root ?? "");
+}
+
+/** Union of two loop-event lists by `seq` (byte offset in the log), oldest first, capped. */
+export function mergeLiveEvents(current = [], incoming = []) {
+  const bySeq = new Map(current.map((entry) => [entry.seq, entry]));
+  for (const entry of incoming) {
+    if (Number.isFinite(entry?.seq)) bySeq.set(entry.seq, entry);
+  }
+  return [...bySeq.values()].sort((left, right) => left.seq - right.seq).slice(-LIVE_EVENT_LIMIT);
+}
+
+/** Applies an `events` push from the live stream; `reset` means a new log replaced the old one. */
+export function appendLiveEvents(state, { entries = [], reset = false } = {}) {
+  if (!reset && entries.length === 0) return state;
+  return { ...state, events: mergeLiveEvents(reset ? [] : state.events, entries) };
 }
 
 export function markApiConnected(state) {

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 
-import { formatGitOutput, runGit } from "../shared/git.js";
+import { formatGitOutput, isRegisteredWorktree, runGit } from "../shared/git.js";
 
 export interface LaborGitCommand {
   command: string;
@@ -66,23 +66,6 @@ export function planLaborCreation(request: LaborCreationRequest): LaborCreationP
   };
 }
 
-function normalizePath(candidate: string) {
-  return path.resolve(candidate).toLowerCase();
-}
-
-function isKnownWorktreePath(projectRoot: string, laborPath: string) {
-  const listed = runGit(projectRoot, ["worktree", "list", "--porcelain"]);
-  if (listed.status !== 0) {
-    return false;
-  }
-
-  const expected = normalizePath(laborPath);
-  return listed.stdout
-    .split(/\r?\n/)
-    .filter((line) => line.startsWith("worktree "))
-    .some((line) => normalizePath(line.slice("worktree ".length)) === expected);
-}
-
 function resolveWorktreeGitDirectory(laborPath: string) {
   const commonGitDirectory = runGit(laborPath, ["rev-parse", "--git-common-dir"]);
   if (commonGitDirectory.status === 0) {
@@ -144,7 +127,7 @@ function ensureLaborGitInfoExcludes(laborPath: string) {
 }
 
 export function prepareLaborWorktree(plan: LaborCreationPlan) {
-  if (isKnownWorktreePath(plan.projectRoot, plan.laborPath)) {
+  if (isRegisteredWorktree(plan.projectRoot, plan.laborPath)) {
     if (plan.refreshExisting) {
       const reset = runGit(plan.laborPath, ["reset", "--hard", plan.baseBranch]);
       if (reset.status !== 0) {

@@ -6,7 +6,7 @@ import { writeJsonAtomic } from "../shared/atomic-write.js";
 export type MergeQueueItemStatus = "queued" | "merging" | "merged" | "failed";
 export type MergeTier = "T1" | "T2" | "T3";
 /** Failed merge executor outcome recorded for Janus context. */
-export type MergeFailureOutcome = "stale_branch" | "conflict";
+export type MergeFailureOutcome = "stale_branch" | "conflict" | "verification_failed";
 
 export interface MergeQueueItem {
   queueItemId: string;
@@ -71,7 +71,8 @@ function assertMergeQueueItem(value: unknown): MergeQueueItem {
   const validOutcome = item["lastOutcome"] === undefined
     || item["lastOutcome"] === null
     || item["lastOutcome"] === "stale_branch"
-    || item["lastOutcome"] === "conflict";
+    || item["lastOutcome"] === "conflict"
+    || item["lastOutcome"] === "verification_failed";
 
   if (
     typeof item["queueItemId"] !== "string"

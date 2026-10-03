@@ -13,6 +13,7 @@ import {
   THINKING_LEVELS,
   THRESHOLD_KEYS,
   GIT_KEYS,
+  MERGE_KEYS,
 } from "./schema.js";
 import type { AegisConfig, AegisThinkingLevel } from "./schema.js";
 
@@ -188,6 +189,17 @@ export function validatePartialConfig(config: unknown): asserts config is Partia
       assertString(config.git.base_branch, "git.base_branch");
     }
   }
+
+  if ("merge" in config) {
+    assertRecord(config.merge, "merge");
+    validateKnownKeys(config.merge, "merge", MERGE_KEYS);
+    if ("verify_command" in config.merge) {
+      assertString(config.merge.verify_command, "merge.verify_command");
+    }
+    if ("verify_idle_timeout_seconds" in config.merge) {
+      assertNumberAtLeast(config.merge.verify_idle_timeout_seconds, "merge.verify_idle_timeout_seconds", 1);
+    }
+  }
 }
 
 export function mergeConfig(config: PartialConfig): AegisConfig {
@@ -221,6 +233,10 @@ export function mergeConfig(config: PartialConfig): AegisConfig {
     git: {
       ...DEFAULT_AEGIS_CONFIG.git,
       ...config.git,
+    },
+    merge: {
+      ...DEFAULT_AEGIS_CONFIG.merge,
+      ...config.merge,
     },
   };
 }
@@ -262,6 +278,10 @@ export function applyConfigPatch(
     git: {
       ...current.git,
       ...partial.git,
+    },
+    merge: {
+      ...current.merge,
+      ...partial.merge,
     },
   };
 }

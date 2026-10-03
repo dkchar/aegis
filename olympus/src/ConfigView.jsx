@@ -1,4 +1,4 @@
-import { Cpu, Gauge, GitBranch, Layers, Save, Settings2, ShieldHalf, TimerReset, Workflow } from "lucide-react";
+import { Cpu, Gauge, GitBranch, GitMerge, Layers, Save, Settings2, ShieldHalf, TimerReset, Workflow } from "lucide-react";
 import { useEffect } from "react";
 import { loadModelOptions, loadOlympusState, saveOlympusConfig } from "./api.js";
 import { CasteIcon, SectionCard, casteMeta } from "./components/aegis.jsx";
@@ -21,6 +21,7 @@ const configSections = [
   ["Concurrency", Layers, "Session caps across the swarm and per caste."],
   ["Thresholds", Gauge, "Loop cadence, stuck-session limits, and routing policy."],
   ["Janus", Workflow, "Merge-boundary escalation."],
+  ["Merge", GitMerge, "Verification run on each merge result before the target branch advances."],
   ["Paths", GitBranch, "Labor worktrees and the integration branch."],
   ["Adapter", ShieldHalf, "Environment overrides for the selected adapter."],
 ];

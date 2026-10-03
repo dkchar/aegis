@@ -3,17 +3,18 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { LIVE_ADAPTERS, listModelOptions } from "./adapters.js";
 import { CASTES, flattenConfig } from "./config-schema.js";
-import { readJson, readText, tailLines } from "./io.js";
+import { readJson, readText, tailJsonLines, tailLines } from "./io.js";
 import { readSessions } from "./session-reader.js";
 
 export { listModelOptions };
 
-const PHASES = ["poll", "triage", "dispatch", "monitor", "reap"];
+const PHASES = ["poll", "triage", "dispatch", "monitor", "reap", "merge"];
 const ARTIFACT_FAMILIES = ["artifacts", "oracle", "titan", "sentinel", "janus", "policy", "transcripts"];
 const ARTIFACTS_PER_FAMILY = 20;
 const ARTIFACT_BODY_CHARS = 4_000;
-const LOOP_EVENT_FILES = 120;
-const SESSION_PHASE_FILES = 240;
+const LOOP_EVENT_ENTRIES = 120;
+const SESSION_PHASE_ENTRIES = 240;
+const LIVE_EVENT_ENTRIES = 80;
 const GIT_BRANCH_TTL_MS = 5_000;
 
 const directoryCache = new Map();
@@ -198,19 +199,19 @@ function extractEventMessage(value) {
   return null;
 }
 
-/** Newest phase log entries, oldest first; shared by loop events and session activity. */
+export function resolvePhaseLogPath(root) {
+  return path.join(root, ".aegis", "logs", "phases.jsonl");
+}
+
+/** Newest phase log entries in log order, each with its byte offset as `seq`. */
 function readRecentPhaseEntries(root, maxEntries) {
-  const phaseDir = path.join(root, ".aegis", "logs", "phases");
-  return listJsonFiles(phaseDir)
-    .slice(-maxEntries)
-    .map((fileName) => readJson(path.join(phaseDir, fileName), null))
-    .filter((entry) => entry?.phase && entry?.action)
-    .sort((left, right) => Date.parse(left.timestamp ?? "") - Date.parse(right.timestamp ?? ""));
+  return tailJsonLines(resolvePhaseLogPath(root), maxEntries).entries
+    .filter((entry) => entry?.phase && entry?.action);
 }
 
 function buildLoopEvents(phaseEntries) {
   const events = Object.fromEntries(PHASES.map((phase) => [phase, []]));
-  for (const entry of phaseEntries.slice(-LOOP_EVENT_FILES)) {
+  for (const entry of phaseEntries.slice(-LOOP_EVENT_ENTRIES)) {
     if (!PHASES.includes(entry.phase)) continue;
     const epoch = entry.timestamp ? Date.parse(entry.timestamp) : 0;
     const time = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString([], { hour12: false }) : "";
@@ -320,7 +321,7 @@ export async function readOlympusState(root, workspace = { root: "", seeded: fal
   const dispatchRecords = readDispatchRecords(root);
   const mergeQueue = readMergeQueue(root);
   const artifacts = readArtifacts(root);
-  const phaseEntries = readRecentPhaseEntries(root, SESSION_PHASE_FILES);
+  const phaseEntries = readRecentPhaseEntries(root, SESSION_PHASE_ENTRIES);
   const runtime = config?.runtime || LIVE_ADAPTERS[0];
   const agents = readSessions(root, dispatchRecords, phaseEntries, { runtime, models: config?.models ?? {} });
   const daemonLogs = tailLines(path.join(root, ".aegis", "logs", "daemon.log"))
@@ -342,6 +343,7 @@ export async function readOlympusState(root, workspace = { root: "", seeded: fal
     agents,
     logs: daemonLogs,
     loopEvents,
+    events: phaseEntries.slice(-LIVE_EVENT_ENTRIES),
     healthChecks: buildHealth(root, tickets, mergeQueue, artifacts, agents, dispatchRecords),
   };
 }

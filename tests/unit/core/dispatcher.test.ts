@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { emptyDispatchState } from "../../../src/core/dispatch-state.js";
 import { dispatchReadyWork } from "../../../src/core/dispatcher.js";
 import type { AgentRuntime } from "../../../src/runtime/agent-runtime.js";
+import { readPhaseLog } from "../../../src/core/phase-log.js";
 
 function createRuntime(): AgentRuntime {
   return {
@@ -338,16 +339,9 @@ describe("dispatchReadyWork", () => {
       now: timestamp,
     });
 
-    const logPath = path.join(
-      root,
-      ".aegis",
-      "logs",
-      "phases",
-      "2026-04-14T12-00-00.000Z-dispatch-_all.json",
-    );
-
-    expect(existsSync(logPath)).toBe(true);
-    expect(JSON.parse(readFileSync(logPath, "utf8"))).toMatchObject({
+    const summary = readPhaseLog(root).entries.find((entry) =>
+      entry.phase === "dispatch" && entry.issueId === "_all");
+    expect(summary).toMatchObject({
       phase: "dispatch",
       issueId: "_all",
     });

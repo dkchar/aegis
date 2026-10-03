@@ -12,20 +12,12 @@ const tempRoots: string[] = [];
 function createTempRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "aegis-stream-"));
   tempRoots.push(root);
-  mkdirSync(path.join(root, ".aegis", "logs", "phases"), { recursive: true });
+  mkdirSync(path.join(root, ".aegis", "logs"), { recursive: true });
   return root;
 }
 
-function writePhaseFile(
-  root: string,
-  filename: string,
-  entry: object,
-) {
-  writeFileSync(
-    path.join(root, ".aegis", "logs", "phases", filename),
-    `${JSON.stringify(entry, null, 2)}\n`,
-    "utf8",
-  );
+function appendPhaseLine(root: string, entry: object) {
+  appendFileSync(path.join(root, ".aegis", "logs", "phases.jsonl"), `${JSON.stringify(entry)}\n`, "utf8");
 }
 
 afterEach(() => {
@@ -35,12 +27,12 @@ afterEach(() => {
 });
 
 describe("streamDaemonView", () => {
-  it("streams new daemon and phase entries while skipping historical files", async () => {
+  it("streams new daemon and phase entries while skipping historical entries", async () => {
     const root = createTempRoot();
     const daemonLogPath = path.join(root, ".aegis", "logs", "daemon.log");
     writeFileSync(daemonLogPath, "old-line\n", "utf8");
 
-    writePhaseFile(root, "old.json", {
+    appendPhaseLine(root, {
       timestamp: "2026-04-19T16:00:00.000Z",
       phase: "poll",
       issueId: "_all",
@@ -72,7 +64,7 @@ describe("streamDaemonView", () => {
           "old-line\n2026-04-19T16:00:05.000Z [daemon][heartbeat] mode=auto\n",
           "utf8",
         );
-        writePhaseFile(root, "new.json", {
+        appendPhaseLine(root, {
           timestamp: "2026-04-19T16:00:05.000Z",
           phase: "dispatch",
           issueId: "aegis-1",
@@ -155,7 +147,7 @@ describe("streamDaemonView", () => {
         lines.push(line);
       },
       sleep: async () => {
-        writePhaseFile(root, "janus-started.json", {
+        appendPhaseLine(root, {
           timestamp: "2026-04-19T16:10:00.000Z",
           phase: "dispatch",
           issueId: "aegis-janus-1",
@@ -170,7 +162,7 @@ describe("streamDaemonView", () => {
             janusInvocation: 1,
           }),
         });
-        writePhaseFile(root, "janus-completed.json", {
+        appendPhaseLine(root, {
           timestamp: "2026-04-19T16:10:03.000Z",
           phase: "dispatch",
           issueId: "aegis-janus-1",
@@ -207,15 +199,11 @@ describe("streamDaemonView", () => {
         lines.push(line);
       },
       sleep: async () => {
-        writeFileSync(
-          path.join(root, ".aegis", "logs", "phases", "invalid.json"),
-          "{\"bad\":true}\n",
-          "utf8",
-        );
+        appendFileSync(path.join(root, ".aegis", "logs", "phases.jsonl"), "{\"bad\":true}\n", "utf8");
       },
     });
 
-    expect(lines.some((line) => line.includes("[phase] invalid_entry file=invalid.json"))).toBe(true);
+    expect(lines.some((line) => line.includes("[phase] invalid_entry line={\"bad\":true}"))).toBe(true);
   });
 });
 

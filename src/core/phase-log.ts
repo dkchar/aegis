@@ -1,8 +1,7 @@
+import { appendFileSync, closeSync, mkdirSync, openSync, readSync, statSync } from "node:fs";
 import path from "node:path";
 
-import { createJsonExclusive } from "../shared/atomic-write.js";
-
-export type PhaseName = "poll" | "triage" | "dispatch" | "monitor" | "reap";
+export type PhaseName = "poll" | "triage" | "dispatch" | "monitor" | "reap" | "merge";
 
 export interface PhaseLogEntry {
   timestamp: string;
@@ -14,26 +13,27 @@ export interface PhaseLogEntry {
   detail?: string;
 }
 
-export function resolvePhaseLogDirectory(root: string) {
-  return path.join(path.resolve(root), ".aegis", "logs", "phases");
+export interface PhaseLogRead {
+  entries: PhaseLogEntry[];
+  /** Byte offset after the last complete line; pass back to read only newer entries. */
+  offset: number;
 }
 
-function sanitizeFileNamePart(value: string) {
-  return value.replace(/[^a-zA-Z0-9._-]/g, "-");
-}
+const PHASE_NAMES: ReadonlySet<string> = new Set<PhaseName>(["poll", "triage", "dispatch", "monitor", "reap", "merge"]);
 
 /**
- * Persists one phase event as `<timestamp>-<phase>-<issue>.json`. Names are
- * timestamp-sortable; entries that share a name get a `~N` suffix instead of
- * overwriting each other.
+ * The loop event log: one JSON object per line, appended in write order.
+ * Append-only, so a reader's byte offset is a durable cursor.
  */
+export function resolvePhaseLogPath(root: string) {
+  return path.join(path.resolve(root), ".aegis", "logs", "phases.jsonl");
+}
+
 export function writePhaseLog(root: string, entry: PhaseLogEntry) {
-  const fileName = [
-    entry.timestamp.replaceAll(":", "-"),
-    entry.phase,
-    sanitizeFileNamePart(entry.issueId),
-  ].join("-");
-  return createJsonExclusive(path.join(resolvePhaseLogDirectory(root), `${fileName}.json`), entry);
+  const logPath = resolvePhaseLogPath(root);
+  mkdirSync(path.dirname(logPath), { recursive: true });
+  // One write per line: O_APPEND keeps concurrent lines whole and ordered.
+  appendFileSync(logPath, `${JSON.stringify(entry)}\n`, "utf8");
 }
 
 export type PhaseLogWriter = (root: string, entry: PhaseLogEntry) => void;
@@ -45,7 +45,7 @@ export const writePhaseLogEntry: PhaseLogWriter = (root, entry) => {
 /**
  * Writer for the daemon's per-cycle `_all` summaries. A summary identical to
  * the previous one for the same phase and action is skipped, so an idle daemon
- * stops adding files every poll while every change is still recorded.
+ * stops growing the log every poll while every change is still recorded.
  * Issue-level events never go through this writer.
  */
 export function createCycleSummaryWriter(): PhaseLogWriter {
@@ -59,4 +59,82 @@ export function createCycleSummaryWriter(): PhaseLogWriter {
     lastSummaryByKey.set(key, summary);
     writePhaseLog(root, entry);
   };
+}
+
+/** Validates one parsed log line; malformed lines yield `null`. */
+export function parsePhaseLogEntry(value: unknown): PhaseLogEntry | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  if (
+    typeof candidate["timestamp"] !== "string"
+    || typeof candidate["phase"] !== "string"
+    || !PHASE_NAMES.has(candidate["phase"])
+    || typeof candidate["issueId"] !== "string"
+    || typeof candidate["action"] !== "string"
+    || typeof candidate["outcome"] !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    timestamp: candidate["timestamp"],
+    phase: candidate["phase"] as PhaseName,
+    issueId: candidate["issueId"],
+    action: candidate["action"],
+    outcome: candidate["outcome"],
+    ...(typeof candidate["sessionId"] === "string" ? { sessionId: candidate["sessionId"] } : {}),
+    ...(typeof candidate["detail"] === "string" ? { detail: candidate["detail"] } : {}),
+  };
+}
+
+function parseLine(line: string) {
+  try {
+    return parsePhaseLogEntry(JSON.parse(line));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reads complete entries appended after `fromOffset`. A trailing line still
+ * being written is left for the next read; a log shorter than `fromOffset`
+ * (truncated or replaced) is read from the start.
+ */
+export function readPhaseLog(root: string, fromOffset = 0): PhaseLogRead {
+  const logPath = resolvePhaseLogPath(root);
+  let size: number;
+  try {
+    size = statSync(logPath).size;
+  } catch {
+    return { entries: [], offset: 0 };
+  }
+
+  const start = size < fromOffset ? 0 : fromOffset;
+  if (size === start) {
+    return { entries: [], offset: start };
+  }
+
+  const buffer = Buffer.alloc(size - start);
+  const fd = openSync(logPath, "r");
+  try {
+    readSync(fd, buffer, 0, buffer.length, start);
+  } finally {
+    closeSync(fd);
+  }
+
+  const lastNewline = buffer.lastIndexOf(0x0a);
+  if (lastNewline === -1) {
+    return { entries: [], offset: start };
+  }
+
+  const entries = buffer
+    .toString("utf8", 0, lastNewline)
+    .split(/\r?\n/)
+    .filter((line) => line.trim().length > 0)
+    .map(parseLine)
+    .filter((entry): entry is PhaseLogEntry => entry !== null);
+  return { entries, offset: start + lastNewline + 1 };
 }

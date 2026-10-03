@@ -30,4 +30,8 @@ export const DEFAULT_AEGIS_CONFIG: AegisConfig = {
   git: {
     base_branch: "main",
   },
+  merge: {
+    verify_command: "",
+    verify_idle_timeout_seconds: 600,
+  },
 };
