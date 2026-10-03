@@ -1,5 +1,6 @@
 import type { RuntimeCasteAction } from "../../cli/runtime-command.js";
 import type { LaborCreationPlan } from "../../labor/create-labor.js";
+import type { MergeExecutionOutcome } from "../../merge/tier-policy.js";
 import type { CasteRuntime } from "../../runtime/caste-runtime.js";
 import type { ArtifactEmissionMode } from "../../runtime/runtime-registry.js";
 import type { AegisIssue } from "../../tracker/issue-model.js";
@@ -14,7 +15,7 @@ export interface TrackerLike extends Pick<TrackerClient, "closeIssue" | "createI
 /** Merge-boundary context handed to Janus by the merge queue. */
 export interface JanusConflictContext {
   queueItemId: string;
-  mergeOutcome: "merged" | "stale_branch" | "conflict";
+  mergeOutcome: MergeExecutionOutcome;
   mergeDetail: string;
   attempt: number;
   tier: "T3";

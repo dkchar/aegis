@@ -275,6 +275,9 @@ export function buildJanusPrompt(
       `Merge attempt: ${janusContext.attempt}`,
       `Janus invocation: ${janusContext.janusInvocation}`,
       `Merge outcome: ${janusContext.mergeOutcome}`,
+      ...(janusContext.mergeOutcome === "verification_failed"
+        ? ["The candidate merged without conflicts, but the merge verification command failed on the merged result; the detail ends with its output."]
+        : []),
       `Merge detail: ${janusContext.mergeDetail}`,
     ]
     : [];

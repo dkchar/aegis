@@ -44,6 +44,8 @@
 | `janus.max_invocations_per_issue` | Janus invocations per merge queue item. |
 | `labor.base_path` | Where labor worktrees are created (relative to the project or absolute). |
 | `git.base_branch` | Branch candidates merge into. |
+| `merge.verify_command` | Shell command run in the integration worktree on each merge result before the target branch advances, for example `npm ci && npm run build`. Empty (the default) skips verification. Must finish: dev, preview, and watch commands are killed. |
+| `merge.verify_idle_timeout_seconds` | Verification is stopped and counted as failed after this long without output (default 600). |
 
 ## Retry Policy
 
@@ -62,11 +64,12 @@
 | `runtime-state.json` | daemon pid, state, mode |
 | `runtime-commands/` | request/response files for direct commands routed to the daemon |
 | `labors/` | git worktrees, one per issue |
+| `integration/` | detached worktree where the merge queue builds and verifies each merge result |
 | `oracle/`, `titan/`, `sentinel/`, `janus/` | caste artifacts and git proof |
 | `policy/` | mutation policy decisions |
 | `transcripts/` | full session transcripts |
 | `logs/daemon.log` | daemon lifecycle and cycle errors |
-| `logs/phases/` | one JSON file per loop event (`<timestamp>-<phase>-<issue>.json`); the daemon writes a per-cycle `_all` summary only when it differs from the previous cycle's, so an idle daemon adds no files |
+| `logs/phases.jsonl` | append-only loop event log, one JSON object per line in write order; readers keep a byte offset as their cursor. The daemon writes a per-cycle `_all` summary only when it differs from the previous cycle's, so an idle daemon adds no lines |
 | `logs/sessions/` | session status reports |
 | `logs/session-streams/` | live, timestamped adapter activity per session |
 | `olympus-state.json` | in the checkout running Olympus: the workspace it last opened |

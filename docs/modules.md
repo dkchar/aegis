@@ -90,7 +90,7 @@ See [runtime adapters](runtime-adapters.md). Current posture:
 
 ## Merge
 
-The merge module owns deterministic candidate integration. Titan does not merge. Sentinel gates before merge, and Janus only enters after repeated merge failures. The daemon drains every mergeable candidate each cycle, fewest attempts first. A merge attempt that throws marks the queue item failed and applies retry accounting instead of stranding it in `merging`. T3 escalation hands the issue to `resolving_integration`; Janus then runs as a daemon-launched adapter session, so merging never blocks the loop.
+The merge module owns deterministic candidate integration. Titan does not merge. Sentinel gates before merge, and Janus only enters after repeated merge failures. Each candidate merges and is verified in the integration worktree; the project root only fast-forwards to a verified result. The daemon drains every mergeable candidate each cycle, fewest attempts first. A merge attempt that throws marks the queue item failed and applies retry accounting instead of stranding it in `merging`. T3 escalation hands the issue to `resolving_integration`; Janus then runs as a daemon-launched adapter session, so merging never blocks the loop.
 
 ## Olympus
 

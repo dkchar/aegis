@@ -190,6 +190,22 @@ describe("S01 config contract seed", () => {
     );
   });
 
+  it("validates the merge verification settings", () => {
+    const projectRoot = createTempProjectRoot();
+
+    writeConfigFixture(projectRoot, { merge: { verify_command: "npm run build" } });
+    expect(loadConfig(projectRoot).merge).toEqual({
+      verify_command: "npm run build",
+      verify_idle_timeout_seconds: 600,
+    });
+
+    writeConfigFixture(projectRoot, { merge: { verify_command: ["npm", "run", "build"] } });
+    expect(() => loadConfig(projectRoot)).toThrow('Expected "merge.verify_command" to be a string');
+
+    writeConfigFixture(projectRoot, { merge: { verify_idle_timeout_seconds: 0 } });
+    expect(() => loadConfig(projectRoot)).toThrow('Expected "merge.verify_idle_timeout_seconds" to be at least 1');
+  });
+
   it("rejects invalid thinking level values", () => {
     const projectRoot = createTempProjectRoot();
 

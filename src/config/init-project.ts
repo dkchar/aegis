@@ -41,6 +41,7 @@ export const DEFAULT_GITIGNORE_ENTRIES = [
   ".aegis/runtime-commands/",
   ".aegis/olympus-state.json",
   ".aegis/labors/",
+  ".aegis/integration/",
   ".aegis/logs/",
   ".aegis/oracle/",
   ".aegis/policy/",

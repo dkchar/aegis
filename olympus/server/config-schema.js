@@ -18,10 +18,14 @@ const NUMBER_FIELDS = {
   "thresholds.scope_overlap_threshold": 0,
   "thresholds.janus_retry_threshold": 1,
   "janus.max_invocations_per_issue": 1,
+  "merge.verify_idle_timeout_seconds": 1,
 };
 
 const BOOLEAN_FIELDS = ["thresholds.allow_complex_auto_dispatch", "janus.enabled"];
 const TEXT_FIELDS = ["labor.base_path", "git.base_branch"];
+const OPTIONAL_TEXT_FIELDS = ["merge.verify_command"];
+// Configs written before the merge section existed load these daemon defaults.
+const FIELD_DEFAULTS = { "merge.verify_idle_timeout_seconds": 600 };
 
 export function flattenConfig(config) {
   if (!config || typeof config !== "object") return null;
@@ -34,9 +38,9 @@ export function flattenConfig(config) {
   }
   for (const key of [...Object.keys(NUMBER_FIELDS), ...BOOLEAN_FIELDS]) {
     const [section, field] = key.split(".");
-    flat[key] = String(config[section]?.[field] ?? "");
+    flat[key] = String(config[section]?.[field] ?? FIELD_DEFAULTS[key] ?? "");
   }
-  for (const key of TEXT_FIELDS) {
+  for (const key of [...TEXT_FIELDS, ...OPTIONAL_TEXT_FIELDS]) {
     const [section, field] = key.split(".");
     flat[key] = config[section]?.[field] ?? "";
   }
@@ -92,6 +96,10 @@ export function unflattenAndValidateConfig(flat) {
     const value = String(flat[key] ?? "").trim();
     if (!value) errors.push(`${key} is required.`);
     setPath(config, key, value);
+  }
+
+  for (const key of OPTIONAL_TEXT_FIELDS) {
+    setPath(config, key, String(flat[key] ?? "").trim());
   }
 
   if (config.thresholds && config.thresholds.stuck_kill_seconds < config.thresholds.stuck_warning_seconds) {

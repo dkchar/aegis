@@ -1,5 +1,5 @@
 import path from "node:path";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 
@@ -430,6 +430,126 @@ describe("runMergeNext", () => {
       stage: "queued_for_merge",
     });
     expect(runGit(root, ["status", "--short", "--", "src/domain/todo.ts"])).toBe("");
+  });
+
+  describe("verified merge in the integration worktree", () => {
+    function setUpCandidate(verifyCommand: string) {
+      const root = createTempRoot();
+      writeFileSync(
+        path.join(root, ".aegis", "config.json"),
+        `${JSON.stringify({
+          ...DEFAULT_AEGIS_CONFIG,
+          runtime: "pi",
+          merge: { verify_command: verifyCommand, verify_idle_timeout_seconds: 60 },
+        }, null, 2)}\n`,
+        "utf8",
+      );
+      initializeGitRepository(root);
+      writeFileSync(path.join(root, ".gitignore"), ".aegis/\nnode_modules/\n", "utf8");
+      runGit(root, ["add", ".gitignore"]);
+      runGit(root, ["commit", "-m", "ignore"]);
+      runGit(root, ["checkout", "-b", "aegis/aegis-verify"]);
+      writeFileSync(path.join(root, "feature.txt"), "candidate\n", "utf8");
+      runGit(root, ["add", "feature.txt"]);
+      runGit(root, ["commit", "-m", "candidate change"]);
+      runGit(root, ["checkout", "main"]);
+      writeState(root, "aegis-verify");
+      return { root, baseHead: runGit(root, ["rev-parse", "HEAD"]).trim() };
+    }
+
+    const tracker = { getIssue: vi.fn(async () => createIssue("aegis-verify")) };
+
+    it("advances the root only after verification passes on the merge result", async () => {
+      const { root, baseHead } = setUpCandidate("node -e \"require('node:fs').accessSync('feature.txt')\"");
+
+      const result = await runMergeNext(root, { tracker, now: "2026-04-14T12:30:00.000Z" });
+
+      expect(result).toMatchObject({ status: "merged", tier: "T1", stage: "complete" });
+      expect(result.detail).toContain("passed");
+      expect(runGit(root, ["rev-parse", "HEAD^1"]).trim()).toBe(baseHead);
+      expect(runGit(root, ["log", "-1", "--format=%s"]).trim()).toBe("Merge branch 'aegis/aegis-verify' into main");
+      expect(readFileSync(path.join(root, "feature.txt"), "utf8")).toBe("candidate\n");
+      expect(runGit(root, ["status", "--porcelain"]).trim()).toBe("");
+    });
+
+    it("keeps the root at its base and requeues when verification fails", async () => {
+      const { root, baseHead } = setUpCandidate("node -e \"console.log('build broke'); process.exit(3)\"");
+
+      const result = await runMergeNext(root, { tracker, now: "2026-04-14T12:30:00.000Z" });
+
+      expect(result).toMatchObject({ status: "requeued", tier: "T2", stage: "queued_for_merge" });
+      expect(result.detail).toContain("failed (exit 3)");
+      expect(result.detail).toContain("build broke");
+      expect(runGit(root, ["rev-parse", "HEAD"]).trim()).toBe(baseHead);
+      expect(loadMergeQueueState(root).items[0]).toMatchObject({
+        status: "queued",
+        attempts: 1,
+        lastOutcome: "verification_failed",
+      });
+    });
+
+    it("escalates a repeated verification failure to Janus with the command output", async () => {
+      const { root } = setUpCandidate("node -e \"process.exit(1)\"");
+      saveMergeQueueState(root, { schemaVersion: 1, items: [createQueueItem("aegis-verify", 5)] });
+
+      const result = await runMergeNext(root, { tracker, now: "2026-04-14T12:30:00.000Z" });
+
+      expect(result).toMatchObject({ status: "escalated", tier: "T3", stage: "resolving_integration" });
+      expect(loadMergeQueueState(root).items[0]?.lastOutcome).toBe("verification_failed");
+    });
+
+    it("reuses the integration worktree and keeps its ignored files between merges", async () => {
+      const { root } = setUpCandidate("node -e \"require('node:fs').mkdirSync('node_modules/.cache', { recursive: true })\"");
+      const integration = path.join(root, ".aegis", "integration");
+
+      await runMergeNext(root, { tracker, now: "2026-04-14T12:30:00.000Z" });
+      writeFileSync(path.join(integration, "stray.txt"), "untracked\n", "utf8");
+
+      runGit(root, ["checkout", "-b", "aegis/aegis-next"]);
+      writeFileSync(path.join(root, "next.txt"), "next\n", "utf8");
+      runGit(root, ["add", "next.txt"]);
+      runGit(root, ["commit", "-m", "next change"]);
+      runGit(root, ["checkout", "main"]);
+      writeState(root, "aegis-next");
+
+      const next = await runMergeNext(root, {
+        tracker: { getIssue: vi.fn(async () => createIssue("aegis-next")) },
+        now: "2026-04-14T12:31:00.000Z",
+      });
+
+      expect(next.status).toBe("merged");
+      expect(existsSync(path.join(integration, "node_modules", ".cache"))).toBe(true);
+      expect(existsSync(path.join(integration, "stray.txt"))).toBe(false);
+      expect(readFileSync(path.join(root, "next.txt"), "utf8")).toBe("next\n");
+    });
+  });
+
+  it("leaves the root untouched when the candidate conflicts", async () => {
+    const root = createTempRoot();
+    writeFileSync(
+      path.join(root, ".aegis", "config.json"),
+      `${JSON.stringify({ ...DEFAULT_AEGIS_CONFIG, runtime: "pi" }, null, 2)}\n`,
+      "utf8",
+    );
+    initializeGitRepository(root);
+    runGit(root, ["checkout", "-b", "aegis/aegis-conflict"]);
+    writeFileSync(path.join(root, "README.md"), "candidate\n", "utf8");
+    runGit(root, ["commit", "-am", "candidate"]);
+    runGit(root, ["checkout", "main"]);
+    writeFileSync(path.join(root, "README.md"), "main\n", "utf8");
+    runGit(root, ["commit", "-am", "main"]);
+    const head = runGit(root, ["rev-parse", "HEAD"]).trim();
+    writeState(root, "aegis-conflict");
+
+    const result = await runMergeNext(root, {
+      tracker: { getIssue: vi.fn(async () => createIssue("aegis-conflict")) },
+    });
+
+    expect(result).toMatchObject({ status: "requeued", tier: "T2" });
+    expect(loadMergeQueueState(root).items[0]?.lastOutcome).toBe("conflict");
+    expect(runGit(root, ["rev-parse", "HEAD"]).trim()).toBe(head);
+    expect(existsSync(path.join(root, ".git", "MERGE_HEAD"))).toBe(false);
+    expect(readFileSync(path.join(root, "README.md"), "utf8")).toBe("main\n");
   });
 
   it("uses scripted merge outcomes when a scripted merge plan override is provided under pi runtime", async () => {

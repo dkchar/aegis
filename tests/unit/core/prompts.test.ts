@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildTerminalGuard, buildTitanPrompt } from "../../../src/core/caste/prompts.js";
+import { buildJanusPrompt, buildTerminalGuard, buildTitanPrompt } from "../../../src/core/caste/prompts.js";
 import type { AegisIssue } from "../../../src/tracker/issue-model.js";
 
 const issue: AegisIssue = {
@@ -37,5 +37,29 @@ describe("buildTerminalGuard", () => {
     const prompt = buildTitanPrompt(issue, "/repo/.aegis/labors/AG-1");
 
     expect(prompt.match(/server commands/g)).toHaveLength(1);
+  });
+});
+
+describe("buildJanusPrompt", () => {
+  const context = {
+    queueItemId: "queue-AG-1",
+    mergeDetail: "Merge verification `npm run build` failed (exit 2).\nerror TS2304",
+    attempt: 2,
+    tier: "T3" as const,
+    janusInvocation: 1,
+  };
+
+  it("explains a failed merge verification to Janus", () => {
+    const prompt = buildJanusPrompt(issue, { ...context, mergeOutcome: "verification_failed" });
+
+    expect(prompt).toContain("Merge outcome: verification_failed");
+    expect(prompt).toContain("merged without conflicts, but the merge verification command failed");
+    expect(prompt).toContain("error TS2304");
+  });
+
+  it("omits the verification note for conflicts", () => {
+    const prompt = buildJanusPrompt(issue, { ...context, mergeOutcome: "conflict" });
+
+    expect(prompt).not.toContain("merge verification command failed");
   });
 });

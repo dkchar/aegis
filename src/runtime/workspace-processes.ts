@@ -414,6 +414,8 @@ export interface SupervisedProcessRequest {
   label: string;
   command: string;
   args: string[];
+  /** Run `command` through the platform shell (`/bin/sh` or `cmd.exe`). */
+  shell?: boolean;
   cwd: string;
   stdin: string;
   env?: NodeJS.ProcessEnv;
@@ -446,6 +448,7 @@ export function runSupervisedProcess(request: SupervisedProcessRequest): Promise
   return new Promise((resolve) => {
     const child = spawn(request.command, request.args, {
       cwd: request.cwd,
+      shell: request.shell ?? false,
       env: request.env ?? buildAgentShellEnvironment(),
       detached: process.platform !== "win32",
       windowsHide: true,

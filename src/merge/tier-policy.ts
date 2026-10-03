@@ -1,6 +1,6 @@
 import type { MergeTier } from "./merge-state.js";
 
-export type MergeExecutionOutcome = "merged" | "stale_branch" | "conflict";
+export type MergeExecutionOutcome = "merged" | "stale_branch" | "conflict" | "verification_failed";
 export type MergeTierAction = "merge" | "requeue" | "janus" | "fail";
 
 export interface MergeTierInput {
