@@ -26,7 +26,7 @@ import { themePreferences } from "./theme.js";
 export const tabs = [
   ["live", "Ops"],
   ["agents", "Sessions"],
-  ["chronos", "Chronos"],
+  ["aether", "Aether"],
   ["records", "Records"],
   ["config", "Config"],
 ];

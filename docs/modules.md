@@ -40,7 +40,7 @@ State records are never mutated in place: every transition returns a new record,
 | `src/labor/` | git worktree labors per issue |
 | `src/shared/` | atomic writes, JSON, git, file scope helpers |
 | `src/mock-run/` | seeded animated React todo proof |
-| `olympus/src/` | operator console views, view models (`state.js`, `supervisionModel.js`, `chronosModel.js`), and the design gallery (`design/`) |
+| `olympus/src/` | operator console views, view models (`state.js`, `supervisionModel.js`, `aether/model.js`), the Aether canvas engine (`aether/engine.js`), and the design gallery (`design/`) |
 | `olympus/src/components/` | design system: `ui/` primitives and `aegis.jsx` compositions |
 | `olympus/server/` | local Vite API: state reader, session reader, config schema, adapter model lists, daemon control |
 | `olympus/scripts/screenshots.mjs` | sample workspace and headless screenshot capture |
@@ -94,4 +94,4 @@ The merge module owns deterministic candidate integration. Titan does not merge.
 
 ## Olympus
 
-Olympus reads Aegis truth planes through a local Vite API and renders the Ops board, session terminals, Chronos, records, and config on an in-repo design system with light and dark themes. It is an operator surface, not a new source of truth. See [Olympus](olympus.md).
+Olympus reads Aegis truth planes through a local Vite API and renders the Ops board, session terminals, the Aether swarm map, records, and config on an in-repo design system with light and dark themes. It is an operator surface, not a new source of truth. See [Olympus](olympus.md).

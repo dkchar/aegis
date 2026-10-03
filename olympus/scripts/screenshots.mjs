@@ -347,10 +347,12 @@ async function buildSampleWorkspace(workspaceRoot) {
   phase(25, { phase: "dispatch", issueId: foundation, action: "launch_titan", outcome: "running", detail: "{\"caste\":\"titan\"}" });
   phase(19, { phase: "reap", issueId: foundation, action: "finalize_session", outcome: "implemented" });
   phase(17, { phase: "dispatch", issueId: foundation, action: "sentinel_review_completed", outcome: "queued_for_merge" });
+  phase(16.5, { phase: "merge", issueId: foundation, action: "merge_candidate", outcome: "merged", detail: `{"queueItemId":"queue-${foundation}","tier":"T1","stage":"complete"}` });
   phase(16, { phase: "poll", issueId: "_all", action: "poll_ready_work", outcome: "ok", detail: core });
   phase(16, { phase: "dispatch", issueId: core, action: "launch_oracle", outcome: "running", detail: "{\"caste\":\"oracle\"}" });
   phase(11, { phase: "reap", issueId: core, action: "finalize_session", outcome: "implemented" });
   phase(10, { phase: "dispatch", issueId: core, action: "sentinel_review_completed", outcome: "queued_for_merge" });
+  phase(9.5, { phase: "merge", issueId: core, action: "merge_candidate", outcome: "merged", detail: `{"queueItemId":"queue-${core}","tier":"T1","stage":"complete"}` });
   phase(9, { phase: "poll", issueId: "_all", action: "poll_ready_work", outcome: "ok", detail: `${ui},${motion}` });
   phase(9, { phase: "triage", issueId: "_all", action: "triage_ready_work", outcome: "ok", detail: `${ui},${motion}` });
   phase(9, { phase: "dispatch", issueId: ui, action: "launch_oracle", outcome: "running", detail: "{\"caste\":\"oracle\"}" });
@@ -398,7 +400,7 @@ async function capture(baseUrl, sessions) {
   const shots = [
     ["olympus-ops", "/#live", "text=Agora Graph"],
     ["olympus-sessions", `/#agents/${sessions.ui}`, ".xterm-rows"],
-    ["olympus-chronos", "/#chronos", ".react-flow__node"],
+    ["olympus-aether", "/#aether", "canvas[role=img]"],
     ["olympus-records", "/#records", "text=Dispatch Progress"],
     ["olympus-config", "/#config", "text=models.titan"],
     ["olympus-design-system", "/design.html", "text=Design system"],

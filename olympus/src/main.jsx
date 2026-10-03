@@ -1,7 +1,6 @@
 import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "@xterm/xterm/css/xterm.css";
-import "@xyflow/react/dist/style.css";
 import "./styles.css";
 import { MotionConfig } from "motion/react";
 import React from "react";

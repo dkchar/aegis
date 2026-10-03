@@ -69,6 +69,61 @@ export function tailLines(filePath, maxLines = MAX_LOG_LINES) {
     .slice(-maxLines);
 }
 
+function parseJsonLines(buffer, startOffset) {
+  const entries = [];
+  let lineStart = 0;
+  for (let index = buffer.indexOf(0x0a); index !== -1; index = buffer.indexOf(0x0a, lineStart)) {
+    const line = buffer.toString("utf8", lineStart, index).trim();
+    if (line) {
+      try {
+        // `seq` is the line's byte offset: unique and increasing within one log.
+        entries.push({ seq: startOffset + lineStart, ...JSON.parse(line) });
+      } catch {
+        // A malformed line is skipped, like the daemon's own reader does.
+      }
+    }
+    lineStart = index + 1;
+  }
+  return { entries, consumed: lineStart };
+}
+
+function readRange(filePath, start, end) {
+  const buffer = Buffer.alloc(end - start);
+  const fd = openSync(filePath, "r");
+  try {
+    readSync(fd, buffer, 0, buffer.length, start);
+  } finally {
+    closeSync(fd);
+  }
+  return buffer;
+}
+
+/**
+ * Complete JSONL entries appended after byte `offset`. `reset` reports a log
+ * that shrank (replaced by a new run), in which case reading restarts at 0.
+ */
+export function readJsonLinesFrom(filePath, offset) {
+  const stats = statOrNull(filePath);
+  if (!stats) return { entries: [], offset: 0, reset: offset > 0 };
+  const reset = stats.size < offset;
+  const start = reset ? 0 : offset;
+  if (stats.size === start) return { entries: [], offset: start, reset };
+  const { entries, consumed } = parseJsonLines(readRange(filePath, start, stats.size), start);
+  return { entries, offset: start + consumed, reset };
+}
+
+/** The last `maxLines` complete JSONL entries plus the offset just past them. */
+export function tailJsonLines(filePath, maxLines = MAX_LOG_LINES) {
+  const stats = statOrNull(filePath);
+  if (!stats) return { entries: [], offset: 0 };
+  const start = Math.max(0, stats.size - maxLines * TAIL_BYTES_PER_LINE);
+  const buffer = readRange(filePath, start, stats.size);
+  // A tail read that starts mid-file drops its first, possibly partial, line.
+  const firstLine = start === 0 ? 0 : buffer.indexOf(0x0a) + 1;
+  const { entries, consumed } = parseJsonLines(buffer.subarray(firstLine), start + firstLine);
+  return { entries: entries.slice(-maxLines), offset: start + firstLine + consumed };
+}
+
 export function sendJson(res, status, payload) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json");

@@ -47,6 +47,6 @@ Live sessions run through replaceable adapters: Claude Code, Codex, and Pi. Each
 
 ## Olympus
 
-Olympus is the local operator console. It provides supervision, observability, and deterministic controls over existing Aegis truth planes: the Agora board, live session terminals, the Chronos flight recorder, dispatch and merge records, and validated config editing, in light and dark themes.
+Olympus is the local operator console. It provides supervision, observability, and deterministic controls over existing Aegis truth planes: the Agora board, live session terminals, the Aether live swarm map with its signal feed, dispatch and merge records, and validated config editing, in light and dark themes.
 
 Olympus does not seed the mock graph. Seeding remains a terminal command so proof setup is scriptable and auditable.

@@ -132,7 +132,7 @@ Direct commands are routed to a running daemon so they never race it over `.aegi
 npm run olympus:dev    # http://127.0.0.1:4173/
 ```
 
-Olympus shows the Agora board, live session terminals, the Chronos flight recorder and merge tree, records and artifacts, and validated config editing, in light and dark themes. Keys `1`-`5` switch views. Its design system (semantic tokens, Radix-based primitives, and Aegis compositions such as status and caste badges) has a living gallery at `/design.html`. See [Olympus](docs/olympus.md).
+Olympus shows the Agora board, live session terminals, the Aether live swarm map (tickets flying between caste stations, handoffs as packets, a live signal feed), records and artifacts, and validated config editing, in light and dark themes. Keys `1`-`5` switch views. Its design system (semantic tokens, Radix-based primitives, and Aegis compositions such as status and caste badges) has a living gallery at `/design.html`. See [Olympus](docs/olympus.md).
 
 | Sessions | Records |
 | --- | --- |
