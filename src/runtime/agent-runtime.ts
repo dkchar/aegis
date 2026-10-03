@@ -4,8 +4,8 @@ export interface RuntimeLaunchInput {
   root: string;
   issueId: string;
   title: string;
-  caste: Exclude<AdapterCasteName, "janus">;
-  stage: "scouting" | "implementing" | "reviewing";
+  caste: AdapterCasteName;
+  stage: "scouting" | "implementing" | "reviewing" | "resolving_integration";
 }
 
 export interface RuntimeLaunchResult {

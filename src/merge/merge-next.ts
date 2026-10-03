@@ -7,12 +7,8 @@ import {
   saveDispatchState,
   type DispatchRecord,
 } from "../core/dispatch-state.js";
-import { assertDispatchRecordStage } from "../core/stage-invariants.js";
-import { runCasteCommand } from "../core/caste-runner.js";
+import { validateDispatchRecordStage } from "../core/stage-invariants.js";
 import { applyOperationalFailure } from "../core/failure-policy.js";
-import { createCasteRuntime } from "../runtime/create-caste-runtime.js";
-import { resolveArtifactEmissionMode } from "../runtime/runtime-registry.js";
-import type { CasteRuntime } from "../runtime/caste-runtime.js";
 import type { AegisIssue } from "../tracker/issue-model.js";
 import type { TrackerClient } from "../tracker/tracker.js";
 import { createTrackerClient } from "../tracker/create-tracker.js";
@@ -21,6 +17,7 @@ import {
   loadMergeQueueState,
   saveMergeQueueState,
   updateMergeQueueItem,
+  type MergeFailureOutcome,
   type MergeQueueItem,
 } from "./merge-state.js";
 import {
@@ -46,13 +43,15 @@ export interface MergeExecutor {
 export interface RunMergeNextOptions {
   executor?: MergeExecutor;
   tracker?: TrackerLike;
-  runtime?: CasteRuntime;
   now?: string;
+  /** Queue items already attempted in this drain pass. */
+  skipQueueItemIds?: ReadonlySet<string>;
 }
 
 export interface MergeNextResult {
   action: "merge_next";
-  status: "idle" | "merged" | "requeued" | "janus_requeued" | "failed";
+  /** `escalated`: handed to Janus; the daemon runs it as an adapter session. */
+  status: "idle" | "merged" | "requeued" | "escalated" | "failed";
   issueId?: string;
   queueItemId?: string;
   tier?: "T1" | "T2" | "T3";
@@ -286,6 +285,10 @@ function toErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function toFailureOutcome(outcome: MergeExecutionOutcome): MergeFailureOutcome {
+  return outcome === "conflict" ? "conflict" : "stale_branch";
+}
+
 function findActiveTitanDirtyOwners(
   dispatchState: ReturnType<typeof loadDispatchState>,
   dirtyFiles: string[],
@@ -309,13 +312,42 @@ function findActiveTitanDirtyOwners(
   return ownerByFile;
 }
 
+/**
+ * Fails a queue item that cannot merge without throwing: a broken queue head
+ * must not stall every candidate behind it. A new Sentinel pass re-enqueues it.
+ */
+function failInvalidQueueItem(
+  root: string,
+  queueState: ReturnType<typeof loadMergeQueueState>,
+  queueItem: MergeQueueItem,
+  now: string,
+  reason: string,
+  stage?: string,
+): MergeNextResult {
+  const detail = `Merge queue item ${queueItem.queueItemId} cannot merge: ${reason.replace(/\.$/, "")}.`;
+  saveMergeQueueState(root, updateMergeQueueItem(queueState, queueItem.queueItemId, (item) => ({
+    ...item,
+    status: "failed",
+    lastError: detail,
+    updatedAt: now,
+  })));
+  return {
+    action: "merge_next",
+    status: "failed",
+    issueId: queueItem.issueId,
+    queueItemId: queueItem.queueItemId,
+    stage,
+    detail,
+  };
+}
+
 export async function runMergeNext(
   root: string,
   options: RunMergeNextOptions = {},
 ): Promise<MergeNextResult> {
   const now = options.now ?? new Date().toISOString();
   const queueState = loadMergeQueueState(root);
-  const queueItem = findNextQueuedItem(queueState);
+  const queueItem = findNextQueuedItem(queueState, options.skipQueueItemIds);
 
   if (!queueItem) {
     return {
@@ -328,9 +360,14 @@ export async function runMergeNext(
   const dispatchState = loadDispatchState(root);
   const dispatchRecord = dispatchState.records[queueItem.issueId];
   if (!dispatchRecord) {
-    throw new Error(`Merge queue item ${queueItem.queueItemId} has no dispatch record.`);
+    return failInvalidQueueItem(root, queueState, queueItem, now, "no dispatch record");
   }
-  assertDispatchRecordStage(dispatchRecord, "queued_for_merge");
+  const stageError = dispatchRecord.stage === "queued_for_merge"
+    ? validateDispatchRecordStage(dispatchRecord)
+    : `expects queued_for_merge, found ${dispatchRecord.stage}`;
+  if (stageError) {
+    return failInvalidQueueItem(root, queueState, queueItem, now, stageError, dispatchRecord.stage);
+  }
 
   const rootWorkspace = captureGitProofPair(root).before;
   const dirtyFiles = listOperationalDirtyFiles(rootWorkspace);
@@ -363,14 +400,14 @@ export async function runMergeNext(
 
   // Any throw past this point would strand the item in `merging`; fail it
   // closed with retry accounting instead.
-  const failMerge = (detail: string, tier: "T2" | "T3", janusInvoked: boolean): MergeNextResult => {
+  const failMerge = (detail: string, tier: "T2" | "T3", outcome?: MergeExecutionOutcome): MergeNextResult => {
     saveMergeQueueState(root, updateMergeQueueItem(mergingQueueState, queueItem.queueItemId, (item) => ({
       ...item,
       status: "failed",
       attempts: item.attempts + 1,
-      janusInvocations: item.janusInvocations + (janusInvoked ? 1 : 0),
       lastTier: tier,
       lastError: detail,
+      ...(outcome ? { lastOutcome: toFailureOutcome(outcome) } : {}),
       updatedAt: now,
     })));
     updateDispatchRecord(root, dispatchRecord, (latest) =>
@@ -391,7 +428,7 @@ export async function runMergeNext(
   try {
     attempt = await executor.execute(root, queueItem);
   } catch (error) {
-    return failMerge(`Merge executor failed: ${toErrorMessage(error)}`, "T2", false);
+    return failMerge(`Merge executor failed: ${toErrorMessage(error)}`, "T2");
   }
 
   const decision = classifyMergeTier({
@@ -433,6 +470,7 @@ export async function runMergeNext(
       attempts: item.attempts + 1,
       lastTier: "T2",
       lastError: attempt.detail,
+      lastOutcome: toFailureOutcome(attempt.outcome),
       updatedAt: now,
     }));
     saveMergeQueueState(root, requeuedState);
@@ -450,55 +488,51 @@ export async function runMergeNext(
   }
 
   if (decision.action === "janus") {
-    const janusInvocation = queueItem.janusInvocations + 1;
-    const attemptNumber = queueItem.attempts + 1;
-    updateDispatchStage(root, dispatchRecord, "resolving_integration", now);
-
-    let janus: Awaited<ReturnType<typeof runCasteCommand>>;
-    try {
-      janus = await runCasteCommand({
-        root,
-        action: "process",
-        issueId: queueItem.issueId,
-        tracker,
-        runtime: options.runtime ?? createCasteRuntime(config.runtime, {}, { root, issueId: queueItem.issueId }),
-        artifactEmissionMode: resolveArtifactEmissionMode(config.runtime),
-        janusContext: {
-          queueItemId: queueItem.queueItemId,
-          mergeOutcome: attempt.outcome,
-          mergeDetail: attempt.detail,
-          attempt: attemptNumber,
-          tier: "T3",
-          janusInvocation,
-        },
-        now,
-      });
-    } catch (error) {
-      return failMerge(`${attempt.detail} Janus failed: ${toErrorMessage(error)}`, "T3", true);
-    }
-
-    const janusDetail = `${attempt.detail} Janus recommended ${janus.janusRecommendation ?? janus.stage}.`;
-    const afterJanusState = updateMergeQueueItem(mergingQueueState, queueItem.queueItemId, (item) => ({
+    // Janus is live model work. Hand it to an adapter session that the daemon
+    // launches and the reaper settles, so merging never blocks the loop.
+    saveMergeQueueState(root, updateMergeQueueItem(mergingQueueState, queueItem.queueItemId, (item) => ({
       ...item,
       status: "failed",
       attempts: item.attempts + 1,
       janusInvocations: item.janusInvocations + 1,
       lastTier: "T3",
-      lastError: janusDetail,
+      lastError: attempt.detail,
+      lastOutcome: toFailureOutcome(attempt.outcome),
       updatedAt: now,
-    }));
-    saveMergeQueueState(root, afterJanusState);
+    })));
+    updateDispatchStage(root, dispatchRecord, "resolving_integration", now);
 
     return {
       action: "merge_next",
-      status: "failed",
+      status: "escalated",
       issueId: queueItem.issueId,
       queueItemId: queueItem.queueItemId,
       tier: "T3",
-      stage: janus.stage,
-      detail: janusDetail,
+      stage: "resolving_integration",
+      detail: attempt.detail,
     };
   }
 
-  return failMerge(attempt.detail, "T3", false);
+  return failMerge(attempt.detail, "T3", attempt.outcome);
+}
+
+/**
+ * Lands every mergeable candidate in one pass instead of one per daemon tick.
+ * Each queued item is attempted at most once per pass, so requeues and
+ * dirty-root waits cannot spin.
+ */
+export async function drainMergeQueue(
+  root: string,
+  options: Omit<RunMergeNextOptions, "skipQueueItemIds"> = {},
+): Promise<MergeNextResult[]> {
+  const attempted = new Set<string>();
+  const results: MergeNextResult[] = [];
+  for (;;) {
+    const result = await runMergeNext(root, { ...options, skipQueueItemIds: attempted });
+    if (!result.queueItemId) {
+      return results;
+    }
+    attempted.add(result.queueItemId);
+    results.push(result);
+  }
 }

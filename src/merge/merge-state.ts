@@ -5,6 +5,8 @@ import { writeJsonAtomic } from "../shared/atomic-write.js";
 
 export type MergeQueueItemStatus = "queued" | "merging" | "merged" | "failed";
 export type MergeTier = "T1" | "T2" | "T3";
+/** Failed merge executor outcome recorded for Janus context. */
+export type MergeFailureOutcome = "stale_branch" | "conflict";
 
 export interface MergeQueueItem {
   queueItemId: string;
@@ -17,6 +19,8 @@ export interface MergeQueueItem {
   janusInvocations: number;
   lastTier: MergeTier | null;
   lastError: string | null;
+  /** Outcome of the last failed attempt; absent in queue files written before it existed. */
+  lastOutcome?: MergeFailureOutcome | null;
   enqueuedAt: string;
   updatedAt: string;
 }
@@ -64,6 +68,10 @@ function assertMergeQueueItem(value: unknown): MergeQueueItem {
     || item["lastTier"] === "T1"
     || item["lastTier"] === "T2"
     || item["lastTier"] === "T3";
+  const validOutcome = item["lastOutcome"] === undefined
+    || item["lastOutcome"] === null
+    || item["lastOutcome"] === "stale_branch"
+    || item["lastOutcome"] === "conflict";
 
   if (
     typeof item["queueItemId"] !== "string"
@@ -75,6 +83,7 @@ function assertMergeQueueItem(value: unknown): MergeQueueItem {
     || typeof item["attempts"] !== "number"
     || typeof item["janusInvocations"] !== "number"
     || !validTier
+    || !validOutcome
     || !(typeof item["lastError"] === "string" || item["lastError"] === null)
     || typeof item["enqueuedAt"] !== "string"
     || typeof item["updatedAt"] !== "string"
@@ -93,6 +102,9 @@ function assertMergeQueueItem(value: unknown): MergeQueueItem {
     janusInvocations: item["janusInvocations"],
     lastTier: item["lastTier"] as MergeTier | null,
     lastError: item["lastError"],
+    ...(item["lastOutcome"] !== undefined
+      ? { lastOutcome: item["lastOutcome"] as MergeFailureOutcome | null }
+      : {}),
     enqueuedAt: item["enqueuedAt"],
     updatedAt: item["updatedAt"],
   };
@@ -163,8 +175,26 @@ export function updateMergeQueueItem(
   };
 }
 
-export function findNextQueuedItem(state: MergeQueueState): MergeQueueItem | null {
-  return state.items.find((item) => item.status === "queued") ?? null;
+/**
+ * Next queued item: fewest attempts first, FIFO among equals. A requeued
+ * candidate waits behind fresh ones instead of blocking the queue head, and
+ * retries after they land and move the target branch. `exclude` skips items
+ * already attempted in the current drain pass.
+ */
+export function findNextQueuedItem(
+  state: MergeQueueState,
+  exclude: ReadonlySet<string> = new Set(),
+): MergeQueueItem | null {
+  let next: MergeQueueItem | null = null;
+  for (const item of state.items) {
+    if (item.status !== "queued" || exclude.has(item.queueItemId)) {
+      continue;
+    }
+    if (!next || item.attempts < next.attempts) {
+      next = item;
+    }
+  }
+  return next;
 }
 
 export function enqueueMergeCandidate(

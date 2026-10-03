@@ -187,7 +187,10 @@ export function saveDispatchRecord(projectRoot: string, record: DispatchRecord) 
 
 /**
  * Marks in-progress records owned by another daemon as operational failures.
- * Interrupted Sentinel reviews retry at the review layer.
+ * Interrupted Sentinel reviews retry at the review layer. Mechanical merge
+ * stages own no model session, so they resume instead of redoing Titan work:
+ * an interrupted merge requeues, and escalated work still awaiting its Janus
+ * launch keeps waiting for it.
  */
 export function reconcileDispatchState(
   state: DispatchState,
@@ -199,6 +202,19 @@ export function reconcileDispatchState(
   for (const [issueId, record] of Object.entries(state.records)) {
     if (!IN_PROGRESS_STAGES.has(record.stage) || record.sessionProvenanceId === liveSessionId) {
       reconciledRecords[issueId] = { ...record };
+      continue;
+    }
+
+    if (
+      record.runningAgent === null
+      && (record.stage === "merging" || record.stage === "resolving_integration")
+    ) {
+      reconciledRecords[issueId] = {
+        ...record,
+        stage: record.stage === "merging" ? "queued_for_merge" : record.stage,
+        sessionProvenanceId: liveSessionId,
+        updatedAt: timestamp,
+      };
       continue;
     }
 
@@ -226,9 +242,9 @@ function resolveStoppedStage(record: DispatchRecord): DispatchStage {
     case "reviewing":
       return "implemented";
     case "merging":
-    case "resolving_integration":
       return "queued_for_merge";
     default:
+      // `resolving_integration` stays put so the next daemon relaunches Janus.
       return record.stage;
   }
 }

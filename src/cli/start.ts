@@ -24,7 +24,10 @@ import {
 } from "./runtime-command.js";
 import { runLocalCasteCommand } from "./caste-command.js";
 import { createAgentRuntime } from "../runtime/dispatch-runtime.js";
-import { runMergeNext as defaultRunMergeNext } from "../merge/merge-next.js";
+import {
+  drainMergeQueue as defaultDrainMergeQueue,
+  runMergeNext as defaultRunMergeNext,
+} from "../merge/merge-next.js";
 import {
   formatStartupPreflight,
   runStartupPreflight,
@@ -85,6 +88,8 @@ export interface StartCommandOptions {
   runDaemonCycle?: (root: string) => Promise<void>;
   runCasteCommand?: (root: string, action: RuntimeCasteAction, issueId: string) => Promise<unknown>;
   runMergeCommand?: (root: string, action: RuntimeMergeAction) => Promise<unknown>;
+  /** Lands every mergeable candidate after each daemon cycle. */
+  drainMergeQueue?: (root: string) => Promise<unknown>;
 }
 
 export function parseStartOverrides(argv: readonly string[]): StartCommandOverrides {
@@ -222,8 +227,8 @@ function runPreflight(repoRoot: string, options: StartCommandOptions) {
 
 /**
  * Starts the terminal daemon: preflight, recover state from any dead daemon,
- * then run `runDaemonCycle` every poll interval while serving direct-command
- * requests and stop requests between cycles.
+ * then run `runDaemonCycle` and drain the merge queue every poll interval
+ * while serving direct-command requests and stop requests between cycles.
  */
 export async function startAegis(
   root = process.cwd(),
@@ -261,6 +266,7 @@ export async function startAegis(
   const runCasteCommand = options.runCasteCommand ?? runLocalCasteCommand;
   const runMergeCommand = options.runMergeCommand ?? ((candidateRoot: string, action: RuntimeMergeAction) =>
     action === "next" ? defaultRunMergeNext(candidateRoot) : Promise.resolve(null));
+  const drainMergeQueue = options.drainMergeQueue ?? defaultDrainMergeQueue;
 
   clearStopRequest(repoRoot);
   clearRuntimeCommandArtifacts(repoRoot);
@@ -385,7 +391,7 @@ export async function startAegis(
         await runtime.stop("provider_usage_limit");
         return;
       }
-      await runMergeCommand(repoRoot, "next");
+      await drainMergeQueue(repoRoot);
     } catch (error) {
       appendDaemonLog(repoRoot, `[daemon][cycle_error] ${toErrorMessage(error)}`);
     } finally {

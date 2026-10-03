@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_AEGIS_CONFIG } from "../../../src/config/defaults.js";
 import { runMergeNext } from "../../../src/merge/merge-next.js";
+import { runCasteCommand } from "../../../src/core/caste-runner.js";
 import { saveDispatchState, type DispatchState } from "../../../src/core/dispatch-state.js";
 import { saveMergeQueueState, type MergeQueueState } from "../../../src/merge/merge-state.js";
 import { ScriptedCasteRuntime } from "../../../src/runtime/scripted-caste-runtime.js";
@@ -89,7 +90,7 @@ afterEach(() => {
 });
 
 describe("Phase K Janus conflict proof seam", () => {
-  it("reaches deterministic T3 escalation, records Janus invocations, then fail-closes with manual decision context", async () => {
+  it("reaches deterministic T3 escalation, hands off to Janus sessions, then fail-closes with manual decision context", async () => {
     const root = createTempRoot();
     const issueId = "aegis-k-janus";
     seedState(root, issueId);
@@ -154,9 +155,11 @@ describe("Phase K Janus conflict proof seam", () => {
       })),
     };
 
-    const first = await runMergeNext(root, { tracker, runtime, executor });
-    const second = await runMergeNext(root, { tracker, runtime, executor });
-    const third = await runMergeNext(root, { tracker, runtime, executor });
+    const runJanus = () => runCasteCommand({ root, action: "process", issueId, tracker, runtime });
+
+    const first = await runMergeNext(root, { tracker, executor });
+    const second = await runMergeNext(root, { tracker, executor });
+    const third = await runMergeNext(root, { tracker, executor });
 
     expect(first).toMatchObject({
       tier: "T2",
@@ -170,9 +173,11 @@ describe("Phase K Janus conflict proof seam", () => {
     });
     expect(third).toMatchObject({
       tier: "T3",
-      status: "failed",
-      stage: "rework_required",
+      status: "escalated",
+      stage: "resolving_integration",
     });
+    expect(janusRuns).toBe(0);
+    expect(await runJanus()).toMatchObject({ stage: "rework_required" });
     seedState(root, issueId);
     saveMergeQueueState(root, {
       schemaVersion: 1,
@@ -193,12 +198,13 @@ describe("Phase K Janus conflict proof seam", () => {
         },
       ],
     });
-    const fourth = await runMergeNext(root, { tracker, runtime, executor });
+    const fourth = await runMergeNext(root, { tracker, executor });
     expect(fourth).toMatchObject({
       tier: "T3",
-      status: "failed",
-      stage: "blocked_on_child",
+      status: "escalated",
+      stage: "resolving_integration",
     });
+    expect(await runJanus()).toMatchObject({ stage: "blocked_on_child" });
 
     const queueItem = JSON.parse(
       readFileSync(path.join(root, ".aegis", "merge-queue.json"), "utf8"),
@@ -217,8 +223,8 @@ describe("Phase K Janus conflict proof seam", () => {
       lastTier: "T3",
     });
     expect(queueItem.lastError).toContain("Deterministic merge conflict in src/todo.ts.");
-    expect(queueItem.lastError).toContain("create_integration_blocker");
     expect(janusRuns).toBe(2);
+    expect(tracker.createIssue).toHaveBeenCalledTimes(1);
   });
 });
 

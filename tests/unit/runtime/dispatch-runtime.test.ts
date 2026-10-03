@@ -241,6 +241,34 @@ describe("createAgentRuntime(codex)", () => {
     expect(terminateCodexSessionProcesses).toHaveBeenCalledWith(root);
   });
 
+  it("terminates Janus sessions rooted at the repository", async () => {
+    const root = createTempRoot();
+    initProject(root);
+    const terminateCodexSessionProcesses = vi.fn();
+
+    vi.doMock("../../../src/runtime/codex-caste-runtime.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../../../src/runtime/codex-caste-runtime.js")>();
+      return {
+        ...actual,
+        terminateCodexSessionProcesses,
+      };
+    });
+
+    const { createAgentRuntime } = await import("../../../src/runtime/dispatch-runtime.js");
+    const runtime = createAgentRuntime("codex");
+    const launched = await runtime.launch({
+      root,
+      issueId: "ISSUE-1",
+      title: "Example",
+      caste: "janus",
+      stage: "resolving_integration",
+    });
+
+    await runtime.terminate(root, launched.sessionId, "test kill");
+
+    expect(terminateCodexSessionProcesses).toHaveBeenCalledWith(root);
+  });
+
   it("terminates persisted Oracle sessions at the repository after daemon restart", async () => {
     const root = createTempRoot();
     initProject(root);

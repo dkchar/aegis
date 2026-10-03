@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { initProject } from "../../../src/config/init-project.js";
 import { DEFAULT_AEGIS_CONFIG } from "../../../src/config/defaults.js";
 import { loadDispatchState, saveDispatchState } from "../../../src/core/dispatch-state.js";
-import { loadMergeQueueState } from "../../../src/merge/merge-state.js";
+import { loadMergeQueueState, saveMergeQueueState } from "../../../src/merge/merge-state.js";
 
 const tempRoots: string[] = [];
 
@@ -33,6 +33,7 @@ async function sleep(milliseconds: number) {
 afterEach(() => {
   vi.resetModules();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 
   for (const root of tempRoots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
@@ -1120,5 +1121,196 @@ describe("runDaemonCycle", () => {
       consecutiveFailures: 0,
       cooldownUntil: null,
     });
+  });
+
+  function createJanusPendingRecord(issueId: string, overrides: Record<string, unknown> = {}) {
+    return {
+      issueId,
+      stage: "resolving_integration",
+      runningAgent: null,
+      oracleAssessmentRef: `.aegis/oracle/${issueId}.json`,
+      titanHandoffRef: `.aegis/titan/${issueId}.json`,
+      titanClarificationRef: null,
+      sentinelVerdictRef: `.aegis/sentinel/${issueId}.json`,
+      janusArtifactRef: null,
+      failureTranscriptRef: null,
+      fileScope: { files: ["src/todo.ts"] },
+      failureCount: 0,
+      consecutiveFailures: 0,
+      failureWindowStartMs: null,
+      cooldownUntil: null,
+      sessionProvenanceId: "daemon",
+      updatedAt: "2026-04-26T20:00:00.000Z",
+      ...overrides,
+    } as any;
+  }
+
+  function mockIdleTracker() {
+    vi.doMock("../../../src/tracker/create-tracker.js", () => ({
+      createTrackerClient: () => new class {
+        async listReadyIssues() {
+          return [];
+        }
+
+        async getIssue(id: string) {
+          return {
+            id,
+            title: id,
+            description: "Desc",
+            issueClass: "primary",
+            status: "open",
+            priority: 1,
+            blockers: [],
+            parentId: null,
+            childIds: [],
+            labels: [],
+          };
+        }
+      }(),
+    }));
+  }
+
+  it("launches Janus for merge-escalated work as a durable runtime session within max_janus", async () => {
+    const root = createTempRoot();
+    initProject(root);
+    writeFileSync(
+      path.join(root, ".aegis", "config.json"),
+      `${JSON.stringify({
+        ...DEFAULT_AEGIS_CONFIG,
+        concurrency: { ...DEFAULT_AEGIS_CONFIG.concurrency, max_agents: 5, max_janus: 1 },
+      }, null, 2)}\n`,
+      "utf8",
+    );
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: {
+        "ISSUE-J1": createJanusPendingRecord("ISSUE-J1"),
+        "ISSUE-J2": createJanusPendingRecord("ISSUE-J2"),
+      },
+    });
+    mockIdleTracker();
+
+    const launch = vi.fn(async (input: any) => ({
+      sessionId: `session-${input.issueId}`,
+      startedAt: "2026-04-26T20:01:00.000Z",
+    }));
+    const { runDaemonCycle } = await import("../../../src/core/loop-runner.js");
+
+    await runDaemonCycle(root, {
+      runtime: {
+        launch,
+        async readSession() {
+          return null;
+        },
+        async terminate() {
+          return null;
+        },
+      },
+      sessionProvenanceId: "daemon-new",
+    });
+
+    expect(launch).toHaveBeenCalledTimes(1);
+    expect(launch).toHaveBeenCalledWith(expect.objectContaining({
+      issueId: "ISSUE-J1",
+      caste: "janus",
+      stage: "resolving_integration",
+    }));
+    const records = loadDispatchState(root).records;
+    expect(records["ISSUE-J1"]).toMatchObject({
+      stage: "resolving_integration",
+      runningAgent: { caste: "janus", sessionId: "session-ISSUE-J1" },
+      sessionProvenanceId: "daemon-new",
+    });
+    expect(records["ISSUE-J2"]).toMatchObject({
+      stage: "resolving_integration",
+      runningAgent: null,
+    });
+  });
+
+  it("fails a Janus launch closed with retry accounting", async () => {
+    const root = createTempRoot();
+    initProject(root);
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: { "ISSUE-J1": createJanusPendingRecord("ISSUE-J1") },
+    });
+    mockIdleTracker();
+
+    const { runDaemonCycle } = await import("../../../src/core/loop-runner.js");
+    await runDaemonCycle(root, {
+      runtime: {
+        async launch() {
+          throw new Error("adapter offline");
+        },
+        async readSession() {
+          return null;
+        },
+        async terminate() {
+          return null;
+        },
+      },
+    });
+
+    const record = loadDispatchState(root).records["ISSUE-J1"];
+    expect(record).toMatchObject({
+      stage: "failed_operational",
+      runningAgent: null,
+      consecutiveFailures: 1,
+    });
+    expect(record?.cooldownUntil).toBeTruthy();
+  });
+
+  it("runs escalated Janus off the merge path and reaps its rework handoff", async () => {
+    const root = createTempRoot();
+    initProject(root);
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: { "ISSUE-J1": createJanusPendingRecord("ISSUE-J1") },
+    });
+    saveMergeQueueState(root, {
+      schemaVersion: 1,
+      items: [{
+        queueItemId: "queue-ISSUE-J1",
+        issueId: "ISSUE-J1",
+        candidateBranch: "aegis/ISSUE-J1",
+        targetBranch: "main",
+        laborPath: ".aegis/labors/ISSUE-J1",
+        status: "failed",
+        attempts: 3,
+        janusInvocations: 1,
+        lastTier: "T3",
+        lastError: "CONFLICT (content): Merge conflict in src/todo.ts",
+        lastOutcome: "conflict",
+        enqueuedAt: "2026-04-26T20:00:00.000Z",
+        updatedAt: "2026-04-26T20:00:00.000Z",
+      }],
+    });
+    mockIdleTracker();
+    vi.stubEnv("AEGIS_SCRIPTED_JANUS_NEXT_ACTION", "requeue_parent");
+
+    const { runDaemonCycle } = await import("../../../src/core/loop-runner.js");
+    const { readSessionReport } = await import("../../../src/runtime/session-report.js");
+
+    await runDaemonCycle(root);
+    const sessionId = loadDispatchState(root).records["ISSUE-J1"]?.runningAgent?.sessionId;
+    expect(sessionId).toBeTruthy();
+
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (readSessionReport(root, sessionId!)?.status !== "running") {
+        break;
+      }
+      await sleep(10);
+    }
+    expect(readSessionReport(root, sessionId!)?.status).toBe("succeeded");
+
+    await runDaemonCycle(root);
+
+    const record = loadDispatchState(root).records["ISSUE-J1"];
+    expect(record).toMatchObject({
+      stage: "rework_required",
+      runningAgent: null,
+    });
+    expect(record?.janusArtifactRef).toBeTruthy();
+    expect(record?.reviewFeedbackRef).toBe(record?.janusArtifactRef);
   });
 });

@@ -21,7 +21,7 @@ import { runCasteCommand } from "../core/caste-runner.js";
 import { createCasteRuntime } from "./create-caste-runtime.js";
 import { createTrackerClient } from "../tracker/create-tracker.js";
 
-type DispatchAction = "scout" | "implement" | "review";
+type DispatchAction = "scout" | "implement" | "review" | "process";
 
 interface SessionContext {
   root: string;
@@ -53,6 +53,11 @@ function resolveDispatchAction(input: RuntimeLaunchInput): DispatchAction {
     return "review";
   }
 
+  // `process` on a `resolving_integration` record runs Janus.
+  if (input.caste === "janus" && input.stage === "resolving_integration") {
+    return "process";
+  }
+
   throw new Error(
     `Unsupported dispatch launch tuple caste=${input.caste} stage=${input.stage}.`,
   );
@@ -73,7 +78,7 @@ function findSessionRecord(root: string, sessionId: string) {
     ?? null;
 }
 
-/** Oracle scouts the project root; every other caste works in its labor. */
+/** Oracle and Janus work in the project root; Titan and Sentinel in the labor. */
 function resolveSessionWorkspace(root: string, sessionId: string) {
   const context = SESSION_CONTEXTS.get(sessionId);
   const liveContext = context?.root === root ? context : null;
@@ -81,7 +86,7 @@ function resolveSessionWorkspace(root: string, sessionId: string) {
   const caste = liveContext?.caste ?? record?.runningAgent?.caste ?? null;
   const issueId = liveContext?.issueId ?? record?.issueId ?? null;
 
-  if (caste === "oracle") {
+  if (caste === "oracle" || caste === "janus") {
     return root;
   }
   if (!issueId) {

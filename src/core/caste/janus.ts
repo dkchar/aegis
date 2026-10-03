@@ -9,6 +9,7 @@ import { captureGitProofPair, completeGitProofPair, persistGitProofArtifacts } f
 import { writePhaseLog } from "../phase-log.js";
 import { buildJanusPrompt } from "./prompts.js";
 import { buildJanusPolicyProposal } from "./proposals.js";
+import { loadMergeQueueState } from "../../merge/merge-state.js";
 import {
   assertSuccessfulSession,
   clearDownstreamArtifactRefs,
@@ -16,7 +17,7 @@ import {
   offsetTimestamp,
   persistSessionArtifact,
 } from "./session.js";
-import type { CasteCommandResult, RunCasteCommandInput } from "./types.js";
+import type { CasteCommandResult, JanusConflictContext, RunCasteCommandInput } from "./types.js";
 
 /**
  * Janus handles merge-boundary failures only. Its typed proposal either
@@ -24,19 +25,38 @@ import type { CasteCommandResult, RunCasteCommandInput } from "./types.js";
  * integration child through mutation policy.
  */
 
+/** Merge-boundary context from the queue item the merge queue escalated. */
+export function readJanusConflictContext(root: string, issueId: string): JanusConflictContext | undefined {
+  const item = loadMergeQueueState(root).items.find((candidate) =>
+    candidate.issueId === issueId && candidate.lastTier === "T3");
+  if (!item) {
+    return undefined;
+  }
+
+  return {
+    queueItemId: item.queueItemId,
+    mergeOutcome: item.lastOutcome ?? "conflict",
+    mergeDetail: item.lastError ?? "",
+    attempt: item.attempts,
+    tier: "T3",
+    janusInvocation: item.janusInvocations,
+  };
+}
+
 export async function runJanus(
   input: RunCasteCommandInput,
   issue: AegisIssue,
   record: DispatchRecord,
   now: string,
 ): Promise<CasteCommandResult> {
+  const janusContext = input.janusContext ?? readJanusConflictContext(input.root, issue.id);
   writePhaseLog(input.root, {
     timestamp: offsetTimestamp(now, 0),
     phase: "dispatch",
     issueId: issue.id,
     action: "janus_resolution_started",
     outcome: "running",
-    detail: input.janusContext ? JSON.stringify(input.janusContext) : undefined,
+    detail: janusContext ? JSON.stringify(janusContext) : undefined,
   });
 
   const runInput = {
@@ -46,7 +66,7 @@ export async function runJanus(
     workingDirectory: input.root,
     prompt: buildJanusPrompt(
       issue,
-      input.janusContext,
+      janusContext,
       input.artifactEmissionMode,
       buildFailureSteeringPromptLines({
         root: input.root,
@@ -115,11 +135,11 @@ export async function runJanus(
       conflictSummary: artifact.conflictSummary,
       resolutionStrategy: artifact.resolutionStrategy,
       mutationProposal: artifact.mutation_proposal.proposal_type,
-      mergeOutcome: input.janusContext?.mergeOutcome ?? null,
-      mergeDetail: input.janusContext?.mergeDetail ?? null,
-      attempt: input.janusContext?.attempt ?? null,
-      tier: input.janusContext?.tier ?? null,
-      janusInvocation: input.janusContext?.janusInvocation ?? null,
+      mergeOutcome: janusContext?.mergeOutcome ?? null,
+      mergeDetail: janusContext?.mergeDetail ?? null,
+      attempt: janusContext?.attempt ?? null,
+      tier: janusContext?.tier ?? null,
+      janusInvocation: janusContext?.janusInvocation ?? null,
     }),
   });
 

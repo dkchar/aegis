@@ -26,7 +26,7 @@ State records are never mutated in place: every transition returns a new record,
 | `src/core/dispatcher.ts` | launches sessions and records `runningAgent` |
 | `src/core/monitor.ts` | observes sessions, warns and kills stuck ones |
 | `src/core/reaper.ts` | turns settled sessions into stage transitions or failure accounting |
-| `src/core/loop-runner.ts` | one daemon cycle: dispatch pipeline, monitor, reap, pre-merge review, merge enqueue |
+| `src/core/loop-runner.ts` | one daemon cycle: dispatch pipeline, monitor, reap, Sentinel review and Janus launches, merge enqueue |
 | `src/core/dispatch-recovery.ts` | deterministic recovery from durable artifacts after polls |
 | `src/core/failure-policy.ts` | cooldowns, retry ceiling, failure classification and transitions |
 | `src/core/control-plane-policy.ts` | mutation policy: blocker creation, reuse, requeue, scope expansion |
@@ -35,7 +35,7 @@ State records are never mutated in place: every transition returns a new record,
 | `src/core/git-proof.ts`, `titan-session-validation.ts` | git snapshots, candidate advancement, scope and root-cleanliness checks, root-commit adoption |
 | `src/castes/` | strict artifact parsers, Pi tool contracts, prompt/description markers |
 | `src/runtime/` | adapter contract, registry, dispatch runtime, Claude/Codex/Pi/scripted adapters, session reports and live activity streams, process supervision |
-| `src/merge/` | merge queue state, auto-enqueue, tier policy, merge executor |
+| `src/merge/` | merge queue state, auto-enqueue, tier policy, merge executor, per-cycle queue drain |
 | `src/tracker/` | generic tracker boundary and the Agora client |
 | `src/labor/` | git worktree labors per issue |
 | `src/shared/` | atomic writes, JSON, git, file scope helpers |
@@ -90,7 +90,7 @@ See [runtime adapters](runtime-adapters.md). Current posture:
 
 ## Merge
 
-The merge module owns deterministic candidate integration. Titan does not merge. Sentinel gates before merge, and Janus only enters after repeated merge failures. A merge attempt that throws, or a Janus session that fails, marks the queue item failed and applies retry accounting instead of stranding it in `merging`.
+The merge module owns deterministic candidate integration. Titan does not merge. Sentinel gates before merge, and Janus only enters after repeated merge failures. The daemon drains every mergeable candidate each cycle, fewest attempts first. A merge attempt that throws marks the queue item failed and applies retry accounting instead of stranding it in `merging`. T3 escalation hands the issue to `resolving_integration`; Janus then runs as a daemon-launched adapter session, so merging never blocks the loop.
 
 ## Olympus
 
