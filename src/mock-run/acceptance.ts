@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { CASTE_CONFIG_KEYS, type CasteConfigKey } from "../config/caste-config.js";
 import { loadConfig } from "../config/load-config.js";
 import { loadDispatchState, type DispatchRecord } from "../core/dispatch-state.js";
-import { readPhaseLog, resolvePhaseLogPath } from "../core/phase-log.js";
+import { readPhaseLog, resolvePhaseLogPath, type PhaseName } from "../core/phase-log.js";
 import { loadMergeQueueState, type MergeQueueItem } from "../merge/merge-state.js";
 import { runMockCommand, type RunMockCommandOptions } from "./mock-run.js";
 import { resolveDefaultMockWorkspaceRoot } from "./mock-paths.js";
@@ -95,7 +95,7 @@ export interface MockAcceptanceAgoraSummary {
 
 export interface MockAcceptancePhaseLogSummary {
   timestamp: string;
-  phase: "poll" | "triage" | "dispatch" | "monitor" | "reap";
+  phase: PhaseName;
   issueId: string;
   action: string;
   outcome: string;

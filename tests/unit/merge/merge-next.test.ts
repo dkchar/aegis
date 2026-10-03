@@ -11,6 +11,7 @@ import { runCasteCommand } from "../../../src/core/caste-runner.js";
 import { runDaemonCycle } from "../../../src/core/loop-runner.js";
 import { drainMergeQueue, runMergeNext } from "../../../src/merge/merge-next.js";
 import { loadMergeQueueState, saveMergeQueueState, type MergeQueueItem } from "../../../src/merge/merge-state.js";
+import { readPhaseLog } from "../../../src/core/phase-log.js";
 import { ScriptedCasteRuntime } from "../../../src/runtime/scripted-caste-runtime.js";
 import type { AgentRuntime } from "../../../src/runtime/agent-runtime.js";
 import type { AegisIssue } from "../../../src/tracker/issue-model.js";
@@ -522,6 +523,25 @@ describe("runMergeNext", () => {
       expect(existsSync(path.join(integration, "stray.txt"))).toBe(false);
       expect(readFileSync(path.join(root, "next.txt"), "utf8")).toBe("next\n");
     });
+  });
+
+  it("records each settled merge attempt in the loop event log", async () => {
+    const root = createTempRoot();
+    writeState(root, "aegis-logged");
+
+    await runMergeNext(root, {
+      tracker: { getIssue: vi.fn(async () => createIssue("aegis-logged")) },
+      now: "2026-04-14T12:30:00.000Z",
+    });
+
+    expect(readPhaseLog(root).entries).toEqual([
+      expect.objectContaining({
+        phase: "merge",
+        issueId: "aegis-logged",
+        action: "merge_candidate",
+        outcome: "merged",
+      }),
+    ]);
   });
 
   it("leaves the root untouched when the candidate conflicts", async () => {

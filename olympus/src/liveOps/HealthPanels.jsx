@@ -9,7 +9,7 @@ export function PhaseEventBoard({ state }) {
   return (
     <SectionCard icon={Activity} title="Daemon Events" description="Phase logs per loop stage; newest events stay pinned at the bottom.">
       <div className="scroll-thin overflow-x-auto pb-1">
-        <div className="grid min-w-[56rem] grid-cols-5 gap-2">
+        <div className="grid min-w-[66rem] grid-cols-6 gap-2">
           {phases.map((phase) => (
             <PhaseEventColumn key={phase} phase={phase} events={state.loopEvents[phase] || []} />
           ))}

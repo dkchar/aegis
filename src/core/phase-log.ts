@@ -1,7 +1,7 @@
 import { appendFileSync, closeSync, mkdirSync, openSync, readSync, statSync } from "node:fs";
 import path from "node:path";
 
-export type PhaseName = "poll" | "triage" | "dispatch" | "monitor" | "reap";
+export type PhaseName = "poll" | "triage" | "dispatch" | "monitor" | "reap" | "merge";
 
 export interface PhaseLogEntry {
   timestamp: string;
@@ -19,7 +19,7 @@ export interface PhaseLogRead {
   offset: number;
 }
 
-const PHASE_NAMES: ReadonlySet<string> = new Set<PhaseName>(["poll", "triage", "dispatch", "monitor", "reap"]);
+const PHASE_NAMES: ReadonlySet<string> = new Set<PhaseName>(["poll", "triage", "dispatch", "monitor", "reap", "merge"]);
 
 /**
  * The loop event log: one JSON object per line, appended in write order.

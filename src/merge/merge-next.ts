@@ -9,6 +9,7 @@ import {
 } from "../core/dispatch-state.js";
 import { validateDispatchRecordStage } from "../core/stage-invariants.js";
 import { applyOperationalFailure } from "../core/failure-policy.js";
+import { writePhaseLog } from "../core/phase-log.js";
 import type { AegisIssue } from "../tracker/issue-model.js";
 import type { TrackerClient } from "../tracker/tracker.js";
 import { createTrackerClient } from "../tracker/create-tracker.js";
@@ -390,11 +391,38 @@ function failInvalidQueueItem(
   };
 }
 
+/**
+ * Attempts the next queued candidate and records each attempt that settles
+ * in the loop event log. Waiting on active scoped work is not an attempt.
+ */
 export async function runMergeNext(
   root: string,
   options: RunMergeNextOptions = {},
 ): Promise<MergeNextResult> {
   const now = options.now ?? new Date().toISOString();
+  const result = await attemptMergeNext(root, now, options);
+  if (result.issueId && (result.tier || result.status === "failed" || result.status === "merged")) {
+    writePhaseLog(root, {
+      timestamp: now,
+      phase: "merge",
+      issueId: result.issueId,
+      action: "merge_candidate",
+      outcome: result.status,
+      detail: JSON.stringify({
+        queueItemId: result.queueItemId,
+        tier: result.tier ?? null,
+        stage: result.stage ?? null,
+      }),
+    });
+  }
+  return result;
+}
+
+async function attemptMergeNext(
+  root: string,
+  now: string,
+  options: RunMergeNextOptions,
+): Promise<MergeNextResult> {
   const queueState = loadMergeQueueState(root);
   const queueItem = findNextQueuedItem(queueState, options.skipQueueItemIds);
 
