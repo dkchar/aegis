@@ -27,6 +27,7 @@ Swarm posture:
 - Agents do not own orchestration truth, graph mutation, merge routing, retry policy, or durable completion semantics.
 - Swarm behavior comes from many scoped agents moving concurrently through deterministic shared state, not from a manager-agent prompt deciding the control plane.
 - Cross-agent handoffs must be typed artifacts that the control plane validates and routes mechanically. Prompt text may explain intent, but must not be the only enforcement layer.
+- Agents do not message each other. Typed handoff artifacts are the message layer: Aegis routes them, the loop event log records them, and Olympus shows them as signals. A free-form agent channel would move orchestration decisions into prose that the control plane cannot validate.
 - Review findings are typed control inputs. Sentinel may identify `finding_kind`, `required_files`, `owner_issue`, and `route`, but Aegis routes those findings deterministically.
 - Operational exhaustion is a first-class control outcome. The daemon must halt or skip exhausted work visibly rather than consuming adapter quota indefinitely.
 - Step 1 proof allows typed, bounded graph amplification. Agents may discover blockers, but Aegis decides mechanically whether to rework the owner, reopen prior work, or create a child issue.
@@ -38,7 +39,7 @@ Truth planes:
 | task truth | Agora `.agora/tickets.json` plus `.agora/events.jsonl` |
 | orchestration truth | `.aegis/dispatch-state.json` |
 | merge truth | `.aegis/merge-queue.json` |
-| durable observability | `.aegis/logs/` and caste artifacts |
+| durable observability | `.aegis/logs/` (loop event log `phases.jsonl`, daemon log, session streams) and caste artifacts |
 | runtime execution | adapter-owned sessions |
 
 ## Current Goal
@@ -73,6 +74,7 @@ Built or mostly built:
 - Merge queue and Janus escalation shell.
 - Convergence control plane direction: Oracle advisory, Titan execution, Sentinel gate, Janus integration escalation.
 - Recent hardening around file scope, root mutation detection, committed diff proof, scope-overlap scheduling, and Pi tool jailing.
+- Verified merge path: candidates merge and verify in an integration worktree; the root only fast-forwards to verified results.
 
 Not proven:
 
@@ -132,6 +134,7 @@ Scope:
 - logs/artifacts links
 - controls that route through deterministic orchestrator commands
 - editable `.aegis/config.json` settings through deterministic config writes
+- live swarm map (Aether): tickets moving between caste stations and typed handoffs as signals, driven by the loop event log
 - one in-repo design system (semantic tokens, headless accessible primitives, light and dark themes) with a living gallery, so every view shares status, caste, and layout language
 
 Non-goal:
@@ -348,6 +351,8 @@ Merge queue throughput:
 - Each daemon cycle drains the queue: every queued candidate is attempted at most once per pass, so all mergeable work lands without waiting a poll interval per merge.
 - Queue order is fewest attempts first, FIFO among equals. A requeued candidate never blocks fresh candidates behind it and retries after they move the target branch.
 - A queue item that cannot merge (missing or out-of-stage dispatch record) fails closed instead of stalling the queue.
+- Verify, then advance: each candidate merges in the integration worktree (`.aegis/integration/`), never in the project root. The optional `merge.verify_command` runs on that merge result, and the root fast-forwards the target branch only to a result that merged cleanly and passed verification. A failed verification is the `verification_failed` outcome: it requeues like a conflict and reaches Janus at T3 with the command output.
+- Every settled merge attempt is recorded in the loop event log.
 
 Runtime session ownership:
 
@@ -450,6 +455,7 @@ Proof commands should remain terminal-first and scriptable. The final run must c
 - ready set over time
 - `.aegis/dispatch-state.json`
 - `.aegis/merge-queue.json`
+- loop event log `.aegis/logs/phases.jsonl`
 - caste artifacts
 - merge artifacts
 - transcripts for failed or invalid sessions
@@ -480,7 +486,8 @@ Forbidden drift:
 ## Engineering Rules
 
 - No in-place mutation of dispatch or merge state records. Return new objects.
-- Use atomic writes for durable state and artifacts via temp file then rename.
+- Use atomic writes for durable state and artifacts via temp file then rename. Append-only logs (loop event log, daemon log, session streams) append one whole line per write, and readers keep a byte offset as their cursor.
+- A pass that loads dispatch state before awaiting tracker or adapter work saves only the records it changed onto the latest state.
 - Keep tracker semantics generic. Never infer orchestration meaning from issue naming.
 - Preserve clear boundaries for `poller`, `triage`, `dispatcher`, `monitor`, `reaper`, `runtime`, `merge`, `tracker`, and caste runners.
 - Prefer Windows-safe path/process handling: `path.join()`, `spawnSync`, `execFile`, `execFileSync`.
