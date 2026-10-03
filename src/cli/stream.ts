@@ -1,8 +1,8 @@
-import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from "node:fs";
 import path from "node:path";
 
 import { readRuntimeState, type RuntimeStateRecord } from "./runtime-state.js";
-import type { PhaseLogEntry } from "../core/phase-log.js";
+import { parsePhaseLogEntry, resolvePhaseLogPath, type PhaseLogEntry } from "../core/phase-log.js";
 import { resolveSessionStreamDirectory } from "../runtime/session-report.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 500;
@@ -30,16 +30,12 @@ interface SessionStreamTail extends FileTail {
 interface DaemonStreamCursor {
   daemon: FileTail;
   sessionStreams: Map<string, SessionStreamTail>;
-  seenPhaseFiles: Set<string>;
+  phases: FileTail;
   runtimeFingerprint: string | null;
 }
 
 function resolveDaemonLogPath(root: string) {
   return path.join(path.resolve(root), ".aegis", "logs", "daemon.log");
-}
-
-function resolvePhaseLogDirectory(root: string) {
-  return path.join(path.resolve(root), ".aegis", "logs", "phases");
 }
 
 function resolveRuntimeFingerprint(state: RuntimeStateRecord | null) {
@@ -76,7 +72,6 @@ function readFirstLine(filePath: string) {
 }
 
 function initializeCursor(root: string): DaemonStreamCursor {
-  const phaseLogDirectory = resolvePhaseLogDirectory(root);
   const streamDirectory = resolveSessionStreamDirectory(root);
   const sessionStreams = new Map<string, SessionStreamTail>();
   for (const fileName of listSessionStreamFiles(root)) {
@@ -91,9 +86,7 @@ function initializeCursor(root: string): DaemonStreamCursor {
   return {
     daemon: { offset: fileSize(resolveDaemonLogPath(root)), pendingText: "" },
     sessionStreams,
-    seenPhaseFiles: existsSync(phaseLogDirectory)
-      ? new Set(readdirSync(phaseLogDirectory).filter((entry) => entry.endsWith(".json")))
-      : new Set<string>(),
+    phases: { offset: fileSize(resolvePhaseLogPath(root)), pendingText: "" },
     runtimeFingerprint: null,
   };
 }
@@ -120,33 +113,6 @@ function formatRuntimeState(state: RuntimeStateRecord | null) {
   }
 
   return parts.join(" ");
-}
-
-function parsePhaseEntry(rawContents: string): PhaseLogEntry | null {
-  const parsed = JSON.parse(rawContents) as Partial<PhaseLogEntry> | null;
-  if (!parsed || typeof parsed !== "object") {
-    return null;
-  }
-
-  if (
-    typeof parsed.timestamp !== "string"
-    || typeof parsed.phase !== "string"
-    || typeof parsed.issueId !== "string"
-    || typeof parsed.action !== "string"
-    || typeof parsed.outcome !== "string"
-  ) {
-    return null;
-  }
-
-  return {
-    timestamp: parsed.timestamp,
-    phase: parsed.phase as PhaseLogEntry["phase"],
-    issueId: parsed.issueId,
-    action: parsed.action,
-    outcome: parsed.outcome,
-    sessionId: typeof parsed.sessionId === "string" ? parsed.sessionId : undefined,
-    detail: typeof parsed.detail === "string" ? parsed.detail : undefined,
-  };
 }
 
 function formatPhaseEntry(entry: PhaseLogEntry) {
@@ -249,34 +215,14 @@ function pollDaemonStream(
 
   pollSessionStreams(root, cursor, writeLine);
 
-  const phaseLogDirectory = resolvePhaseLogDirectory(root);
-  if (!existsSync(phaseLogDirectory)) {
-    return;
-  }
-
-  const phaseFiles = readdirSync(phaseLogDirectory)
-    .filter((entry) => entry.endsWith(".json"))
-    .sort();
-
-  for (const phaseFile of phaseFiles) {
-    if (cursor.seenPhaseFiles.has(phaseFile)) {
-      continue;
-    }
-    cursor.seenPhaseFiles.add(phaseFile);
-
-    const phasePath = path.join(phaseLogDirectory, phaseFile);
+  for (const line of readAppendedLines(resolvePhaseLogPath(root), cursor.phases)) {
+    let entry: PhaseLogEntry | null = null;
     try {
-      const entry = parsePhaseEntry(readFileSync(phasePath, "utf8"));
-      if (!entry) {
-        writeLine(`[phase] invalid_entry file=${phaseFile}`);
-        continue;
-      }
-
-      writeLine(formatPhaseEntry(entry));
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      writeLine(`[phase] read_error file=${phaseFile} detail=${detail}`);
+      entry = parsePhaseLogEntry(JSON.parse(line));
+    } catch {
+      entry = null;
     }
+    writeLine(entry ? formatPhaseEntry(entry) : `[phase] invalid_entry line=${line.slice(0, 120)}`);
   }
 }
 

@@ -114,7 +114,7 @@ describe("runDaemonCycle", () => {
     expect(state.records["ISSUE-OPEN"]?.stage).toBe("rework_required");
   });
 
-  it("adds no phase files on repeated idle daemon cycles that share a summary writer", async () => {
+  it("adds no phase log entries on repeated idle daemon cycles that share a summary writer", async () => {
     const root = createTempRoot();
     initProject(root);
 
@@ -127,8 +127,8 @@ describe("runDaemonCycle", () => {
     }));
 
     const { runDaemonCycle } = await import("../../../src/core/loop-runner.js");
-    const { createCycleSummaryWriter, resolvePhaseLogDirectory } = await import("../../../src/core/phase-log.js");
-    const countPhaseFiles = () => readdirSync(resolvePhaseLogDirectory(root)).length;
+    const { createCycleSummaryWriter, readPhaseLog } = await import("../../../src/core/phase-log.js");
+    const countPhaseFiles = () => readPhaseLog(root).entries.length;
     const summaryLog = createCycleSummaryWriter();
 
     await runDaemonCycle(root, { summaryLog });
@@ -142,6 +142,34 @@ describe("runDaemonCycle", () => {
     // Without a shared writer (direct commands), every pass is still logged.
     await runDaemonCycle(root);
     expect(countPhaseFiles()).toBeGreaterThan(afterFirstCycle);
+  });
+
+  it("keeps record transitions saved by settling sessions during the dispatch pass", async () => {
+    const root = createTempRoot();
+    initProject(root);
+    const { createDispatchRecord, saveDispatchRecord } = await import("../../../src/core/dispatch-state.js");
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: {
+        "ISSUE-SETTLING": createDispatchRecord("ISSUE-SETTLING", "daemon-1", "2026-10-01T00:00:00.000Z"),
+      },
+    });
+
+    vi.doMock("../../../src/tracker/create-tracker.js", () => ({
+      createTrackerClient: () => new class {
+        async listReadyIssues() {
+          // A background caste command saves its transition mid-poll.
+          const latest = loadDispatchState(root).records["ISSUE-SETTLING"]!;
+          saveDispatchRecord(root, { ...latest, stage: "scouted", updatedAt: "2026-10-01T00:00:05.000Z" });
+          return [];
+        }
+      }(),
+    }));
+
+    const { runDaemonCycle } = await import("../../../src/core/loop-runner.js");
+    await runDaemonCycle(root);
+
+    expect(loadDispatchState(root).records["ISSUE-SETTLING"]?.stage).toBe("scouted");
   });
 
   it("recovers failed policy-created blockers by expanding scope from durable Sentinel findings", async () => {

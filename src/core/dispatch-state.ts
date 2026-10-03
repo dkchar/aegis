@@ -186,6 +186,33 @@ export function saveDispatchRecord(projectRoot: string, record: DispatchRecord) 
 }
 
 /**
+ * Saves the records `next` changed relative to `base` onto the latest
+ * persisted state. Records are never mutated in place, so a changed record is
+ * a new object; records written by others after `base` was loaded survive.
+ */
+export function commitDispatchChanges(
+  projectRoot: string,
+  base: DispatchState,
+  next: DispatchState,
+): DispatchState {
+  const changed = Object.entries(next.records).filter(([issueId, record]) => base.records[issueId] !== record);
+  const latest = loadDispatchState(projectRoot);
+  if (changed.length === 0) {
+    return latest;
+  }
+
+  const committed: DispatchState = {
+    schemaVersion: latest.schemaVersion,
+    records: {
+      ...latest.records,
+      ...Object.fromEntries(changed),
+    },
+  };
+  saveDispatchState(projectRoot, committed);
+  return committed;
+}
+
+/**
  * Marks in-progress records owned by another daemon as operational failures.
  * Interrupted Sentinel reviews retry at the review layer. Mechanical merge
  * stages own no model session, so they resume instead of redoing Titan work:

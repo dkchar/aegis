@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { CASTE_CONFIG_KEYS, type CasteConfigKey } from "../config/caste-config.js";
 import { loadConfig } from "../config/load-config.js";
 import { loadDispatchState, type DispatchRecord } from "../core/dispatch-state.js";
+import { readPhaseLog, resolvePhaseLogPath } from "../core/phase-log.js";
 import { loadMergeQueueState, type MergeQueueItem } from "../merge/merge-state.js";
 import { runMockCommand, type RunMockCommandOptions } from "./mock-run.js";
 import { resolveDefaultMockWorkspaceRoot } from "./mock-paths.js";
@@ -200,26 +201,19 @@ function readQueueItem(root: string, issueId: string): MergeQueueItem {
 }
 
 function readPhaseLogs(root: string): MockAcceptancePhaseLogSummary[] {
-  const logDirectory = path.join(root, ".aegis", "logs", "phases");
-  if (!existsSync(logDirectory)) {
-    throw new Error(`Missing phase log directory at ${logDirectory}.`);
+  const logPath = resolvePhaseLogPath(root);
+  if (!existsSync(logPath)) {
+    throw new Error(`Missing phase log at ${logPath}.`);
   }
 
-  return readdirSync(logDirectory)
-    .filter((entry) => entry.endsWith(".json"))
-    .sort()
-    .map((entry) => {
-      const raw = readFileSync(path.join(logDirectory, entry), "utf8");
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      return {
-        timestamp: String(parsed.timestamp ?? ""),
-        phase: parsed.phase as MockAcceptancePhaseLogSummary["phase"],
-        issueId: String(parsed.issueId ?? ""),
-        action: String(parsed.action ?? ""),
-        outcome: String(parsed.outcome ?? ""),
-        detail: typeof parsed.detail === "string" ? parsed.detail : null,
-      };
-    });
+  return readPhaseLog(root).entries.map((entry) => ({
+    timestamp: entry.timestamp,
+    phase: entry.phase,
+    issueId: entry.issueId,
+    action: entry.action,
+    outcome: entry.outcome,
+    detail: entry.detail ?? null,
+  }));
 }
 
 async function readIssueSummary(

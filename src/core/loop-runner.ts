@@ -1,6 +1,7 @@
 import { loadConfig } from "../config/load-config.js";
 import type { AegisConfig } from "../config/schema.js";
 import {
+  commitDispatchChanges,
   countRunningAgents,
   listRunningRecords,
   loadDispatchState,
@@ -101,7 +102,8 @@ function logPoll(context: CycleContext, readyIssueIds: string[]) {
 async function runDispatchPipeline(context: CycleContext): Promise<DispatchPipelineResult> {
   const { root, config, timestamp } = context;
   const tracker = createTrackerClient();
-  let dispatchState = loadDispatchState(root);
+  const loadedState = loadDispatchState(root);
+  let dispatchState = loadedState;
   const snapshot = await pollReadyWork({
     dispatchState,
     tracker,
@@ -143,10 +145,12 @@ async function runDispatchPipeline(context: CycleContext): Promise<DispatchPipel
     now: timestamp,
     writeSummaryLog: context.writeSummaryLog,
   });
-  saveDispatchState(root, dispatchResult.state);
+  // The tracker poll and adapter launches sit between load and save, so only
+  // this pass's own changes are written over whatever landed meanwhile.
+  const committedState = commitDispatchChanges(root, loadedState, dispatchResult.state);
 
   return {
-    dispatchState: dispatchResult.state,
+    dispatchState: committedState,
     readyIssueIds,
     dispatched: dispatchResult.dispatched,
     skipped: triage.skipped,

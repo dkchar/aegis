@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { monitorActiveWork } from "../../../src/core/monitor.js";
 import type { DispatchState } from "../../../src/core/dispatch-state.js";
 import type { AgentRuntime } from "../../../src/runtime/agent-runtime.js";
+import { readPhaseLog } from "../../../src/core/phase-log.js";
 
 const runningState: DispatchState = {
   schemaVersion: 1,
@@ -194,15 +195,9 @@ describe("monitorActiveWork", () => {
       warnings: [],
     });
 
-    const logPath = path.join(
-      root,
-      ".aegis",
-      "logs",
-      "phases",
-      "2026-04-14T12-00-00.000Z-monitor-_all.json",
-    );
-    expect(existsSync(logPath)).toBe(true);
-    expect(JSON.parse(readFileSync(logPath, "utf8"))).toMatchObject({
+    const summary = readPhaseLog(root).entries.find((entry) =>
+      entry.phase === "monitor" && entry.issueId === "_all");
+    expect(summary).toMatchObject({
       phase: "monitor",
       issueId: "_all",
     });

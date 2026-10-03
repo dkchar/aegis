@@ -200,12 +200,19 @@ function extractEventMessage(value) {
 
 /** Newest phase log entries, oldest first; shared by loop events and session activity. */
 function readRecentPhaseEntries(root, maxEntries) {
-  const phaseDir = path.join(root, ".aegis", "logs", "phases");
-  return listJsonFiles(phaseDir)
-    .slice(-maxEntries)
-    .map((fileName) => readJson(path.join(phaseDir, fileName), null))
+  return tailLines(path.join(root, ".aegis", "logs", "phases.jsonl"), maxEntries)
+    .map(parseJsonLine)
     .filter((entry) => entry?.phase && entry?.action)
     .sort((left, right) => Date.parse(left.timestamp ?? "") - Date.parse(right.timestamp ?? ""));
+}
+
+function parseJsonLine(line) {
+  try {
+    return JSON.parse(line);
+  } catch {
+    // The first line of a tail read can be cut mid-entry.
+    return null;
+  }
 }
 
 function buildLoopEvents(phaseEntries) {

@@ -1,7 +1,17 @@
-import { describe, expect, it } from "vitest";
+import path from "node:path";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  commitDispatchChanges,
+  createDispatchRecord,
+  loadDispatchState,
   reconcileDispatchState,
+  replaceDispatchRecord,
+  saveDispatchRecord,
+  saveDispatchState,
   releaseStoppedRunningRecords,
   type DispatchRecord,
   type DispatchState,
@@ -218,5 +228,55 @@ describe("releaseStoppedRunningRecords", () => {
       runningAgent: null,
       failureCount: 0,
     });
+  });
+});
+
+describe("commitDispatchChanges", () => {
+  const tempRoots: string[] = [];
+  afterEach(() => {
+    for (const root of tempRoots.splice(0)) {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  function createTempRoot() {
+    const root = mkdtempSync(path.join(tmpdir(), "aegis-dispatch-commit-"));
+    tempRoots.push(root);
+    return root;
+  }
+
+  it("writes only changed records over records saved after the base was loaded", () => {
+    const root = createTempRoot();
+    const timestamp = "2026-10-01T00:00:00.000Z";
+    saveDispatchState(root, {
+      schemaVersion: 1,
+      records: {
+        A: createDispatchRecord("A", "daemon", timestamp),
+        B: createDispatchRecord("B", "daemon", timestamp),
+      },
+    });
+    const base = loadDispatchState(root);
+
+    // A session settles while the pass is still working from `base`.
+    saveDispatchRecord(root, { ...base.records["B"]!, stage: "implemented", updatedAt: "2026-10-01T00:00:05.000Z" });
+
+    const next = replaceDispatchRecord(base, "A", { ...base.records["A"]!, stage: "scouting" });
+    const committed = commitDispatchChanges(root, base, next);
+
+    expect(committed.records["A"]?.stage).toBe("scouting");
+    expect(committed.records["B"]?.stage).toBe("implemented");
+    expect(loadDispatchState(root)).toEqual(committed);
+  });
+
+  it("leaves the file untouched when nothing changed", () => {
+    const root = createTempRoot();
+    const base = {
+      schemaVersion: 1 as const,
+      records: { A: createDispatchRecord("A", "daemon", "2026-10-01T00:00:00.000Z") },
+    };
+    saveDispatchState(root, base);
+    saveDispatchRecord(root, { ...base.records.A, stage: "scouted" });
+
+    expect(commitDispatchChanges(root, base, base).records["A"]?.stage).toBe("scouted");
   });
 });
